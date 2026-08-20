@@ -91,3 +91,19 @@ Status: Accepted (2026-08-20)
 resolution／FPSの選択肢は独立集合の直積ではなく、各`AVCaptureDeviceFormat`から得た対応組合せだけを提示する。適用時は録画中の変更を拒否し、対応するdevice formatとframe-rate rangeを再検証する。UIの整数24／30／60は、許容差内なら23.976／29.97／59.94などdeviceの実値へclampする。
 
 sessionが`AVCaptureSessionPresetInputPriority`を受理する場合は同presetを使い、session presetによるactive formatの上書きを防ぐ。macOSのphoto＋movie output構成で同presetを受理しない場合は失敗にせず、session configuration transactionを開かずにdevice lock下で`activeFormat`とmin／max frame durationを直接設定する。実機では後者で1920 × 1080／30 FPSから1280 × 720／24 FPSへの変更を確認した。
+
+## ADR-015: ACEScg is the normative rendering space; ACES2065-1 is an interchange space
+
+Status: Accepted (2026-08-20)
+
+Version 0.1で「ACES2065-1またはACEScg」としていた選択肢を廃止し、Version 0.2の標準内部計算色空間をscene-linear ACEScg（AP1）へ確定する。RGBA16FをPreview／Realtimeの最低精度、RGBA32FをReferenceの正本とする。ACES2065-1（AP0）はprofile交換、reference asset、archive用のinterchange spaceとして残す。
+
+入力encoding、primaries、white point、transfer functionを暗黙に読み替えず、ACEScgへのinput transformとdisplay／encode用output transformを明示nodeとして記録する。custom working spaceは許可するが、profile ID、primaries、white point、transform versionをprojectへ保存しなければならない。
+
+## ADR-016: Still and video share one finalized-asset lifecycle
+
+Status: Accepted (2026-08-20)
+
+StillとVideoはUI上だけでなく保存契約でも同格とする。両者は`Incomplete → Finalized | Failed`の共通asset lifecycleを使い、originalとImaging Pipeline処理済みderivativeを別resourceとして関連付ける。処理済みassetでoriginalを上書きしない。
+
+Stillはfile syncとatomic rename、Videoはcontainer writerまたはplatform delegateの最終完了後にのみ`Finalized`へ移る。完成前のassetをMedia一覧やIPC成功結果へ公開してはいけない。derivativeは親resource、pipeline、profile version、engine version、seedを保持し、再現可能性を担保する。

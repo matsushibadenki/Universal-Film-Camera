@@ -1,7 +1,7 @@
 # Universal Imaging Pipeline Architecture
 
-Version: 0.1  
-更新日: 2026-08-11  
+Version: 0.2  
+更新日: 2026-08-20  
 実装: `crates/imaging-core`
 
 ## 目的
@@ -39,6 +39,8 @@ Imaging Pipeline（工程、接続、provenance、profile参照）
 ```
 
 `imaging-core`は記述と検証のみを担当し、画素処理を実装しない。`film-core`、将来の`lens-core`、`sensor-core`、`display-core`とCPU/GPU rendererが各ノードを実行する。
+
+数値単位、標準working space、Profile envelope、Still／Video asset lifecycle、性能予算、適合試験の規範契約は [`Universal Film & Color Imaging Engine.md`](Universal%20Film%20%26%20Color%20Imaging%20Engine.md) Version 0.2の58–65章を正本とする。
 
 ## 信号領域
 
@@ -142,6 +144,8 @@ Profile共通metadataには最低限、`id`、`schema_version`、`profile_versio
 - [Done] 完全なFilm chainとDigital chainのvalidation testを追加
 - [Done] Film/Digitalのversioned JSON Pipeline例とdeserialize検証を追加
 - [Done] Tauriからschema versionと対応domainを取得できるcommandを追加
+- [Done] ACEScgを標準内部計算space、ACES2065-1をinterchange spaceとして規定
+- [Done] Profile／Asset／性能／conformanceのVersion 0.2規範契約を追加
 - [Next] Profile共通metadataとJSON Schema、profile loaderを実装
 - [Next] `scene_linear → virtual exposure` adapterの科学的定義を追加
 - [Next] CPU reference executorを作り、Digital chainの最小縦切りを実行

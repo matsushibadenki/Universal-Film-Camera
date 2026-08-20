@@ -1,11 +1,19 @@
 # Universal Film & Color Imaging Engine
 ## 汎用フィルム・カラーエミュレーション基盤 設計仕様書
 
-> **2026-08-11 Architecture Extension:** 本仕様のFilm Engineは、より上位の`Universal Imaging Pipeline`に含まれる専門engineへ発展した。レンズ、Film/Digital Sensor、現像、プリント、ディスプレイまでの最新構成は [`IMAGING_PIPELINE_ARCHITECTURE.md`](IMAGING_PIPELINE_ARCHITECTURE.md) を参照すること。本書のFilm固有要件は引き続き有効である。
+> **2026-08-20 Version 0.2:** 本仕様の正本を`Universal Imaging Pipeline`へ拡張した。Film EngineはPipeline内の専門rendererである。レンズ、Film/Digital Sensor、現像、プリント、ディスプレイの詳細なsignal-domain規則と現行実装は [`IMAGING_PIPELINE_ARCHITECTURE.md`](IMAGING_PIPELINE_ARCHITECTURE.md) を併読する。本書と補助文書が矛盾する場合は、本書のVersion 0.2規範契約と実装済みRust型を優先する。
 
-Version: 0.1  
+Version: 0.2  
+Status: Active design specification  
+Updated: 2026-08-20  
 Target: macOS / Windows / Linux / iOS / Android  
 Core Language: Rust
+
+Roadmap表記:
+
+- `[Done]`: implemented in the current codebase
+- `[Next]`: high-priority unfinished work
+- `[Later]`: planned, but not the closest next step
 
 ---
 
@@ -215,27 +223,23 @@ RGBA32F
 
 を使用する。
 
-内部基準色空間は、
+Version 0.2の標準内部計算色空間は、
 
 ```text
-scene-linear
+scene-linear ACEScg (AP1 primaries)
 ```
 
-とする。
-
-推奨基準：
+とする。ACES2065-1（AP0）はprofile交換、reference asset、archive用のinterchange spaceとして使用できるが、renderer内部の既定値にはしない。
 
 ```text
-ACES2065-1
+Input encoding
+→ explicit input transform
+→ scene-linear ACEScg
+→ Imaging Pipeline
+→ explicit output/display transform
 ```
 
-または内部計算用として、
-
-```text
-ACEScg
-```
-
-を利用できる設計とする。
+変換なしにprimaries、white point、transfer functionを読み替えてはいけない。custom working spaceを使用する場合はprofile ID、primaries、white point、変換versionをprojectへ保存する。
 
 ACESは映画、テレビ等の制作工程全体を対象にした色管理規格であり、ACES 2はエンドツーエンドの色管理を改善した第2世代フレームワークである。
 
@@ -782,39 +786,32 @@ Black Pro-Mist
 
 # 19. Image Pipeline
 
-標準処理順序：
+Version 0.2では、物理撮影と既存素材へのemulationを区別する。正規の物理撮影順序は次とする。
 
 ```text
-Camera / File / AI
-        ↓
-Decode
-        ↓
-Input Color Transform
-        ↓
-Scene Linear
-        ↓
-Exposure
-        ↓
-White Balance
-        ↓
-Film Negative
-        ↓
-Film Density
-        ↓
-Halation
-        ↓
-Grain
-        ↓
-Print Film
-        ↓
-Creative Grade
-        ↓
-Output Transform
-        ↓
-Display / Encode
+Scene Light
+→ Camera Body / Exposure
+→ Lens
+→ Capture Medium (Film | Digital Sensor)
+→ Development (Chemical | Digital RAW)
+→ Print / Digital Intermediate / Output Transform
+→ Display
 ```
 
-ただしノード方式として順序変更可能にする。
+既存のデジタル画像、動画、AI生成画像へFilmを適用する場合は、入力encodingからscene-linear ACEScgへ明示変換した後、`scene_linear → virtual_exposure` adapterを通してFilm emulation subgraphへ接続する。scene-linearをscene lightやfilm exposureへ暗黙に読み替えてはいけない。
+
+各nodeは`SignalDomain`を宣言し、隣接nodeのoutputとinputが一致しないPipelineは実行前に拒否する。現在の正規domainは`scene_light`、`optical_image`、`film_latent_image`、`film_density`、`sensor_raw`、`scene_linear`、`display_linear`、`display_encoded`である。
+
+Film固有の標準処理順序は、正規Pipeline内のFilm capture／development／print subgraphとして維持する。
+
+```text
+Virtual Exposure
+→ Film Negative Response
+→ Dye Density
+→ Halation / Grain / MTF
+→ Print Film
+→ Display Linear
+```
 
 ---
 
@@ -2058,60 +2055,62 @@ engine version
 
 # 56. 推奨実装順序
 
-Phase 1：
+Version 0.2では実装順序を依存関係と現在地へ合わせる。Phase番号は完了順を強制せず、各項目のstatusを正本とする。
+
+Phase 1 — 共通契約：
 
 ```text
-film-core
-film-profiles
-scene-linear pipeline
-RGB sensitometry
-CPU renderer
+[Done] media-core frame/color metadata boundary
+[Done] imaging-core signal domains and Film/Digital pipeline validation
+[Done] camera-core state/capability/session boundary
+[Next] common profile metadata and JSON Schema
+[Next] scene_linear → virtual_exposure adapter
 ```
 
-Phase 2：
+Phase 2 — Reference renderer：
 
 ```text
-wgpu
-GPU Film Engine
-3D LUT
-ACES/OCIO
+[Done] film-core renderer boundary and FilmRecipe type
+[Next] scene-linear exposure and RGB sensitometry CPU executor
+[Next] deterministic reference fixtures
+[Later] spectral reference renderer
 ```
 
-Phase 3：
+Phase 3 — Camera vertical slice：
 
 ```text
-Halation
-Grain
-MTF
-Print Film
+[Done] macOS AVFoundation native preview
+[Done] JPEG still capture and H.264/AAC MOV recording
+[Done] supported resolution/FPS enumeration and active format selection
+[Next] still/video orientation, metadata, selected-format persistence
+[Next] iOS/Android Tauri mobile initialization
+[Later] Windows Media Foundation and Linux camera backend
 ```
 
-Phase 4：
+Phase 4 — GPU and color management：
 
 ```text
-macOS/iOS camera
-Windows camera
-Android camera
-Linux camera
+[Next] wgpu scheduler and texture lifetime model
+[Next] ACEScg input/output transforms and OCIO adapter
+[Later] GPU Film Engine, LUT compiler, shader fusion
 ```
 
-Phase 5：
+Phase 5 — Film detail：
 
 ```text
-AI Video Context integration
-FilmRecipe
-CreativePreset
-metadata
-project reproducibility
+[Later] Halation
+[Later] Grain
+[Later] MTF and optical model
+[Later] Print Film
 ```
 
-Phase 6：
+Phase 6 — Tools and ecosystem：
 
 ```text
-Spectral Engine
-Physical Film Model
-Profile measurement tools
-Film Profile Editor
+[Later] AI Video Context integration
+[Later] CreativePreset and project reproducibility
+[Later] Profile measurement tools and Film Profile Editor
+[Later] plugin/FFI/CLI distribution
 ```
 
 ---
@@ -2207,3 +2206,190 @@ GPU Film Renderer
 ```
 
 の3点とする。
+
+---
+
+# 58. Version 0.2 規範ルール
+
+本章以降は実装間の互換性を決める規範契約である。
+
+- **MUST / 必須**: 満たさない実装は互換実装ではない
+- **SHOULD / 推奨**: 明確なplatform制約がある場合だけ逸脱でき、理由を記録する
+- **MAY / 任意**: 能力値で有無を公開したうえで実装を選べる
+
+すべての公開データは`schema_version`をMUSTで持つ。未知のmajor schemaは拒否し、未知の追加fieldは同一major内では保持または無視できる。読み込み後に保存し直すeditorは、理解できないfieldを失わないことをSHOULDとする。
+
+外部profile、pipeline、asset metadataの識別子は空でないUTF-8文字列とする。同一collection内で一意でなければならない。時刻はUTCのRFC 3339、durationとtimestampは単位をfield名または型で明示する。
+
+JSONには`NaN`、正負のinfinity、暗黙の単位を保存してはいけない。数値が不明な場合は、schemaが許可する`null`を使用する。`0`を「不明」の代用にしてはいけない。
+
+# 59. 数値・単位・色の共通契約
+
+## 59.1 数値
+
+| 値 | 標準単位／表現 | 規則 |
+|---|---|---|
+| exposure | EV、stops | `f32`またはJSON number。加算値 |
+| shutter | seconds | 0より大きい有限値 |
+| focal length | millimetres | 0より大きい有限値 |
+| aperture | f-number | 0より大きい有限値。T-stopは別field |
+| focus distance | metres | 0より大きい値。未知は`null` |
+| wavelength | nanometres | profile内で単調増加 |
+| density | log10 optical density | 測定条件とbaseをmetadataへ記録 |
+| frame rate | rational number | integer表示と実値を分離 |
+| timestamp | integer ticks + time base | 浮動小数秒だけを正本にしない |
+| luminance | cd/m² (`nits`) | 0以上の有限値 |
+| temperature | kelvin | 0より大きい整数 |
+
+Curve sampleはx軸を単調増加にし、重複点を拒否する。Sensitometryの既定補間はmonotonic cubicとし、sample範囲外は端点の傾きを無制限に延長せず、profileが宣言した`clamp | linear | reject`のいずれかに従う。
+
+## 59.2 色
+
+Realtime／High／Reference rendererの標準working spaceはscene-linear ACEScgとする。RGBA16FはPreview／Realtimeの最低精度、RGBA32FはReferenceの正本とする。
+
+- transfer functionを除去してからmatrix／chromatic adaptationを行う
+- input primaries、white point、transfer、range、matrix coefficientsをmetadataとして保持する
+- alphaは既定でstraight alphaとし、色変換、露出、Film responseの対象外とする
+- premultiplied inputは処理前に安全にunpremultiplyし、出力要件に応じて再適用する
+- negative scene-linear RGBはReferenceでは保持する。display output時のclamp／gamut mappingは明示nodeで行う
+- HDRからSDR、SDRからHDRを暗黙に変換しない
+
+custom color spaceには、primaries、white point、transfer function、matrixまたは外部transform ID、transform versionをMUSTで記録する。
+
+# 60. Profile共通契約
+
+Camera、Lens、Sensor、Film、Development、Print、Displayの全profileは次の共通envelopeを持つ。
+
+```json
+{
+  "schema_version": 1,
+  "profile_version": "1.0.0",
+  "id": "org.example.profile-id",
+  "kind": "film",
+  "manufacturer": "Example",
+  "model": "Example 500T",
+  "license": "SPDX identifier or explicit license reference",
+  "created_at": "2026-08-20T00:00:00Z",
+  "provenance": {
+    "quality": "official",
+    "source_type": "manufacturer_datasheet",
+    "source_reference": "document or dataset identifier",
+    "measurement_method": null,
+    "measured_by": null
+  },
+  "data": {}
+}
+```
+
+`kind`は`camera | lens | digital_sensor | film | development | print | display | output_transform | synthetic`のいずれかとする。`profile_version`はsemantic versioning形式とし、測定値、処理結果、default解釈が変わる更新はminor以上、互換性を壊すschema変更はmajorを上げる。
+
+`quality`は`official | measured | digitized | estimated | synthetic`のいずれかとする。異なるqualityのdataを混ぜる場合はfieldまたはdataset単位でprovenanceを上書きできなければならない。出典不明の測定値を`official`として扱ってはいけない。
+
+Profile loaderは最低限、schema version、ID、kind、version、license、有限数、単位、curve順序、参照profileの存在を検証する。validation errorはJSON pathと理由を含める。
+
+# 61. Still／Video共通Asset Contract
+
+スチルと動画は同じ`CapturedAsset` lifecycleを使い、UI上も同格に扱う。
+
+```rust
+struct CapturedAsset {
+    schema_version: u32,
+    id: String,
+    media_type: MediaType,       // Still | Video
+    state: AssetState,           // Incomplete | Finalized | Failed
+    original: MediaResource,
+    derivatives: Vec<MediaResource>,
+    capture: CaptureMetadata,
+    pipeline: Option<PipelineReference>,
+    created_at_utc: String,
+}
+```
+
+`original`はcamera／encoderが生成した変更前のasset、`derivatives`はImaging Pipeline処理、thumbnail、proxy、exportを表す。derivativeは親resource ID、pipeline ID、profile version、engine version、seedをMUSTで保持する。処理済みassetでoriginalを上書きしてはいけない。
+
+## 61.1 Still
+
+Still resourceは最低限、pixel width／height、encoded format、bit depth、orientation、embedded color descriptionを持つ。対応候補はJPEG、HEIF、RAW/DNG、PNG、EXRとし、実際の利用可否はcamera/output capabilityから生成する。
+
+EXIF／XMP、capture timestamp、exposure time、ISO/EI、focal length、aperture、white balance、device IDは取得できる場合に保持する。取得できない値を推測して記録してはいけない。rotation済みpixelとorientation tagを二重適用しない。
+
+## 61.2 Video
+
+Video resourceはcontainer、video codec、audio codec、pixel dimensions、rational frame rate、variable-frame-rate可否、time base、duration、color metadata、audio channel layoutを持つ。各frameのtimestampは単調非減少、durationは正とする。audio/videoのclock sourceとstart offsetを記録する。
+
+録画停止要求だけでassetを`Finalized`にしてはいけない。container writerまたはplatform delegateの完了、非空file、stream metadataの読出し後にのみ公開する。録画中のformat、color space、camera mode変更は、backendがseamless reconfigurationを明示対応しない限り拒否する。
+
+## 61.3 保存
+
+Still／Videoとも一時名またはincomplete directoryへ書き、flush／finalize成功後に完成assetへ原子的に移す。失敗assetはMedia一覧へ完成品として表示しない。保存先、空き容量、sandbox／library権限、cleanup policyはapplication layerが所有し、Film Engineへ持ち込まない。
+
+# 62. Camera lifecycleとエラー契約
+
+共通camera stateは最低限、`Idle`、`Authorizing`、`Previewing`、`Capturing`、`Recording`、`Stopping`、`Failed`を区別する。permission denied、device unavailable、device busy、format unsupported、storage full、encoder failure、device disconnectedを同じ「cameraなし」に潰してはいけない。
+
+Camera capabilityはdevice全体の集合と、選択可能なformat単位の組合せを分離する。現在値はsession開始後のactive formatから取得する。最大対応値を現在値として表示してはいけない。
+
+Preview frame、native texture、audio sampleをWebView IPCへ連続送信してはいけない。IPCは設定、状態、metadata、thumbnail、完了eventに限定する。session mutationはbackendごとのserial queueまたは同等の排他境界で直列化する。
+
+# 63. 性能予算と受け入れ基準
+
+最初の共通baselineは1080p60 Preview／Realtimeとし、4K60は標準目標、4K120は対応deviceのstretch goalとする。
+
+| 指標 | 1080p60 baseline | 4K60 target |
+|---|---:|---:|
+| frame interval | 16.67 ms | 16.67 ms |
+| Imaging Pipeline GPU p95 | 8.0 ms以下 | 12.0 ms以下 |
+| capture-to-preview p95 | 50 ms以下 | 75 ms以下 |
+| sustained dropped frames | 0.5%未満 | 1.0%未満 |
+| full-frame CPU readback | 0回／frame | 0回／frame |
+| preview queue depth | 2 frames以下 | 2 frames以下 |
+
+測定は最低60秒の連続runで行い、最初の2秒をwarm-upとして除外する。device、OS、resolution、FPS、pixel format、quality level、thermal stateを記録する。未達platformは能力値を下げ、対応済みと表示してはいけない。
+
+Reference rendererは性能基準の対象外だが、同じ入力、profile、recipe、seed、engine versionに対して決定的でなければならない。
+
+# 64. 数値・画像・時間方向の適合試験
+
+## 64.1 必須fixture
+
+- neutral ramp: -10 EVから+10 EV
+- ColorChecker reference under declared illuminant
+- wavelength sweep: profile対応範囲
+- saturated and negative scene-linear RGB
+- alpha edge and transparent pixel
+- odd dimensions and row stride
+- still orientation cases 1–8
+- constant／variable frame rate timestamp sequence
+- fixed-seed grain sequence
+
+## 64.2 合否
+
+CPU Referenceと同一precisionの再実行はbit exactをMUSTとする。異なるCPU architectureではRGBA32Fの各channelについて絶対誤差`1e-6`または相対誤差`1e-5`以内をbaselineとする。
+
+GPU Realtimeは、Referenceから生成したdisplay-referred fixtureに対して次を満たすことを初期基準とする。
+
+- neutral ramp: code-value誤差 最大2/1023以下
+- ColorChecker: CIEDE2000 平均1.0以下、最大3.0以下
+- alpha: 最大絶対誤差`1e-5`以下
+- timestamp: 並べ替え、重複生成、負durationなし
+- fixed seed: 同一backend／engine versionでframe hash一致
+
+Spectral／Physical Modeの閾値は測定datasetを確定した後にprofile class別に追加する。閾値未定の機能を「科学的再現済み」と表現してはいけない。
+
+Still acceptanceではdecode可能、寸法、orientation、embedded color description、metadata round-trip、partial残存なしを確認する。Video acceptanceではcontainer decode、video/audio stream、duration、timestamp単調性、A/V start offset、停止後のfinalize、incomplete残存なしを確認する。
+
+# 65. Version 0.2 Completion Roadmap
+
+- [Done] Film Engineを上位Imaging Pipelineの専門rendererとして位置付け
+- [Done] Camera → Lens → Film/Digital Sensor → Development → Print/Output → Displayのsignal-domain modelを実装
+- [Done] Film／Digital pipeline JSON例と接続validation testを実装
+- [Done] macOSでnative preview、JPEG still、音声付きMOV、resolution／FPS選択を実装
+- [Done] ACEScgを標準内部計算space、ACES2065-1をinterchange用途として規定
+- [Done] 数値、単位、missing value、Profile envelope、Still／Video asset lifecycleを規定
+- [Done] 1080p60／4K60の性能予算と初期conformance thresholdを規定
+- [Next] Profile共通JSON Schemaとloaderを実装し、validation errorにJSON pathを含める
+- [Next] `scene_linear → virtual_exposure` adapterを数式、基準露光、white point込みで規定・実装
+- [Next] CPU Reference executorへexposure、RGB sensitometry、output transformを接続
+- [Next] 選択camera formatでStill／Videoを撮影し、寸法、FPS、orientation、color metadataを検証
+- [Later] wgpu renderer、OCIO adapter、LUT compiler、GPU conformance runner
+- [Later] Spectral Engine、profile measurement、Film Profile Editor

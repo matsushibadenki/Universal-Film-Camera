@@ -30,6 +30,7 @@ UIシェル: Tauri 2 + TypeScript
 - [Done] macOS camera／audio-input EntitlementとLaunchServices経由のTCC検証手順を確立
 - [Done] Appleのresolution／FPS／manual exposure/focus能力を列挙し、active formatを上部parameterへ同期
 - [Done] 対応するresolution／FPS組合せから選択panelを生成し、sessionへ明示適用
+- [Done] 元仕様をVersion 0.2へ更新し、Imaging Pipeline、ACEScg、Profile／Asset／性能／適合試験の規範契約を統合
 - [Next] 選択formatで生成したphoto／movieの寸法・FPS・metadataを再検証し、設定を永続化
 - [Next] RAW／HDR／LOGをformat単位の能力モデルへ拡張
 - [Next] still／videoのorientation、rotation、保存metadataを統一
