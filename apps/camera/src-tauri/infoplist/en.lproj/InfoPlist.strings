@@ -1,0 +1,2 @@
+NSCameraUsageDescription = "Camera access is required for professional photo and video capture.";
+NSMicrophoneUsageDescription = "Microphone access is required when recording video with sound.";

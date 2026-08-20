@@ -1,0 +1,8 @@
+{
+  "date": "2026-08-11",
+  "framework": "Vanilla TypeScript + Vite + Tauri 2",
+  "font_stack": "Avenir Next / Segoe UI with SFMono / Cascadia Mono",
+  "palette": "OKLCH dark neutral-cool with cyan-blue accent",
+  "motion": "motion-cut; CSS state transitions only",
+  "spacing": "4pt token scale"
+}

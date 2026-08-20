@@ -1,0 +1,65 @@
+:root {
+  --color-paper: oklch(12% 0.008 250);
+  --color-paper-2: oklch(16% 0.01 250);
+  --color-paper-3: oklch(21% 0.012 250);
+  --color-monitor: oklch(24% 0.018 250);
+  --color-monitor-deep: oklch(15% 0.012 250);
+  --color-rule: oklch(34% 0.012 250);
+  --color-rule-strong: oklch(48% 0.016 250);
+  --color-neutral: oklch(68% 0.012 250);
+  --color-muted: oklch(78% 0.01 250);
+  --color-ink: oklch(95% 0.008 250);
+  --color-accent: oklch(70% 0.16 235);
+  --color-accent-strong: oklch(63% 0.18 235);
+  --color-accent-ink: oklch(13% 0.015 250);
+  --color-focus: oklch(82% 0.15 90);
+  --color-record: oklch(62% 0.2 25);
+  --color-record-strong: oklch(54% 0.21 25);
+  --color-success: oklch(72% 0.14 150);
+  --color-warning: oklch(80% 0.15 85);
+  --color-error: oklch(68% 0.19 25);
+  --color-scope-red: oklch(65% 0.18 25);
+  --color-scope-green: oklch(72% 0.15 150);
+  --color-scope-blue: oklch(67% 0.16 245);
+  --color-transparent: transparent;
+
+  --font-display: "Avenir Next", "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --font-body: "Avenir Next", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", "Cascadia Mono", "Roboto Mono", monospace;
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+
+  --text-2xs: 0.625rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5625rem;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.5rem;
+  --radius-round: 999px;
+  --rule-thin: 1px;
+
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+}

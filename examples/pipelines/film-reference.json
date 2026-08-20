@@ -1,0 +1,105 @@
+{
+  "id": "film-negative-print-reference",
+  "schema_version": 1,
+  "intent": "emulation",
+  "working_color_space": "aces_cg",
+  "nodes": [
+    {
+      "id": "scene",
+      "role": "observed",
+      "enabled": true,
+      "operation": {
+        "type": "source",
+        "config": {
+          "source": "scene",
+          "output_domain": "scene_light",
+          "profile_id": null
+        }
+      }
+    },
+    {
+      "id": "camera",
+      "role": "simulated",
+      "enabled": true,
+      "operation": {
+        "type": "camera",
+        "config": {
+          "profile_id": "reference-cinema-camera-body",
+          "shutter_seconds": 0.0208333333,
+          "exposure_compensation_ev": 0.0
+        }
+      }
+    },
+    {
+      "id": "lens",
+      "role": "simulated",
+      "enabled": true,
+      "operation": {
+        "type": "lens",
+        "config": {
+          "profile_id": "reference-cinema-lens-50mm",
+          "focal_length_mm": 50.0,
+          "aperture_f_number": 2.0,
+          "focus_distance_m": 4.0
+        }
+      }
+    },
+    {
+      "id": "negative",
+      "role": "simulated",
+      "enabled": true,
+      "operation": {
+        "type": "capture_medium",
+        "config": {
+          "medium": {
+            "kind": "film",
+            "profile_id": "synthetic-color-negative-500",
+            "exposure_index": 500.0
+          }
+        }
+      }
+    },
+    {
+      "id": "chemical-development",
+      "role": "simulated",
+      "enabled": true,
+      "operation": {
+        "type": "development",
+        "config": {
+          "process": {
+            "kind": "chemical",
+            "process_id": "ecn2-reference",
+            "push_pull_stops": 0.0
+          }
+        }
+      }
+    },
+    {
+      "id": "print",
+      "role": "simulated",
+      "enabled": true,
+      "operation": {
+        "type": "print",
+        "config": {
+          "process": {
+            "kind": "photochemical",
+            "profile_id": "synthetic-theatrical-print"
+          }
+        }
+      }
+    },
+    {
+      "id": "reference-display",
+      "role": "observed",
+      "enabled": true,
+      "operation": {
+        "type": "display",
+        "config": {
+          "profile_id": "rec709-reference-100nit",
+          "peak_luminance_nits": 100.0,
+          "surround": "dim"
+        }
+      }
+    }
+  ]
+}

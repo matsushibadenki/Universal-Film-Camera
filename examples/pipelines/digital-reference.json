@@ -1,0 +1,103 @@
+{
+  "id": "digital-reference-rec709",
+  "schema_version": 1,
+  "intent": "physical_capture",
+  "working_color_space": "aces_cg",
+  "nodes": [
+    {
+      "id": "scene",
+      "role": "observed",
+      "enabled": true,
+      "operation": {
+        "type": "source",
+        "config": {
+          "source": "scene",
+          "output_domain": "scene_light",
+          "profile_id": null
+        }
+      }
+    },
+    {
+      "id": "camera",
+      "role": "observed",
+      "enabled": true,
+      "operation": {
+        "type": "camera",
+        "config": {
+          "profile_id": "reference-camera-body",
+          "shutter_seconds": 0.0208333333,
+          "exposure_compensation_ev": 0.0
+        }
+      }
+    },
+    {
+      "id": "lens",
+      "role": "observed",
+      "enabled": true,
+      "operation": {
+        "type": "lens",
+        "config": {
+          "profile_id": "reference-lens-50mm",
+          "focal_length_mm": 50.0,
+          "aperture_f_number": 2.8,
+          "focus_distance_m": 3.0
+        }
+      }
+    },
+    {
+      "id": "sensor",
+      "role": "observed",
+      "enabled": true,
+      "operation": {
+        "type": "capture_medium",
+        "config": {
+          "medium": {
+            "kind": "digital_sensor",
+            "profile_id": "reference-bayer-sensor",
+            "iso": 400.0,
+            "bit_depth": 14
+          }
+        }
+      }
+    },
+    {
+      "id": "raw-development",
+      "role": "transform",
+      "enabled": true,
+      "operation": {
+        "type": "development",
+        "config": {
+          "process": {
+            "kind": "digital_raw",
+            "profile_id": "neutral-raw-v1",
+            "exposure_ev": 0.0,
+            "white_balance_kelvin": 5600,
+            "tint": 0.0
+          }
+        }
+      }
+    },
+    {
+      "id": "output-transform",
+      "role": "transform",
+      "enabled": true,
+      "operation": {
+        "type": "output_transform",
+        "config": { "transform_id": "aces-2-rec709" }
+      }
+    },
+    {
+      "id": "reference-display",
+      "role": "observed",
+      "enabled": true,
+      "operation": {
+        "type": "display",
+        "config": {
+          "profile_id": "rec709-reference-100nit",
+          "peak_luminance_nits": 100.0,
+          "surround": "dim"
+        }
+      }
+    }
+  ]
+}

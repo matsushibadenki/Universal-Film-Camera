@@ -1,0 +1,25 @@
+[workspace]
+members = [
+  "apps/camera/src-tauri",
+  "crates/camera-apple",
+  "crates/camera-core",
+  "crates/film-core",
+  "crates/imaging-core",
+  "crates/media-core",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+camera-core = { path = "crates/camera-core" }
+camera-apple = { path = "crates/camera-apple" }
+film-core = { path = "crates/film-core" }
+imaging-core = { path = "crates/imaging-core" }
+media-core = { path = "crates/media-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

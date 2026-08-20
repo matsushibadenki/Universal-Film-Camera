@@ -1,0 +1,115 @@
+# Professional Camera UI Layout
+
+更新日: 2026-08-20  
+対象: プロ向けスチル／動画カメラ  
+トーン: 技術的・暗色・撮影画面優先
+
+## 参考画像から採用した設計DNA
+
+参考画像はBlackmagic Camera系のランドスケープ撮影UIである。固有ブランド、アイコン、写真を複製せず、以下の情報構造だけを採用した。
+
+- previewを画面の主要面積として確保する
+- Lens、FPS、Shutter、Iris、EI/ISO、White Balanceを上部へ常時表示する
+- 現在調整中のparameterだけをaccent surfaceで強調する
+- 録画／撮影操作を他のtoolから視覚的・空間的に分離する
+- focus assist、zebra、guide、scopeをpreview近傍から直接切り替える
+- histogramとaudio meterをpreviewへ重ね、素材を隠しすぎない
+- timecodeはpreview上部中央へ置き、録画状態を位置変化なしで示す
+
+## 本プロジェクト固有の変更
+
+スチルと動画を同格にする。動画だけを主画面にせず、右rail／下railの最上位にPhotoとVideoを同じ寸法で配置する。シャッターボタンは同一位置を維持し、次の形状変化だけでmodeを示す。
+
+- Photo: 白い円
+- Video idle: 赤い円
+- Video recording: 赤い角丸四角
+
+Imaging PipelineはCamera、Lens、Capture Medium、Development、Print/Output、Displayを扱うため、右railの主要destinationとしてCamera画面から直接移動できる位置に置く。
+
+## Responsive layout
+
+```text
+Landscape / desktop
+┌──────────────────────────────────────────┬────────┐
+│ Camera · Lens · FPS · Shutter · EI · WB │ Photo  │
+├──────────────────────────────────────────┤ Video  │
+│                                          │ tools  │
+│              Native Preview              │        │
+│ histogram                    audio meter  │ shutter│
+│                                          │ pages  │
+└──────────────────────────────────────────┴────────┘
+
+Portrait / narrow
+┌──────────────────────────────────────────┐
+│ Lens · FPS · Shutter                     │
+│ Iris · EI · WB                           │
+├──────────────────────────────────────────┤
+│                                          │
+│              Native Preview              │
+│                                          │
+├──────────────────────────────────────────┤
+│ Photo · Video · tools · shutter · pages │
+└──────────────────────────────────────────┘
+```
+
+- 全画面をSafe Area内に収める
+- 左右paddingは最低16px
+- rootのhorizontal overflowは禁止する
+- 320 / 375 / 414 / 768px幅でclickable labelを折り返さない
+- touch targetは最低44px、coarse pointerでは48px
+- 960px以上でright rail、それ未満ではbottom rail
+- 横向きで高さが不足する場合は説明文とrail labelを省略し、previewを優先する
+
+## 操作状態
+
+すべてのbuttonはdefault、hover、focus-visible、active、disabled、loading、error、successを表現できるCSS contractを持つ。focus ringは即時表示し、hoverはfine pointerでのみ有効にする。
+
+macOSではAVFoundation native preview、JPEG still capture、音声付きMOV recordingを接続済みである。未許可、deviceなし、起動失敗時はpreview中央に明示的な`NO CAMERA SIGNAL`状態を表示する。Video modeはmicrophone許可後だけ録画を有効化し、録画中はmode切替を無効化する。
+
+native previewは公開APIでWKWebView上の`NSView`に配置するため、Web contentより前面に出る。現在はpreview内のHTML guide／timecode／histogram／audio meterを映像表示中だけ隠し、誤って表示済みと見せない。parameter stripとtool railはpreview外に保ち、引き続きWeb UIで操作する。次工程でoverlayをnative layerまたはMetal compositorへ移す。
+
+## Roadmap
+
+- [Done] プロ向けdark camera layoutと撮影優先のpreview面を実装
+- [Done] Photo/Video同格mode switch、photo feedback、24fps timecodeを実装
+- [Done] parameter quick-adjust、focus/zebra/guide/scope toggleを実装
+- [Done] 英語、日本語、简体中文の主要labelを維持
+- [Done] macOS AVFoundation native previewを`preview-surface`へ接続
+- [Done] 1100 × 760／880 × 650でnative previewのresizeとtitle bar補正を実機確認
+- [Done] シャッター／録画ボタンをbottom railの水平中央、right railの垂直中央に正円で固定
+- [Done] Still modeの中央シャッターをJPEG実撮影へ接続
+- [Done] Video modeの中央録画ボタンを音声付きMOVの開始／停止へ接続
+- [Done] 録画中timecode、停止形状、mode lock、保存完了feedbackをnative stateと同期
+- [Done] active resolution／FPSとmanual exposure可否をCameraCapabilities／PreviewStatusから生成
+- [Done] 未接続のLens／Iris／WBと手動非対応のEI／Shutterから架空の固定値を除去
+- [Done] format／FPS選択panelを対応組合せから生成し、sessionへ適用
+- [Done] format panelを英語・日本語・简体中文へ翻訳し、44px以上の選択controlを確保
+- [Next] format選択の永続化と、still／video別の出力preset表示
+- [Next] waveform、vectorscope、false color、peakingのGPU rendererを接続
+- [Later] UI customization、button remapping、external monitor layout
+
+## Verification record
+
+2026-08-11にViteの実画面を次のviewportで確認した。
+
+| Viewport | Root horizontal scroll | Minimum visible target | Clickable label wrap | Scope overlap |
+|---|---:|---:|---:|---:|
+| 320 × 568 | none | 44px | none | none |
+| 375 × 812 | none | 44px | none | none |
+| 414 × 896 | none | 44px | none | none |
+| 768 × 1024 | none | 44px | none | none |
+| 1280 × 720 | none | 50px | none | none |
+
+320pxではbottom railをPhoto、Video、monitor tools、shutter、Pipelineへ絞り、monitor toolsは2×2 panelへ展開する。Video mode、recording state、24fps timecode、monitor panelの開閉をブラウザ操作で確認済み。
+
+2026-08-16に署名済みdebug appと内蔵cameraでnative previewを確認した。1100 × 760ではright rail、880 × 650ではbottom railとなり、どちらもparameter strip、preview、操作railの重なりはない。カメラ映像は引き継ぎ資料へ保存しない。
+
+2026-08-17に録画ボタンの中央配置を実機UIで再確認した。right railでは垂直中央、bottom railでは水平中央を維持し、Video modeでは赤い正円として表示される。右レールのmonitor toolsは中央領域を侵食しない展開式へ変更した。
+
+2026-08-18にStill modeの中央シャッターから実機JPEGを保存し、処理中のdisabled状態と完了後の復帰を確認した。成功時はボタン状態と多言語statusを更新する。この時点のVideo modeは疑似timerを開始せず、実収録が接続されるまでボタンをdisabledに保っていた。
+
+2026-08-20にVideo modeの中央録画ボタンから実機MOVを開始／停止した。録画中はボタンが「録画停止」へ変わり、Still／Video mode switchはdisabled、停止完了後は「録画」へ復帰した。保存結果はH.264 1920 × 1080 + AAC 48 kHz mono、5.671秒。疑似timerではなくnative recording lifecycleへ接続済みである。
+
+同日の能力値接続では、内蔵cameraのactive formatとして1920 × 1080／30 FPSをAVFoundationから取得し、上部表示を`1080p · 1920×1080 · 30 FPS · SDR`へ更新した。手動shutter／ISO非対応は`AUTO`かつdisabled、能力モデル未接続のLens／Irisは`—`、WBは`AUTO`とし、従来の固定4K／24／LOG／35mm／T2.8／5600Kを実機値として誤表示しない。
+
+続いてFPS parameterから開くdark format panelを追加した。resolutionを変えた時は現在のFPSが新しいformatでも対応していれば保持し、非対応なら最初の対応値へ移る。録画中はpanelを閉じ、選択controlを無効化する。内蔵cameraで1920 × 1080／30 FPSから1280 × 720／24 FPSへ変更し、panelが閉じた後にFPS parameterとsummaryが`720p · 1280×720 · 24 FPS · SDR`へ同期することを実画面で確認した。
