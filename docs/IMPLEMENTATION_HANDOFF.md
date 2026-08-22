@@ -5,6 +5,8 @@
 UIシェル: Tauri 2 + TypeScript  
 共有コア: Rust
 
+プロジェクト全体の現在地と優先順位は [`ROADMAP.md`](ROADMAP.md) を正本とする。
+
 ## 現在地
 
 - [Done] 元仕様 `Universal Film & Color Imaging Engine.md` の責務分離、色処理、ゼロコピー、カメラ抽象、エンコード要件を初期設計へ反映
