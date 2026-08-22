@@ -93,6 +93,78 @@ pub struct FilmProfileData {
     pub sensitometry: SensitometryData,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PositiveRange {
+    pub min: f32,
+    pub max: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LensType {
+    Spherical,
+    Anamorphic,
+    Probe,
+    Computational,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LensProfileData {
+    pub lens_type: LensType,
+    pub mount: String,
+    pub focal_length_mm: PositiveRange,
+    pub aperture_f_number: PositiveRange,
+    pub minimum_focus_distance_m: f32,
+    pub image_circle_diameter_mm: f32,
+    #[serde(default)]
+    pub transmission_t_stop: Option<f32>,
+    #[serde(default)]
+    pub anamorphic_squeeze: Option<f32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SensorCfa {
+    BayerRggb,
+    BayerBggr,
+    BayerGrbg,
+    BayerGbrg,
+    XTrans,
+    Monochrome,
+    StackedRgb,
+    Custom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpectralSensitivitySample {
+    pub wavelength_nm: u16,
+    pub red: f32,
+    pub green: f32,
+    pub blue: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DigitalSensorProfileData {
+    pub active_width_pixels: u32,
+    pub active_height_pixels: u32,
+    pub sensor_width_mm: f32,
+    pub sensor_height_mm: f32,
+    pub native_bit_depth: u8,
+    pub cfa: SensorCfa,
+    #[serde(default)]
+    pub custom_cfa_pattern: Option<String>,
+    pub black_level: u32,
+    pub white_level: u32,
+    pub base_iso: f32,
+    pub iso: PositiveRange,
+    #[serde(default)]
+    pub spectral_sensitivity: Vec<SpectralSensitivitySample>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileProvenance {
@@ -211,6 +283,10 @@ impl ProfileEnvelope {
         }
         if self.kind == ProfileKind::Film {
             self.film_data()?;
+        } else if self.kind == ProfileKind::Lens {
+            self.lens_data()?;
+        } else if self.kind == ProfileKind::DigitalSensor {
+            self.digital_sensor_data()?;
         }
         Ok(())
     }
@@ -225,6 +301,38 @@ impl ProfileEnvelope {
         let data: FilmProfileData = serde_json::from_value(self.data.clone()).map_err(|error| {
             ProfileError::new("$.data", format!("invalid film profile data: {error}"))
         })?;
+        data.validate()?;
+        Ok(data)
+    }
+
+    pub fn lens_data(&self) -> Result<LensProfileData, ProfileError> {
+        if self.kind != ProfileKind::Lens {
+            return Err(ProfileError::new(
+                "$.kind",
+                format!("expected lens profile, found {:?}", self.kind),
+            ));
+        }
+        let data: LensProfileData = serde_json::from_value(self.data.clone()).map_err(|error| {
+            ProfileError::new("$.data", format!("invalid lens profile data: {error}"))
+        })?;
+        data.validate()?;
+        Ok(data)
+    }
+
+    pub fn digital_sensor_data(&self) -> Result<DigitalSensorProfileData, ProfileError> {
+        if self.kind != ProfileKind::DigitalSensor {
+            return Err(ProfileError::new(
+                "$.kind",
+                format!("expected digital sensor profile, found {:?}", self.kind),
+            ));
+        }
+        let data: DigitalSensorProfileData =
+            serde_json::from_value(self.data.clone()).map_err(|error| {
+                ProfileError::new(
+                    "$.data",
+                    format!("invalid digital sensor profile data: {error}"),
+                )
+            })?;
         data.validate()?;
         Ok(data)
     }
@@ -277,6 +385,153 @@ impl FilmProfileData {
                 ));
             }
             previous_exposure = Some(sample.log_exposure);
+        }
+        Ok(())
+    }
+}
+
+impl LensProfileData {
+    pub fn validate(&self) -> Result<(), ProfileError> {
+        validate_non_empty("$.data.mount", &self.mount)?;
+        validate_positive_range("$.data.focal_length_mm", self.focal_length_mm)?;
+        validate_positive_range("$.data.aperture_f_number", self.aperture_f_number)?;
+        validate_positive_finite(
+            "$.data.minimum_focus_distance_m",
+            self.minimum_focus_distance_m,
+        )?;
+        validate_positive_finite(
+            "$.data.image_circle_diameter_mm",
+            self.image_circle_diameter_mm,
+        )?;
+        if let Some(t_stop) = self.transmission_t_stop {
+            validate_positive_finite("$.data.transmission_t_stop", t_stop)?;
+        }
+        match (self.lens_type, self.anamorphic_squeeze) {
+            (LensType::Anamorphic, Some(squeeze)) => {
+                validate_positive_finite("$.data.anamorphic_squeeze", squeeze)?;
+                if squeeze <= 1.0 {
+                    return Err(ProfileError::new(
+                        "$.data.anamorphic_squeeze",
+                        "must be greater than 1 for an anamorphic lens",
+                    ));
+                }
+            }
+            (LensType::Anamorphic, None) => {
+                return Err(ProfileError::new(
+                    "$.data.anamorphic_squeeze",
+                    "is required for an anamorphic lens",
+                ));
+            }
+            (_, Some(_)) => {
+                return Err(ProfileError::new(
+                    "$.data.anamorphic_squeeze",
+                    "is only valid for an anamorphic lens",
+                ));
+            }
+            (_, None) => {}
+        }
+        Ok(())
+    }
+}
+
+impl DigitalSensorProfileData {
+    pub fn validate(&self) -> Result<(), ProfileError> {
+        if self.active_width_pixels == 0 {
+            return Err(ProfileError::new(
+                "$.data.active_width_pixels",
+                "must be greater than zero",
+            ));
+        }
+        if self.active_height_pixels == 0 {
+            return Err(ProfileError::new(
+                "$.data.active_height_pixels",
+                "must be greater than zero",
+            ));
+        }
+        validate_positive_finite("$.data.sensor_width_mm", self.sensor_width_mm)?;
+        validate_positive_finite("$.data.sensor_height_mm", self.sensor_height_mm)?;
+        if !(1..=32).contains(&self.native_bit_depth) {
+            return Err(ProfileError::new(
+                "$.data.native_bit_depth",
+                "must be between 1 and 32",
+            ));
+        }
+        match (self.cfa, self.custom_cfa_pattern.as_deref()) {
+            (SensorCfa::Custom, Some(pattern)) if !pattern.trim().is_empty() => {}
+            (SensorCfa::Custom, _) => {
+                return Err(ProfileError::new(
+                    "$.data.custom_cfa_pattern",
+                    "is required when cfa is custom",
+                ));
+            }
+            (_, Some(_)) => {
+                return Err(ProfileError::new(
+                    "$.data.custom_cfa_pattern",
+                    "is only valid when cfa is custom",
+                ));
+            }
+            (_, None) => {}
+        }
+        if self.white_level <= self.black_level {
+            return Err(ProfileError::new(
+                "$.data.white_level",
+                "must be greater than black_level",
+            ));
+        }
+        let maximum_code = if self.native_bit_depth == 32 {
+            u32::MAX
+        } else {
+            (1_u32 << self.native_bit_depth) - 1
+        };
+        if self.white_level > maximum_code {
+            return Err(ProfileError::new(
+                "$.data.white_level",
+                "exceeds the native bit-depth code range",
+            ));
+        }
+        validate_positive_finite("$.data.base_iso", self.base_iso)?;
+        validate_positive_range("$.data.iso", self.iso)?;
+        if self.base_iso < self.iso.min || self.base_iso > self.iso.max {
+            return Err(ProfileError::new(
+                "$.data.base_iso",
+                "must be inside the declared ISO range",
+            ));
+        }
+        if self.spectral_sensitivity.len() == 1 {
+            return Err(ProfileError::new(
+                "$.data.spectral_sensitivity",
+                "must be empty or contain at least two samples",
+            ));
+        }
+        let mut previous_wavelength = None;
+        for (index, sample) in self.spectral_sensitivity.iter().enumerate() {
+            let base = format!("$.data.spectral_sensitivity[{index}]");
+            if !(360..=830).contains(&sample.wavelength_nm) {
+                return Err(ProfileError::new(
+                    format!("{base}.wavelength_nm"),
+                    "must be between 360 and 830 nm",
+                ));
+            }
+            for (channel, value) in [
+                ("red", sample.red),
+                ("green", sample.green),
+                ("blue", sample.blue),
+            ] {
+                validate_finite(format!("{base}.{channel}"), value)?;
+                if value < 0.0 {
+                    return Err(ProfileError::new(
+                        format!("{base}.{channel}"),
+                        "spectral sensitivity must be zero or greater",
+                    ));
+                }
+            }
+            if previous_wavelength.is_some_and(|previous| sample.wavelength_nm <= previous) {
+                return Err(ProfileError::new(
+                    format!("{base}.wavelength_nm"),
+                    "must be strictly greater than the previous sample",
+                ));
+            }
+            previous_wavelength = Some(sample.wavelength_nm);
         }
         Ok(())
     }
@@ -350,6 +605,18 @@ fn validate_positive_finite(path: impl Into<String>, value: f32) -> Result<(), P
     validate_finite(path.clone(), value)?;
     if value <= 0.0 {
         return Err(ProfileError::new(path, "must be greater than zero"));
+    }
+    Ok(())
+}
+
+fn validate_positive_range(path: &str, range: PositiveRange) -> Result<(), ProfileError> {
+    validate_positive_finite(format!("{path}.min"), range.min)?;
+    validate_positive_finite(format!("{path}.max"), range.max)?;
+    if range.min > range.max {
+        return Err(ProfileError::new(
+            format!("{path}.max"),
+            "must be greater than or equal to min",
+        ));
     }
     Ok(())
 }
@@ -1000,6 +1267,61 @@ mod tests {
         profile.data["sensitometry"]["samples"][1]["log_exposure"] = (-4.0).into();
         let error = profile.film_data().unwrap_err();
         assert_eq!(error.path, "$.data.sensitometry.samples[1].log_exposure");
+    }
+
+    #[test]
+    fn bundled_lens_and_sensor_profiles_match_typed_contracts() {
+        let lens_schema: Value = serde_json::from_str(include_str!(
+            "../../../docs/schemas/lens-profile-v1.schema.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            lens_schema["allOf"][1]["properties"]["kind"]["const"],
+            "lens"
+        );
+        let sensor_schema: Value = serde_json::from_str(include_str!(
+            "../../../docs/schemas/digital-sensor-profile-v1.schema.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            sensor_schema["allOf"][1]["properties"]["kind"]["const"],
+            "digital_sensor"
+        );
+
+        let lens = ProfileEnvelope::from_json(include_str!(
+            "../../../examples/profiles/reference-lens-50mm.json"
+        ))
+        .unwrap();
+        let lens_data = lens.lens_data().unwrap();
+        assert_eq!(lens_data.focal_length_mm.min, 50.0);
+        assert_eq!(lens_data.focal_length_mm.max, 50.0);
+
+        let sensor = ProfileEnvelope::from_json(include_str!(
+            "../../../examples/profiles/reference-bayer-sensor.json"
+        ))
+        .unwrap();
+        let sensor_data = sensor.digital_sensor_data().unwrap();
+        assert_eq!(sensor_data.cfa, SensorCfa::BayerRggb);
+        assert_eq!(sensor_data.native_bit_depth, 14);
+        assert_eq!(sensor_data.spectral_sensitivity.len(), 3);
+    }
+
+    #[test]
+    fn lens_profile_rejects_reversed_focal_range() {
+        let json = include_str!("../../../examples/profiles/reference-lens-50mm.json");
+        let mut profile: ProfileEnvelope = serde_json::from_str(json).unwrap();
+        profile.data["focal_length_mm"]["min"] = 85.0.into();
+        let error = profile.validate().unwrap_err();
+        assert_eq!(error.path, "$.data.focal_length_mm.max");
+    }
+
+    #[test]
+    fn sensor_profile_rejects_non_monotonic_spectral_wavelengths() {
+        let json = include_str!("../../../examples/profiles/reference-bayer-sensor.json");
+        let mut profile: ProfileEnvelope = serde_json::from_str(json).unwrap();
+        profile.data["spectral_sensitivity"][1]["wavelength_nm"] = 400.into();
+        let error = profile.validate().unwrap_err();
+        assert_eq!(error.path, "$.data.spectral_sensitivity[1].wavelength_nm");
     }
 
     #[test]

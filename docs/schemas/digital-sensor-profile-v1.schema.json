@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-imaging.local/schemas/digital-sensor-profile-v1.schema.json",
+  "title": "Universal Imaging Digital Sensor Profile v1",
+  "allOf": [
+    { "$ref": "profile-common-v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "digital_sensor" },
+        "data": { "$ref": "#/$defs/sensorData" }
+      }
+    }
+  ],
+  "$defs": {
+    "positiveRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "type": "number", "exclusiveMinimum": 0 },
+        "max": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "spectralSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wavelength_nm", "red", "green", "blue"],
+      "properties": {
+        "wavelength_nm": {
+          "type": "integer",
+          "minimum": 360,
+          "maximum": 830
+        },
+        "red": { "type": "number", "minimum": 0 },
+        "green": { "type": "number", "minimum": 0 },
+        "blue": { "type": "number", "minimum": 0 }
+      }
+    },
+    "sensorData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "active_width_pixels",
+        "active_height_pixels",
+        "sensor_width_mm",
+        "sensor_height_mm",
+        "native_bit_depth",
+        "cfa",
+        "black_level",
+        "white_level",
+        "base_iso",
+        "iso"
+      ],
+      "properties": {
+        "active_width_pixels": { "type": "integer", "minimum": 1 },
+        "active_height_pixels": { "type": "integer", "minimum": 1 },
+        "sensor_width_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "sensor_height_mm": { "type": "number", "exclusiveMinimum": 0 },
+        "native_bit_depth": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "cfa": {
+          "enum": [
+            "bayer_rggb",
+            "bayer_bggr",
+            "bayer_grbg",
+            "bayer_gbrg",
+            "x_trans",
+            "monochrome",
+            "stacked_rgb",
+            "custom"
+          ]
+        },
+        "custom_cfa_pattern": { "type": ["string", "null"], "minLength": 1 },
+        "black_level": { "type": "integer", "minimum": 0 },
+        "white_level": { "type": "integer", "minimum": 1 },
+        "base_iso": { "type": "number", "exclusiveMinimum": 0 },
+        "iso": { "$ref": "#/$defs/positiveRange" },
+        "spectral_sensitivity": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/spectralSample" },
+          "anyOf": [
+            { "maxItems": 0 },
+            { "minItems": 2 }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "cfa": { "const": "custom" } },
+            "required": ["cfa"]
+          },
+          "then": { "required": ["custom_cfa_pattern"] },
+          "else": {
+            "properties": { "custom_cfa_pattern": { "type": "null" } }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -39,7 +39,8 @@ UIシェル: Tauri 2 + TypeScript
 - [Next] CPU reference rendererの露出・RGB sensitometryとfixtureテストを追加
 - [Done] Profile共通metadata、JSON Schema、Rust loader、extension保持、Catalog参照検証を追加
 - [Done] Film Profile専用Schema、typed payload、sensitometry単位／curve検証を追加
-- [Next] 残るProfile kindのtyped payloadと`scene_linear → virtual exposure` adapterを追加
+- [Done] Lens／Digital Sensor専用Schema、typed payload、物理値／CFA／分光感度検証を追加
+- [Next] Development／Print／Display Profileと`scene_linear → virtual exposure` adapterを追加
 - [Next] Tauri mobileのiOS/Androidプロジェクトを初期化し、カメラ／マイク権限文言を追加
 - [Later] Android CameraX、Windows Media Foundation、Linux V4L2/GStreamerバックエンド
 - [Later] wgpu処理、native texture相互運用、ハードウェアエンコード、OCIO/ACESの完全実装

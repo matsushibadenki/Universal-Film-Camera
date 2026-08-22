@@ -1,0 +1,29 @@
+{
+  "$schema": "../../docs/schemas/lens-profile-v1.schema.json",
+  "schema_version": 1,
+  "profile_version": "1.0.0",
+  "id": "reference-lens-50mm",
+  "kind": "lens",
+  "manufacturer": "Universal Imaging Project",
+  "model": "Reference Spherical 50mm",
+  "license": "CC0-1.0",
+  "created_at": "2026-08-22T00:00:00Z",
+  "provenance": {
+    "quality": "synthetic",
+    "source_type": "project_generated",
+    "source_reference": "reference-lens-v1",
+    "measurement_method": null,
+    "measured_by": null
+  },
+  "references": [],
+  "data": {
+    "lens_type": "spherical",
+    "mount": "universal-reference",
+    "focal_length_mm": { "min": 50.0, "max": 50.0 },
+    "aperture_f_number": { "min": 2.0, "max": 16.0 },
+    "minimum_focus_distance_m": 0.45,
+    "image_circle_diameter_mm": 43.3,
+    "transmission_t_stop": 2.2,
+    "anamorphic_squeeze": null
+  }
+}

@@ -148,7 +148,8 @@ Profile共通metadataには最低限、`id`、`schema_version`、`profile_versio
 - [Done] Profile／Asset／性能／conformanceのVersion 0.2規範契約を追加
 - [Done] Profile共通metadata、JSON Schema、Rust loader、Catalog参照検証を実装
 - [Done] Film Profile data Schema／typed payloadとsensitometry curve検証を実装
-- [Next] Lens／Sensor／Development／Print／Displayのtyped payloadとrender snapshotを実装
+- [Done] Lens／Digital Sensor Profile Schema、typed payload、物理範囲／分光感度検証を実装
+- [Next] Development／Print／Display／Output Transformのtyped payloadとrender snapshotを実装
 - [Next] `scene_linear → virtual exposure` adapterの科学的定義を追加
 - [Next] CPU reference executorを作り、Digital chainの最小縦切りを実行
 - [Later] Lens、Sensor、Development、Print、Displayを個別crateへ分離

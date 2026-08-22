@@ -15,7 +15,9 @@ Schema: `profile-common-v1`
 - [Done] 合成color negative fixtureを追加し、Schema JSON、loader、round-tripをunit testへ接続
 - [Done] Film専用Schemaと`FilmProfileData` typed payloadを追加
 - [Done] Film sensitometryの単位、sample順序、非負density、補間／外挿enumを検証
-- [Next] Lens／Digital Sensor／Development／Print／Displayの`data` Schemaとtyped payloadを追加
+- [Done] Lens Profile v1 Schema、typed payload、物理範囲／anamorphic条件を検証
+- [Done] Digital Sensor Profile v1 Schema、typed payload、CFA／code range／ISO／分光感度を検証
+- [Next] Development／Print／Display／Output Transformの`data` Schemaとtyped payloadを追加
 - [Next] file／directory loaderとschema migration registryを追加
 - [Next] pipelineが参照する全profileをCatalogで解決し、render開始前にsnapshot化
 - [Later] 署名済みProfile package、remote registry、license policy enforcement
@@ -24,6 +26,8 @@ Schema: `profile-common-v1`
 
 - `docs/schemas/profile-common-v1.schema.json`: 共通JSON Schema
 - `docs/schemas/film-profile-v1.schema.json`: Film Profile専用JSON Schema
+- `docs/schemas/lens-profile-v1.schema.json`: Lens Profile専用JSON Schema
+- `docs/schemas/digital-sensor-profile-v1.schema.json`: Digital Sensor Profile専用JSON Schema
 - `examples/profiles/synthetic-color-negative-500.json`: 合成fixture
 - `crates/imaging-core/src/lib.rs`: `ProfileEnvelope`、`ProfileCatalog`、validator
 
@@ -61,6 +65,10 @@ catalog.validate_references()?;
 共通Envelopeの`data`はJSON objectとして保持する。`kind = film`では追加で`FilmProfileData`へdecodeし、専用validatorを必ず通す。Lens、Sensorなど未実装kindのpayloadをrendererが任意のJSONとして信用して実行してはいけない。
 
 Film v1は`film_type`、nominal exposure index、native color temperature、sensitometryを必須とする。Sensitometryのx単位は`log10_lux_seconds`、y単位は`log10_optical_density`へ固定し、最低2 sample、露光軸のstrictな単調増加、RGB densityの非負値を検証する。補間は`monotonic_cubic | linear`、範囲外は`clamp | linear | reject`から明示選択する。
+
+Lens v1はlens type、mount、焦点距離範囲、F-number範囲、最短撮影距離、image circleを必須とする。範囲は正の有限値かつ`min <= max`とする。Anamorphic lensだけが1より大きいsqueeze ratioを持てる。
+
+Digital Sensor v1はactive pixel寸法、物理寸法、native bit depth、CFA、black／white level、base ISO、ISO範囲を必須とする。white levelはblack levelより大きくnative bit-depth内、base ISOは宣言範囲内とする。分光感度は省略可能だが、存在する場合は360–830 nm、最低2 sample、strictな波長増加、非負RGB responseを要求する。
 
 ## Extension policy
 

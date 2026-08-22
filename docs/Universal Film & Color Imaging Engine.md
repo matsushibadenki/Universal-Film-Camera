@@ -2289,6 +2289,8 @@ Camera、Lens、Sensor、Film、Development、Print、Displayの全profileは次
 
 Film Profile v1では、`film_type`、`nominal_exposure_index`、`native_color_temperature_kelvin`、`sensitometry`を必須とする。Sensitometryは`log10_lux_seconds → log10_optical_density`、最低2 sample、strictな露光軸単調増加、非負のRGB densityをMUSTとする。JSON Schemaの正本は`docs/schemas/film-profile-v1.schema.json`である。
 
+Lens Profile v1は焦点距離、F-number、最短撮影距離、image circleを明示単位で持つ。Digital Sensor Profile v1はactive pixels、物理寸法、CFA、bit depth、black／white level、ISO範囲、任意の360–830 nm分光感度を持つ。正本は`docs/schemas/lens-profile-v1.schema.json`と`docs/schemas/digital-sensor-profile-v1.schema.json`である。
+
 # 61. Still／Video共通Asset Contract
 
 スチルと動画は同じ`CapturedAsset` lifecycleを使い、UI上も同格に扱う。
@@ -2391,7 +2393,8 @@ Still acceptanceではdecode可能、寸法、orientation、embedded color descr
 - [Done] 1080p60／4K60の性能予算と初期conformance thresholdを規定
 - [Done] Profile共通JSON Schemaとloaderを実装し、validation errorにJSON pathを追加
 - [Done] Film kindのdata Schema、typed payload、sensitometry curve validatorを実装
-- [Next] 残るProfile kindのdata Schema、typed payload、render snapshotを実装
+- [Done] Lens／Digital Sensor kindのSchema、typed payload、物理値validatorを実装
+- [Next] Development／Print／Display／Output Transform kindとrender snapshotを実装
 - [Next] `scene_linear → virtual_exposure` adapterを数式、基準露光、white point込みで規定・実装
 - [Next] CPU Reference executorへexposure、RGB sensitometry、output transformを接続
 - [Next] 選択camera formatでStill／Videoを撮影し、寸法、FPS、orientation、color metadataを検証

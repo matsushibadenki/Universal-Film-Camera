@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-imaging.local/schemas/lens-profile-v1.schema.json",
+  "title": "Universal Imaging Lens Profile v1",
+  "allOf": [
+    { "$ref": "profile-common-v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "lens" },
+        "data": { "$ref": "#/$defs/lensData" }
+      }
+    }
+  ],
+  "$defs": {
+    "positiveRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "type": "number", "exclusiveMinimum": 0 },
+        "max": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "lensData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lens_type",
+        "mount",
+        "focal_length_mm",
+        "aperture_f_number",
+        "minimum_focus_distance_m",
+        "image_circle_diameter_mm"
+      ],
+      "properties": {
+        "lens_type": {
+          "enum": ["spherical", "anamorphic", "probe", "computational"]
+        },
+        "mount": { "type": "string", "minLength": 1 },
+        "focal_length_mm": { "$ref": "#/$defs/positiveRange" },
+        "aperture_f_number": { "$ref": "#/$defs/positiveRange" },
+        "minimum_focus_distance_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "image_circle_diameter_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "transmission_t_stop": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "anamorphic_squeeze": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "lens_type": { "const": "anamorphic" } },
+            "required": ["lens_type"]
+          },
+          "then": { "required": ["anamorphic_squeeze"] },
+          "else": {
+            "properties": { "anamorphic_squeeze": { "type": "null" } }
+          }
+        }
+      ]
+    }
+  }
+}

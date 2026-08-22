@@ -123,3 +123,21 @@ Status: Accepted (2026-08-22)
 Film Profile schema version 1のsensitometryは、x軸を`log10_lux_seconds`、y軸を`log10_optical_density`へ固定する。sampleは最低2点、`log_exposure`をstrictな単調増加、RGB densityを0以上の有限値とする。重複または逆行する露光sampleを自動sortして入力ミスを隠してはいけない。
 
 補間方法は`monotonic_cubic | linear`、範囲外は`clamp | linear | reject`をProfileへ保存する。rendererごとの暗黙defaultに依存せず、CPU ReferenceとGPU rendererが同じcurve contractを共有する。
+
+## ADR-019: Nearby sharing separates discovery from asset transport
+
+Status: Accepted as a roadmap direction (2026-08-22)
+
+ユーザー間の近距離共有では、Bluetooth／BLEをpeer発見、招待、capability negotiation、本人確認へ使用し、写真・動画本体はWi-Fi Direct、peer-to-peer Wi-Fi、同一local networkなど利用可能な高速経路へ切り替える。大容量assetをBLEだけで送り切ることを共通要件にしない。
+
+Rustの`peer-transfer-core`がversioned Asset Manifest、chunk、cancel／resume、content hash、暗号化、transfer stateを所有し、Apple／Android／Windows／Linuxは発見とtransportのplatform adapterを持つ。双方の明示承認と短い確認コードを要求し、本名、Bluetooth address、永続device IDをadvertiseしない。EXIF位置情報とdevice metadataは送信前に共有範囲を選べるようにする。
+
+受信assetは既存の`Incomplete → Finalized | Failed` lifecycleへ統合し、hash検証とflush完了前にMediaへ完成品として公開しない。実装開始条件とplatform別候補は [`ROADMAP.md`](ROADMAP.md) のMilestone 6を正本とする。
+
+## ADR-020: Lens and digital sensor profiles expose physical ranges, not UI labels
+
+Status: Accepted (2026-08-22)
+
+Lens Profile v1は焦点距離とF-numberを正の数値範囲として保持し、prime lensも`min = max`で表現する。UI向けの「標準」「望遠」などの名称を物理contractにしない。Anamorphic squeezeはanamorphic lensだけに許可し、spherical lensへ暗黙defaultを設定しない。
+
+Digital Sensor Profile v1はactive pixel寸法と物理寸法、native bit depth、CFA、black／white level、base ISOとISO範囲を分離する。white levelはnative code range内、base ISOは宣言範囲内でなければならない。分光感度は任意だが、存在する場合は360–830 nmのstrictな昇順sampleと非負responseを要求し、波長点を自動sortしない。

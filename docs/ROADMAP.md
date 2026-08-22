@@ -21,9 +21,10 @@
 | macOS camera | [Done] native MVP | 選択formatでStill／Video assetを再検証 |
 | Professional UI | [Done] capture-first shell | native／GPU monitoring overlayを接続 |
 | Imaging Pipeline model | [Done] schema v1 foundation | virtual exposure adapterとexecutorを追加 |
-| Profile system | [Done] common + Film v1 | Lens／Digital Sensor typed Profileを追加 |
+| Profile system | [Done] common + Film／Lens／Sensor v1 | Development／Print／Display Profileを追加 |
 | Film renderer | [Next] contract only | CPU exposure＋RGB sensitometry縦切り |
 | GPU renderer | [Later] architecture only | wgpu texture pipelineとreference比較 |
+| Nearby sharing | [Later] transport方針確定 | CapturedAsset／Media管理後にpeer転送MVP |
 | iOS／Android | [Next] 未初期化 | Tauri mobile project、権限、native preview |
 | Windows／Linux | [Later] 未実装 | platform camera backendの最初のpreview |
 
@@ -49,6 +50,7 @@ Selected camera format
   → CapturedAsset lifecycle
   → Original + processed derivative management
   → Imaging Pipeline capture integration
+  → Nearby Peer Transfer
 ```
 
 ## Milestone 0 — Architecture and workspace
@@ -105,8 +107,8 @@ Selected camera format
 - [Done] `ProfileCatalog`の重複ID、自己参照、参照先、kind検証
 - [Done] Film Profile v1 Schemaとtyped `FilmProfileData`
 - [Done] Sensitometryの単位、非負density、strictな露光軸、補間／外挿contract
-- [Next] Lens Profile v1 Schemaとtyped payload
-- [Next] Digital Sensor Profile v1 Schemaとtyped payload
+- [Done] Lens Profile v1 Schema、typed payload、焦点距離／絞り／image circle検証
+- [Done] Digital Sensor Profile v1 Schema、typed payload、CFA／code range／ISO／分光感度検証
 - [Next] Development／Print／Display／Output Transform Profile
 - [Next] directory loader、migration registry、content hash付きrender snapshot
 - [Later] 署名済みProfile package、registry、license enforcement
@@ -141,7 +143,44 @@ Selected camera format
 
 開始条件: Milestone 4のCPU Reference縦切りとfixtureが`[Done]`であること。
 
-## Milestone 6 — Mobile
+## Milestone 6 — Nearby Peer Transfer
+
+写真・動画を近くのユーザー同士で交換する。Bluetooth／BLEだけで大容量assetを送り切る設計にはせず、近接発見・招待・本人確認と実データ転送を分離する。
+
+```text
+Bluetooth LE / Bonjour / Nearby discovery
+  → 双方の明示承認と短い確認コード
+  → Wi-Fi Direct / peer-to-peer Wi-Fi / local networkへ昇格
+  → end-to-end encrypted chunk transfer
+  → content hash検証
+  → incompleteからFinalized assetへ原子的に移行
+```
+
+- [Done] BLEを発見・接続確認、高速networkをasset転送に使う基本方針を確定
+- [Done] Apple／Android／Windows／Linuxをplatform adapterで分離し、共通protocolをRustへ置く方針を確定
+- [Later] `peer-transfer-core`のpeer identity、invitation、capability、transfer state machine
+- [Later] versioned Asset Manifestとoriginal／processed／両方の選択
+- [Later] chunk分割、ack、cancel、resume、content hash、atomic finalize
+- [Later] ephemeral key、end-to-end encryption、双方の短い確認コード
+- [Later] 一定時間だけ受信可能にするvisibilityと自動停止
+- [Later] EXIF位置情報／device metadataの共有範囲を送信前に選択
+- [Later] Apple adapter: Bonjour／local networkと対応OSの近距離API
+- [Later] Android adapter: Nearby ConnectionsまたはBLE＋Wi-Fi経路
+- [Later] Windows adapter: Bluetooth RFCOMM／DNS-SD＋Wi-Fi Direct
+- [Later] Linux adapter: BlueZ GATT／mDNS＋TCPまたはQUIC
+- [Later] 同一LAN上のmacOS同士で最初の暗号化Still転送MVP
+- [Later] iOS↔Android、Windows、Linuxを同じprotocol conformanceへ接続
+
+開始条件:
+
+1. `CapturedAsset`のoriginal／derivative contractがコードへ実装済み
+2. Media画面が受信中、失敗、完成assetを区別できる
+3. path traversal、容量上限、MIME／codec、空き容量を受信前に検証できる
+4. `.partial`／incomplete assetを完成品として公開しない
+
+バックグラウンド転送はOSごとの実行制限に従う。発見・advertiseを常時有効にせず、ユーザーが開始した共有sessionだけを対象とする。本名、Bluetooth address、永続device IDを周囲へ公開しない。
+
+## Milestone 7 — Mobile
 
 - [Next] Tauri 2 iOS／Android projectを初期化
 - [Next] 英語、日本語、简体中文のcamera／microphone権限文言
@@ -151,7 +190,7 @@ Selected camera format
 - [Later] RAW、LOG、manual controlが必要な端末向けCamera2経路
 - [Later] CVPixelBuffer／AHardwareBufferのzero-copy GPU bridge
 
-## Milestone 7 — Windows and Linux
+## Milestone 8 — Windows and Linux
 
 - [Later] Windows Media Foundation device discovery／preview／Still／Video
 - [Later] Windows D3D texture bridgeとhardware MFT
@@ -162,12 +201,20 @@ Selected camera format
 
 ## 現在の優先キュー
 
-1. [Next] Lens Profile v1とDigital Sensor Profile v1を実装する
-2. [Next] `scene_linear → virtual_exposure` adapterを科学的に定義する
-3. [Next] CPU exposure＋RGB sensitometryのReference executorを実装する
+今回完了:
+
+- [Done] Lens Profile v1とDigital Sensor Profile v1
+
+次の順序:
+
+1. [Next] `scene_linear → virtual_exposure` adapterを科学的に定義する
+2. [Next] CPU exposure＋RGB sensitometryのReference executorを実装する
+3. [Next] Development／Print／Display／Output Transform Profileを実装する
 4. [Next] 選択camera formatでStill／Video assetを再検証する
 5. [Next] orientation／rotation／metadataとformat設定永続化を実装する
 6. [Next] iOS／Android Tauri projectを初期化する
+
+Nearby Peer Transferは上記4–5で`CapturedAsset`とMedia管理が成立した後に着手するため、現時点では`[Later]`とする。
 
 優先キューを変更するときは、依存関係、受け入れ条件、変更理由を本書か[`DECISIONS.md`](DECISIONS.md)へ残す。
 
@@ -178,7 +225,7 @@ Selected camera format
 ```text
 npm run check
   TypeScript / Vite production build: passed
-  Rust workspace tests: 14 passed, 0 failed
+  Rust workspace tests: 17 passed, 0 failed
 
 macOS native runtime
   camera preview: passed
@@ -210,6 +257,7 @@ macOS native runtime
 - [Later] macOS／iOS／Androidで同じCamera／Asset contractを通過
 - [Later] 最小CPU Imaging PipelineをStillとVideo frameへ適用
 - [Later] Profile snapshotから同一結果を再生成
+- [Later] 2つ以上のOS間で暗号化Still転送、cancel／resume、hash検証に合格
 
 ### Imaging Engine 1.0
 
