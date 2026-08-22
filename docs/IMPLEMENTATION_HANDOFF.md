@@ -1,6 +1,6 @@
 # Camera App Implementation Handoff
 
-更新日: 2026-08-20  
+更新日: 2026-08-22  
 対象: macOS / Windows / Linux / iOS / Android  
 UIシェル: Tauri 2 + TypeScript  
 共有コア: Rust
@@ -35,7 +35,9 @@ UIシェル: Tauri 2 + TypeScript
 - [Next] RAW／HDR／LOGをformat単位の能力モデルへ拡張
 - [Next] still／videoのorientation、rotation、保存metadataを統一
 - [Next] CPU reference rendererの露出・RGB sensitometryとfixtureテストを追加
-- [Next] Profile共通metadata、JSON Schema、loaderと`scene_linear → virtual exposure` adapterを追加
+- [Done] Profile共通metadata、JSON Schema、Rust loader、extension保持、Catalog参照検証を追加
+- [Done] Film Profile専用Schema、typed payload、sensitometry単位／curve検証を追加
+- [Next] 残るProfile kindのtyped payloadと`scene_linear → virtual exposure` adapterを追加
 - [Next] Tauri mobileのiOS/Androidプロジェクトを初期化し、カメラ／マイク権限文言を追加
 - [Later] Android CameraX、Windows Media Foundation、Linux V4L2/GStreamerバックエンド
 - [Later] wgpu処理、native texture相互運用、ハードウェアエンコード、OCIO/ACESの完全実装

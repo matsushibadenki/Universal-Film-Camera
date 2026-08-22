@@ -1,7 +1,7 @@
 # Universal Imaging Pipeline Architecture
 
 Version: 0.2  
-更新日: 2026-08-20  
+更新日: 2026-08-22  
 実装: `crates/imaging-core`
 
 ## 目的
@@ -123,7 +123,7 @@ profiles/
 └── pipelines/     # 上記profileを結ぶversioned recipe
 ```
 
-Profile共通metadataには最低限、`id`、`schema_version`、`profile_version`、`manufacturer`、`model`、`measurement_source`、`measurement_quality`、`license`、`created_at`を持たせる。実測、メーカー公称、推定、合成を混同しない。
+Profile共通metadataには最低限、`id`、`schema_version`、`profile_version`、`kind`、`manufacturer`、`model`、`license`、`created_at`、`provenance`、`data`を持たせる。測定sourceとqualityは`provenance`へ格納し、実測、メーカー公称、推定、合成を混同しない。正本は [`PROFILE_SCHEMA_AND_LOADER.md`](PROFILE_SCHEMA_AND_LOADER.md) とJSON Schemaである。
 
 ## Pipelineの不変条件
 
@@ -146,7 +146,9 @@ Profile共通metadataには最低限、`id`、`schema_version`、`profile_versio
 - [Done] Tauriからschema versionと対応domainを取得できるcommandを追加
 - [Done] ACEScgを標準内部計算space、ACES2065-1をinterchange spaceとして規定
 - [Done] Profile／Asset／性能／conformanceのVersion 0.2規範契約を追加
-- [Next] Profile共通metadataとJSON Schema、profile loaderを実装
+- [Done] Profile共通metadata、JSON Schema、Rust loader、Catalog参照検証を実装
+- [Done] Film Profile data Schema／typed payloadとsensitometry curve検証を実装
+- [Next] Lens／Sensor／Development／Print／Displayのtyped payloadとrender snapshotを実装
 - [Next] `scene_linear → virtual exposure` adapterの科学的定義を追加
 - [Next] CPU reference executorを作り、Digital chainの最小縦切りを実行
 - [Later] Lens、Sensor、Development、Print、Displayを個別crateへ分離

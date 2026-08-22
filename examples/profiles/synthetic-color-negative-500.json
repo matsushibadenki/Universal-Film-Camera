@@ -1,0 +1,39 @@
+{
+  "$schema": "../../docs/schemas/film-profile-v1.schema.json",
+  "schema_version": 1,
+  "profile_version": "1.0.0",
+  "id": "org.universal-imaging.synthetic-color-negative-500",
+  "kind": "film",
+  "manufacturer": "Universal Imaging Project",
+  "model": "Synthetic Color Negative 500",
+  "license": "CC0-1.0",
+  "created_at": "2026-08-22T00:00:00Z",
+  "provenance": {
+    "quality": "synthetic",
+    "source_type": "project_generated",
+    "source_reference": "synthetic-reference-v1",
+    "measurement_method": null,
+    "measured_by": null
+  },
+  "references": [],
+  "data": {
+    "film_type": "color_negative",
+    "nominal_exposure_index": 500,
+    "native_color_temperature_kelvin": 3200,
+    "sensitometry": {
+      "x_unit": "log10_lux_seconds",
+      "y_unit": "log10_optical_density",
+      "interpolation": "monotonic_cubic",
+      "extrapolation": "clamp",
+      "samples": [
+        { "log_exposure": -4.0, "red": 0.1, "green": 0.09, "blue": 0.08 },
+        { "log_exposure": -2.0, "red": 0.55, "green": 0.52, "blue": 0.5 },
+        { "log_exposure": 0.0, "red": 1.7, "green": 1.65, "blue": 1.6 }
+      ]
+    }
+  },
+  "semantic": {
+    "contrast": "medium",
+    "grain": "medium"
+  }
+}

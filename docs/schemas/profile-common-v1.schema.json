@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-imaging.local/schemas/profile-common-v1.schema.json",
+  "title": "Universal Imaging Profile Envelope v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "profile_version",
+    "id",
+    "kind",
+    "manufacturer",
+    "model",
+    "license",
+    "created_at",
+    "provenance",
+    "data"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "profile_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "id": { "type": "string", "minLength": 1 },
+    "kind": {
+      "enum": [
+        "camera",
+        "lens",
+        "digital_sensor",
+        "film",
+        "development",
+        "print",
+        "display",
+        "output_transform",
+        "synthetic"
+      ]
+    },
+    "manufacturer": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "license": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["quality", "source_type", "source_reference"],
+      "properties": {
+        "quality": {
+          "enum": ["official", "measured", "digitized", "estimated", "synthetic"]
+        },
+        "source_type": { "type": "string", "minLength": 1 },
+        "source_reference": { "type": "string", "minLength": 1 },
+        "measurement_method": { "type": ["string", "null"] },
+        "measured_by": { "type": ["string", "null"] }
+      }
+    },
+    "references": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["profile_id"],
+        "properties": {
+          "profile_id": { "type": "string", "minLength": 1 },
+          "expected_kind": {
+            "enum": [
+              "camera",
+              "lens",
+              "digital_sensor",
+              "film",
+              "development",
+              "print",
+              "display",
+              "output_transform",
+              "synthetic",
+              null
+            ]
+          }
+        }
+      }
+    },
+    "data": { "type": "object" }
+  },
+  "additionalProperties": true
+}

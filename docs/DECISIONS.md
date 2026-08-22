@@ -107,3 +107,19 @@ Status: Accepted (2026-08-20)
 StillとVideoはUI上だけでなく保存契約でも同格とする。両者は`Incomplete → Finalized | Failed`の共通asset lifecycleを使い、originalとImaging Pipeline処理済みderivativeを別resourceとして関連付ける。処理済みassetでoriginalを上書きしない。
 
 Stillはfile syncとatomic rename、Videoはcontainer writerまたはplatform delegateの最終完了後にのみ`Finalized`へ移る。完成前のassetをMedia一覧やIPC成功結果へ公開してはいけない。derivativeは親resource、pipeline、profile version、engine version、seedを保持し、再現可能性を担保する。
+
+## ADR-017: Profile envelopes preserve unknown fields and resolve references in a catalog
+
+Status: Accepted (2026-08-22)
+
+Profile共通envelopeの`schema_version = 1`をJSON SchemaとRust型で固定する。同一major内の追加fieldは許可し、Rust loaderは未知fieldを`extensions`へ保持してround-tripで失わない。未知major schemaは互換と推測せず拒否する。
+
+Profile間参照は埋め込みobjectではなくstable IDと期待kindで記録する。単体parseでは読み込み順が未確定なため参照先を要求せず、必要profileを`ProfileCatalog`へ登録した後に存在とkindを一括検証する。重複ID、自己参照、参照先不在、kind不一致を暗黙に補正しない。
+
+## ADR-018: Film sensitometry uses explicit units and a strictly increasing exposure axis
+
+Status: Accepted (2026-08-22)
+
+Film Profile schema version 1のsensitometryは、x軸を`log10_lux_seconds`、y軸を`log10_optical_density`へ固定する。sampleは最低2点、`log_exposure`をstrictな単調増加、RGB densityを0以上の有限値とする。重複または逆行する露光sampleを自動sortして入力ミスを隠してはいけない。
+
+補間方法は`monotonic_cubic | linear`、範囲外は`clamp | linear | reject`をProfileへ保存する。rendererごとの暗黙defaultに依存せず、CPU ReferenceとGPU rendererが同じcurve contractを共有する。

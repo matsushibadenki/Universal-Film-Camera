@@ -5,7 +5,468 @@
 
 use media_core::WorkingColorSpace;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, error::Error, fmt};
+use serde_json::Value;
+use std::{
+    collections::{BTreeMap, HashSet},
+    error::Error,
+    fmt,
+};
+
+pub const PROFILE_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileKind {
+    Camera,
+    Lens,
+    DigitalSensor,
+    Film,
+    Development,
+    Print,
+    Display,
+    OutputTransform,
+    Synthetic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MeasurementQuality {
+    Official,
+    Measured,
+    Digitized,
+    Estimated,
+    Synthetic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilmType {
+    ColorNegative,
+    ColorPositive,
+    Slide,
+    BlackAndWhite,
+    Intermediate,
+    Print,
+    Synthetic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CurveInterpolation {
+    MonotonicCubic,
+    Linear,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CurveExtrapolation {
+    Clamp,
+    Linear,
+    Reject,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SensitometrySample {
+    pub log_exposure: f32,
+    pub red: f32,
+    pub green: f32,
+    pub blue: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SensitometryData {
+    pub x_unit: String,
+    pub y_unit: String,
+    pub interpolation: CurveInterpolation,
+    pub extrapolation: CurveExtrapolation,
+    pub samples: Vec<SensitometrySample>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FilmProfileData {
+    pub film_type: FilmType,
+    pub nominal_exposure_index: f32,
+    pub native_color_temperature_kelvin: u32,
+    pub sensitometry: SensitometryData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileProvenance {
+    pub quality: MeasurementQuality,
+    pub source_type: String,
+    pub source_reference: String,
+    #[serde(default)]
+    pub measurement_method: Option<String>,
+    #[serde(default)]
+    pub measured_by: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileReference {
+    pub profile_id: String,
+    #[serde(default)]
+    pub expected_kind: Option<ProfileKind>,
+}
+
+/// Common, lossless envelope shared by every imaging profile kind.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProfileEnvelope {
+    pub schema_version: u32,
+    pub profile_version: String,
+    pub id: String,
+    pub kind: ProfileKind,
+    pub manufacturer: String,
+    pub model: String,
+    pub license: String,
+    pub created_at: String,
+    pub provenance: ProfileProvenance,
+    #[serde(default)]
+    pub references: Vec<ProfileReference>,
+    pub data: Value,
+    /// Unknown same-major fields are retained when an editor round-trips a profile.
+    #[serde(flatten)]
+    pub extensions: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileError {
+    pub path: String,
+    pub reason: String,
+}
+
+impl ProfileError {
+    fn new(path: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            reason: reason.into(),
+        }
+    }
+}
+
+impl fmt::Display for ProfileError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}: {}", self.path, self.reason)
+    }
+}
+
+impl Error for ProfileError {}
+
+impl ProfileEnvelope {
+    pub fn from_json(json: &str) -> Result<Self, ProfileError> {
+        let profile: Self = serde_json::from_str(json).map_err(|error| {
+            ProfileError::new(
+                "$",
+                format!(
+                    "invalid profile JSON at line {}, column {}: {}",
+                    error.line(),
+                    error.column(),
+                    error
+                ),
+            )
+        })?;
+        profile.validate()?;
+        Ok(profile)
+    }
+
+    pub fn validate(&self) -> Result<(), ProfileError> {
+        if self.schema_version != PROFILE_SCHEMA_VERSION {
+            return Err(ProfileError::new(
+                "$.schema_version",
+                format!(
+                    "unsupported profile schema version {}; expected {}",
+                    self.schema_version, PROFILE_SCHEMA_VERSION
+                ),
+            ));
+        }
+        validate_non_empty("$.id", &self.id)?;
+        validate_semver("$.profile_version", &self.profile_version)?;
+        validate_non_empty("$.manufacturer", &self.manufacturer)?;
+        validate_non_empty("$.model", &self.model)?;
+        validate_non_empty("$.license", &self.license)?;
+        validate_rfc3339("$.created_at", &self.created_at)?;
+        validate_non_empty("$.provenance.source_type", &self.provenance.source_type)?;
+        validate_non_empty(
+            "$.provenance.source_reference",
+            &self.provenance.source_reference,
+        )?;
+        if !self.data.is_object() {
+            return Err(ProfileError::new("$.data", "must be a JSON object"));
+        }
+        for (index, reference) in self.references.iter().enumerate() {
+            validate_non_empty(
+                format!("$.references[{index}].profile_id"),
+                &reference.profile_id,
+            )?;
+            if reference.profile_id == self.id {
+                return Err(ProfileError::new(
+                    format!("$.references[{index}].profile_id"),
+                    "a profile cannot reference itself",
+                ));
+            }
+        }
+        if self.kind == ProfileKind::Film {
+            self.film_data()?;
+        }
+        Ok(())
+    }
+
+    pub fn film_data(&self) -> Result<FilmProfileData, ProfileError> {
+        if self.kind != ProfileKind::Film {
+            return Err(ProfileError::new(
+                "$.kind",
+                format!("expected film profile, found {:?}", self.kind),
+            ));
+        }
+        let data: FilmProfileData = serde_json::from_value(self.data.clone()).map_err(|error| {
+            ProfileError::new("$.data", format!("invalid film profile data: {error}"))
+        })?;
+        data.validate()?;
+        Ok(data)
+    }
+}
+
+impl FilmProfileData {
+    pub fn validate(&self) -> Result<(), ProfileError> {
+        validate_positive_finite("$.data.nominal_exposure_index", self.nominal_exposure_index)?;
+        if self.native_color_temperature_kelvin == 0 {
+            return Err(ProfileError::new(
+                "$.data.native_color_temperature_kelvin",
+                "must be greater than zero",
+            ));
+        }
+        if self.sensitometry.x_unit != "log10_lux_seconds" {
+            return Err(ProfileError::new(
+                "$.data.sensitometry.x_unit",
+                "must be log10_lux_seconds for schema version 1",
+            ));
+        }
+        if self.sensitometry.y_unit != "log10_optical_density" {
+            return Err(ProfileError::new(
+                "$.data.sensitometry.y_unit",
+                "must be log10_optical_density for schema version 1",
+            ));
+        }
+        if self.sensitometry.samples.len() < 2 {
+            return Err(ProfileError::new(
+                "$.data.sensitometry.samples",
+                "must contain at least two samples",
+            ));
+        }
+        let mut previous_exposure = None;
+        for (index, sample) in self.sensitometry.samples.iter().enumerate() {
+            let base = format!("$.data.sensitometry.samples[{index}]");
+            validate_finite(format!("{base}.log_exposure"), sample.log_exposure)?;
+            validate_finite(format!("{base}.red"), sample.red)?;
+            validate_finite(format!("{base}.green"), sample.green)?;
+            validate_finite(format!("{base}.blue"), sample.blue)?;
+            if sample.red < 0.0 || sample.green < 0.0 || sample.blue < 0.0 {
+                return Err(ProfileError::new(
+                    base,
+                    "optical density channels must be zero or greater",
+                ));
+            }
+            if previous_exposure.is_some_and(|previous| sample.log_exposure <= previous) {
+                return Err(ProfileError::new(
+                    format!("{base}.log_exposure"),
+                    "must be strictly greater than the previous sample",
+                ));
+            }
+            previous_exposure = Some(sample.log_exposure);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ProfileCatalog {
+    profiles: BTreeMap<String, ProfileEnvelope>,
+}
+
+impl ProfileCatalog {
+    pub fn insert(&mut self, profile: ProfileEnvelope) -> Result<(), ProfileError> {
+        profile.validate()?;
+        if self.profiles.contains_key(&profile.id) {
+            return Err(ProfileError::new(
+                "$.id",
+                format!("duplicate profile id: {}", profile.id),
+            ));
+        }
+        self.profiles.insert(profile.id.clone(), profile);
+        Ok(())
+    }
+
+    pub fn get(&self, id: &str) -> Option<&ProfileEnvelope> {
+        self.profiles.get(id)
+    }
+
+    pub fn validate_references(&self) -> Result<(), ProfileError> {
+        for profile in self.profiles.values() {
+            for (index, reference) in profile.references.iter().enumerate() {
+                let path = format!("profiles[{}].references[{index}]", profile.id);
+                let target = self.profiles.get(&reference.profile_id).ok_or_else(|| {
+                    ProfileError::new(
+                        format!("{path}.profile_id"),
+                        format!("referenced profile not found: {}", reference.profile_id),
+                    )
+                })?;
+                if let Some(expected) = reference.expected_kind
+                    && target.kind != expected
+                {
+                    return Err(ProfileError::new(
+                        format!("{path}.expected_kind"),
+                        format!(
+                            "expected {:?}, found {:?} for {}",
+                            expected, target.kind, reference.profile_id
+                        ),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_non_empty(path: impl Into<String>, value: &str) -> Result<(), ProfileError> {
+    if value.trim().is_empty() {
+        return Err(ProfileError::new(path, "must not be empty"));
+    }
+    Ok(())
+}
+
+fn validate_finite(path: impl Into<String>, value: f32) -> Result<(), ProfileError> {
+    if !value.is_finite() {
+        return Err(ProfileError::new(path, "must be finite"));
+    }
+    Ok(())
+}
+
+fn validate_positive_finite(path: impl Into<String>, value: f32) -> Result<(), ProfileError> {
+    let path = path.into();
+    validate_finite(path.clone(), value)?;
+    if value <= 0.0 {
+        return Err(ProfileError::new(path, "must be greater than zero"));
+    }
+    Ok(())
+}
+
+fn validate_semver(path: &str, value: &str) -> Result<(), ProfileError> {
+    let mut build_split = value.split('+');
+    let core_and_pre = build_split.next().unwrap_or_default();
+    let build = build_split.next();
+    let has_extra_build_separator = build_split.next().is_some();
+    let (core, pre) = core_and_pre
+        .split_once('-')
+        .map_or((core_and_pre, None), |(left, right)| (left, Some(right)));
+    let parts: Vec<_> = core.split('.').collect();
+    let valid_number = |part: &str| {
+        !part.is_empty()
+            && part.chars().all(|character| character.is_ascii_digit())
+            && (part == "0" || !part.starts_with('0'))
+    };
+    let valid_identifiers = |identifiers: &str, reject_numeric_leading_zero: bool| {
+        !identifiers.is_empty()
+            && identifiers.split('.').all(|identifier| {
+                !identifier.is_empty()
+                    && identifier
+                        .chars()
+                        .all(|character| character.is_ascii_alphanumeric() || character == '-')
+                    && (!reject_numeric_leading_zero
+                        || !identifier
+                            .chars()
+                            .all(|character| character.is_ascii_digit())
+                        || identifier == "0"
+                        || !identifier.starts_with('0'))
+            })
+    };
+    let valid_pre = pre.is_none_or(|pre| valid_identifiers(pre, true));
+    let valid_build = build.is_none_or(|build| valid_identifiers(build, false));
+    if parts.len() != 3
+        || !parts.iter().all(|part| valid_number(part))
+        || !valid_pre
+        || !valid_build
+        || has_extra_build_separator
+    {
+        return Err(ProfileError::new(path, "must be a semantic version"));
+    }
+    Ok(())
+}
+
+fn validate_rfc3339(path: &str, value: &str) -> Result<(), ProfileError> {
+    let bytes = value.as_bytes();
+    let digits = |start: usize, end: usize| {
+        bytes
+            .get(start..end)
+            .filter(|slice| slice.iter().all(u8::is_ascii_digit))
+            .and_then(|slice| std::str::from_utf8(slice).ok())
+            .and_then(|slice| slice.parse::<u32>().ok())
+    };
+    let shape = bytes.len() >= 20
+        && bytes.get(4) == Some(&b'-')
+        && bytes.get(7) == Some(&b'-')
+        && matches!(bytes.get(10), Some(b'T' | b't'))
+        && bytes.get(13) == Some(&b':')
+        && bytes.get(16) == Some(&b':');
+    let (Some(year), Some(month), Some(day), Some(hour), Some(minute), Some(second)) = (
+        digits(0, 4),
+        digits(5, 7),
+        digits(8, 10),
+        digits(11, 13),
+        digits(14, 16),
+        digits(17, 19),
+    ) else {
+        return Err(ProfileError::new(path, "must be an RFC 3339 timestamp"));
+    };
+    let leap_year =
+        year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap_year => 29,
+        2 => 28,
+        _ => 0,
+    };
+
+    let mut timezone_index = 19;
+    if bytes.get(timezone_index) == Some(&b'.') {
+        timezone_index += 1;
+        let fraction_start = timezone_index;
+        while bytes.get(timezone_index).is_some_and(u8::is_ascii_digit) {
+            timezone_index += 1;
+        }
+        if timezone_index == fraction_start {
+            return Err(ProfileError::new(path, "must be an RFC 3339 timestamp"));
+        }
+    }
+    let timezone_is_utc = bytes.get(timezone_index..timezone_index + 1) == Some(b"Z")
+        || bytes.get(timezone_index..timezone_index + 1) == Some(b"z");
+    let timezone_is_offset = if matches!(bytes.get(timezone_index), Some(b'+' | b'-')) {
+        let offset_hour = digits(timezone_index + 1, timezone_index + 3);
+        let offset_minute = digits(timezone_index + 4, timezone_index + 6);
+        bytes.get(timezone_index + 3) == Some(&b':')
+            && offset_hour.is_some_and(|hour| hour <= 23)
+            && offset_minute.is_some_and(|minute| minute <= 59)
+            && timezone_index + 6 == bytes.len()
+    } else {
+        false
+    };
+    let valid = shape
+        && month > 0
+        && day > 0
+        && day <= days_in_month
+        && hour <= 23
+        && minute <= 59
+        && second <= 60
+        && ((timezone_is_utc && timezone_index + 1 == bytes.len()) || timezone_is_offset);
+    if !valid {
+        return Err(ProfileError::new(path, "must be an RFC 3339 timestamp"));
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -500,5 +961,83 @@ mod tests {
             let pipeline: ImagingPipeline = serde_json::from_str(json).unwrap();
             pipeline.validate().unwrap();
         }
+    }
+
+    #[test]
+    fn bundled_profile_matches_common_contract_and_preserves_extensions() {
+        let common_schema: Value = serde_json::from_str(include_str!(
+            "../../../docs/schemas/profile-common-v1.schema.json"
+        ))
+        .unwrap();
+        assert_eq!(common_schema["properties"]["schema_version"]["const"], 1);
+        let film_schema: Value = serde_json::from_str(include_str!(
+            "../../../docs/schemas/film-profile-v1.schema.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            film_schema["allOf"][1]["properties"]["kind"]["const"],
+            "film"
+        );
+
+        let json = include_str!("../../../examples/profiles/synthetic-color-negative-500.json");
+        let profile = ProfileEnvelope::from_json(json).unwrap();
+        assert_eq!(profile.kind, ProfileKind::Film);
+        let film = profile.film_data().unwrap();
+        assert_eq!(film.film_type, FilmType::ColorNegative);
+        assert_eq!(film.sensitometry.samples.len(), 3);
+        assert!(profile.extensions.contains_key("$schema"));
+        assert!(profile.extensions.contains_key("semantic"));
+
+        let round_trip = serde_json::to_string(&profile).unwrap();
+        let decoded = ProfileEnvelope::from_json(&round_trip).unwrap();
+        assert_eq!(decoded.extensions, profile.extensions);
+    }
+
+    #[test]
+    fn film_profile_rejects_non_monotonic_sensitometry() {
+        let json = include_str!("../../../examples/profiles/synthetic-color-negative-500.json");
+        let mut profile = ProfileEnvelope::from_json(json).unwrap();
+        profile.data["sensitometry"]["samples"][1]["log_exposure"] = (-4.0).into();
+        let error = profile.film_data().unwrap_err();
+        assert_eq!(error.path, "$.data.sensitometry.samples[1].log_exposure");
+    }
+
+    #[test]
+    fn profile_validation_reports_a_json_path() {
+        let json = include_str!("../../../examples/profiles/synthetic-color-negative-500.json");
+        let mut profile: ProfileEnvelope = serde_json::from_str(json).unwrap();
+        profile.profile_version = "version one".into();
+        let error = profile.validate().unwrap_err();
+        assert_eq!(error.path, "$.profile_version");
+    }
+
+    #[test]
+    fn catalog_validates_reference_existence_and_kind() {
+        let json = include_str!("../../../examples/profiles/synthetic-color-negative-500.json");
+        let film = ProfileEnvelope::from_json(json).unwrap();
+        let mut development = film.clone();
+        development.id = "org.universal-imaging.synthetic-development".into();
+        development.kind = ProfileKind::Development;
+        development.references = vec![ProfileReference {
+            profile_id: film.id.clone(),
+            expected_kind: Some(ProfileKind::Film),
+        }];
+
+        let mut catalog = ProfileCatalog::default();
+        catalog.insert(development.clone()).unwrap();
+        let missing = catalog.validate_references().unwrap_err();
+        assert!(missing.path.ends_with(".profile_id"));
+
+        catalog.insert(film).unwrap();
+        catalog.validate_references().unwrap();
+
+        development.references[0].expected_kind = Some(ProfileKind::Lens);
+        let mut wrong_kind = ProfileCatalog::default();
+        wrong_kind.insert(development).unwrap();
+        let mut film_again = ProfileEnvelope::from_json(json).unwrap();
+        film_again.extensions.clear();
+        wrong_kind.insert(film_again).unwrap();
+        let mismatch = wrong_kind.validate_references().unwrap_err();
+        assert!(mismatch.path.ends_with(".expected_kind"));
     }
 }

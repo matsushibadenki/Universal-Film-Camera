@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-imaging.local/schemas/film-profile-v1.schema.json",
+  "title": "Universal Imaging Film Profile v1",
+  "allOf": [
+    { "$ref": "profile-common-v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "film" },
+        "data": { "$ref": "#/$defs/filmData" }
+      }
+    }
+  ],
+  "$defs": {
+    "filmData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "film_type",
+        "nominal_exposure_index",
+        "native_color_temperature_kelvin",
+        "sensitometry"
+      ],
+      "properties": {
+        "film_type": {
+          "enum": [
+            "color_negative",
+            "color_positive",
+            "slide",
+            "black_and_white",
+            "intermediate",
+            "print",
+            "synthetic"
+          ]
+        },
+        "nominal_exposure_index": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "native_color_temperature_kelvin": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sensitometry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x_unit",
+            "y_unit",
+            "interpolation",
+            "extrapolation",
+            "samples"
+          ],
+          "properties": {
+            "x_unit": { "const": "log10_lux_seconds" },
+            "y_unit": { "const": "log10_optical_density" },
+            "interpolation": {
+              "enum": ["monotonic_cubic", "linear"]
+            },
+            "extrapolation": {
+              "enum": ["clamp", "linear", "reject"]
+            },
+            "samples": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["log_exposure", "red", "green", "blue"],
+                "properties": {
+                  "log_exposure": { "type": "number" },
+                  "red": { "type": "number", "minimum": 0 },
+                  "green": { "type": "number", "minimum": 0 },
+                  "blue": { "type": "number", "minimum": 0 }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -5,7 +5,7 @@
 
 Version: 0.2  
 Status: Active design specification  
-Updated: 2026-08-20  
+Updated: 2026-08-22  
 Target: macOS / Windows / Linux / iOS / Android  
 Core Language: Rust
 
@@ -2063,7 +2063,7 @@ Phase 1 — 共通契約：
 [Done] media-core frame/color metadata boundary
 [Done] imaging-core signal domains and Film/Digital pipeline validation
 [Done] camera-core state/capability/session boundary
-[Next] common profile metadata and JSON Schema
+[Done] common profile metadata, JSON Schema, loader, and Catalog reference validation
 [Next] scene_linear → virtual_exposure adapter
 ```
 
@@ -2285,7 +2285,9 @@ Camera、Lens、Sensor、Film、Development、Print、Displayの全profileは次
 
 `quality`は`official | measured | digitized | estimated | synthetic`のいずれかとする。異なるqualityのdataを混ぜる場合はfieldまたはdataset単位でprovenanceを上書きできなければならない。出典不明の測定値を`official`として扱ってはいけない。
 
-Profile loaderは最低限、schema version、ID、kind、version、license、有限数、単位、curve順序、参照profileの存在を検証する。validation errorはJSON pathと理由を含める。
+共通Profile loaderはschema version、ID、kind、version、license、timestamp、provenance、参照profileの存在とkindを検証する。kind別loaderは有限数、単位、curve順序、補間／外挿規則を追加検証する。validation errorはJSON pathと理由を含める。
+
+Film Profile v1では、`film_type`、`nominal_exposure_index`、`native_color_temperature_kelvin`、`sensitometry`を必須とする。Sensitometryは`log10_lux_seconds → log10_optical_density`、最低2 sample、strictな露光軸単調増加、非負のRGB densityをMUSTとする。JSON Schemaの正本は`docs/schemas/film-profile-v1.schema.json`である。
 
 # 61. Still／Video共通Asset Contract
 
@@ -2387,7 +2389,9 @@ Still acceptanceではdecode可能、寸法、orientation、embedded color descr
 - [Done] ACEScgを標準内部計算space、ACES2065-1をinterchange用途として規定
 - [Done] 数値、単位、missing value、Profile envelope、Still／Video asset lifecycleを規定
 - [Done] 1080p60／4K60の性能予算と初期conformance thresholdを規定
-- [Next] Profile共通JSON Schemaとloaderを実装し、validation errorにJSON pathを含める
+- [Done] Profile共通JSON Schemaとloaderを実装し、validation errorにJSON pathを追加
+- [Done] Film kindのdata Schema、typed payload、sensitometry curve validatorを実装
+- [Next] 残るProfile kindのdata Schema、typed payload、render snapshotを実装
 - [Next] `scene_linear → virtual_exposure` adapterを数式、基準露光、white point込みで規定・実装
 - [Next] CPU Reference executorへexposure、RGB sensitometry、output transformを接続
 - [Next] 選択camera formatでStill／Videoを撮影し、寸法、FPS、orientation、color metadataを検証
