@@ -1,6 +1,6 @@
 # Apple Camera Backend
 
-更新日: 2026-08-20  
+更新日: 2026-08-24
 対象: macOS / iOS  
 実装: `crates/camera-apple`
 
@@ -25,9 +25,12 @@
 - [Done] session開始後のactive resolution／FPSを取得し、Tauri IPCから撮影UIへ反映
 - [Done] format単位のresolution／FPS組合せを列挙し、選択値を`activeFormat`とframe durationへ明示適用
 - [Done] 録画中のformat変更をnative stateで拒否し、UIも選択controlを無効化
-- [Next] 選択formatを設定として永続化し、次回session開始時に復元
+- [Done] 選択formatをdevice別JSONへ原子的に保存し、次回session開始時に復元
+- [Done] JPEG／QuickTime保存後probeと選択format照合を`CapturedAsset`へ統合
+- [Done] 1280×720／24 FPSでJPEG StillとH.264＋AAC MOVを実機検証
+- [Done] Video開始時のPhotoOutput切離しとVideo→Still時の再接続
 - [Next] RAW photo format、HDR／LOG color spaceをformat単位で能力モデルへ追加
-- [Next] photo connectionのrotation／orientationをUI・端末姿勢と同期
+- [Next] photo／video connectionのrotation／orientationをUI・端末姿勢と同期
 - [Next] JPEG／HEIF／RAW選択、保存先選択、オリジナル＋処理済みasset管理
 - [Next] video connectionのrotation／orientation、codec、container、bitrate、audio channelを能力値と設定へ接続
 - [Next] window close、sleep、background、device切断時のsession終了／復旧をイベント駆動にする
@@ -61,9 +64,11 @@ AppleCameraBackend
   ├─ AVCaptureDeviceDiscoverySession
   └─ AVCaptureSession
       ├─ AVCaptureVideoPreviewLayer → NSView
-      ├─ AVCapturePhotoOutput → delegate → atomic file write
+      ├─ AVCapturePhotoOutput → delegate → incomplete JPEG
       └─ AVCaptureMovieFileOutput + microphone input
-           → recording delegate → finalized MOV
+           → recording delegate → incomplete MOV
+              ↓ camera-core JPEG / ISO BMFF probe
+           validated CapturedAsset → atomic finalize
 ```
 
 `CameraController`はアプリ状態機械、`AppleCaptureSession`はAVFoundation lifecycleの正本である。start／stopはblocking workerで実行し、`operation_lock`で直列化する。NSViewとpreview layerのattach／resize／detachは`MainThreadMarker`を要求する。この条件を根拠にAVFoundation objectへ`Send + Sync`を付与しているため、新しいsession mutationを追加するときは必ず同じ直列化または専用serial queueへ載せること。
@@ -117,14 +122,27 @@ stop_camera_preview()
 }
 ```
 
-`apply_camera_format({ "width": 1280, "height": 720, "fps": 24 })`はPreviewing状態でのみ受け付ける。Apple backendは該当する`AVCaptureDeviceFormat`を選び、23.976／29.97／59.94のようなdevice実値へ許容差内でclampしてmin／max frame durationを固定する。sessionが`AVCaptureSessionPresetInputPriority`を受理する場合だけ同presetへ移行し、macOSで受理しないoutput構成ではconfiguration transactionを開かずdeviceの`activeFormat`を直接更新する。録画中はformatを変更しない。
+`apply_camera_format({ "width": 1280, "height": 720, "fps": 24 })`はPreviewing状態でのみ受け付ける。Apple backendは該当する`AVCaptureDeviceFormat`を選び、23.976／29.97／59.94のようなdevice実値へ許容差内でclampしてmin／max frame durationを固定する。標準解像度では対応するsession presetを使い、その他は`AVCaptureSessionPresetInputPriority`が受理された場合だけ使用する。preset transactionをcommitしてからdevice `activeFormat`を最終適用し、録画中はformatを変更しない。
 
-`capture_photo()`はStill modeかつPreviewing状態でのみ受け付け、次を返す。
+選択値は`Application Support/app.universalfilm.camera/settings/camera-format-v1.json`へstable device ID単位で保存する。保存は`.partial`へflush後renameし、壊れたJSONや未知schemaを推測復旧しない。session開始時の復元に失敗した場合はcamera defaultで継続し、`settings_warning`を返す。
+
+`capture_photo()`はStill modeかつPreviewing状態でのみ受け付け、共通`CapturedAsset`を返す。以下は主要fieldの抜粋である。
 
 ```json
 {
-  "path": "/.../Application Support/app.universalfilm.camera/captures/UFC-....jpg",
-  "media_type": "photo"
+  "schema_version": 1,
+  "id": "UFC-...",
+  "media_type": "photo",
+  "state": "finalized",
+  "original": {
+    "path": "/.../captures/UFC-....jpg",
+    "container": "jpeg",
+    "pixel_width": 1280,
+    "pixel_height": 720,
+    "orientation": 1,
+    "color": { "embedded_profile": "srgb_exif" }
+  },
+  "validation": { "status": "passed", "checks": [] }
 }
 ```
 
@@ -139,16 +157,28 @@ start_video_recording()
 stop_video_recording()
 ```
 
-`start_video_recording`はVideo modeかつPreviewingかつmicrophone許可済みの場合だけ受け付け、`Previewing → Recording`へ遷移する。`stop_video_recording`は`Recording → Stopping`の後、AVFoundationの最終recording delegateを待ってから`.incomplete/UFC-....mov`を`captures/UFC-....mov`へrenameし、次を返す。
+`start_video_recording`はVideo modeかつPreviewingかつmicrophone許可済みの場合だけ受け付け、`Previewing → Recording`へ遷移する。Video開始前にPhotoOutputを外して標準session presetとactive formatを再適用する。`stop_video_recording`は`Recording → Stopping`の後、AVFoundationの最終recording delegateを待ち、MOV probe合格後に`.incomplete/UFC-....mov`を`captures/UFC-....mov`へrenameして共通`CapturedAsset`を返す。
 
 ```json
 {
-  "path": "/.../Application Support/app.universalfilm.camera/captures/UFC-....mov",
-  "media_type": "video"
+  "schema_version": 1,
+  "media_type": "video",
+  "state": "finalized",
+  "original": {
+    "path": "/.../captures/UFC-....mov",
+    "container": "quicktime",
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "pixel_width": 1280,
+    "pixel_height": 720,
+    "frame_rate": { "numerator": 100000, "denominator": 4167 }
+  }
 }
 ```
 
 停止commandを呼んだ時点ではcontainerの確定は保証されない。`didFinishRecording`相当のdelegate完了を受け取るまで完成assetを公開しない。停止またはfinalize失敗時はcamera stateを`Failed`へ移し、`Stopping`のまま残さない。
+
+保存後probeのfield、failure policy、diagnosticは[`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)を正本とする。
 
 ## 権限とローカライズ
 
@@ -211,6 +241,10 @@ find "target/debug/bundle/macos/Universal Film Camera.app/Contents/Resources" -n
 5. 日本語／简体中文のOSでpermission文言が対応言語になる
 
 2026-08-20のformat切替実機検証では、内蔵cameraの初期1920 × 1080／30 FPSから1280 × 720／24 FPSを選択した。`InputPriority`を受理しないmacOS session構成を検出したためdevice直結fallbackを追加し、適用後の`activeFormat`、FPS parameter、format summaryがすべて1280 × 720／24 FPSへ同期することを確認した。Computer Useによる画面検証で初回実装の拒否エラーを捕捉し、このplatform差を実装とADRへ反映した。
+
+2026-08-24の保存後validationでは、上記UI／active formatが720p／24 FPSでも、PhotoOutputとMovieFileOutputの同時接続中はMOVが1920 × 1080／約30 FPSへ戻ることを検出した。途中の明示output settingsでは720 × 720への再交渉も検出した。いずれもprobeが`pixel_dimensions`不一致として完成公開を拒否した。
+
+Video開始前にPhotoOutputを外し、`AVCaptureSessionPreset1280x720`をcommit後にdevice active formatを最終適用する構成へ変更した。再検証MOVはH.264 1280 × 720、平均`100000/4167`（約23.998 FPS）、BT.709、AAC 16 kHz monoで合格した。アプリ再起動後の1280 × 720／24 FPS復元と、Video後にPhotoOutputを戻したJPEG 1280 × 720も合格した。audio sample rateが以前の48 kHzから16 kHzへ変わることを確認しており、audio formatを固定能力値として扱ってはいけない。
 
 2026-08-18のスチル実機検証では132,810 bytesのJPEGを保存し、`file`と`sips`で1920 × 1080、Exif container、sRGB IEC61966-2.1を確認した。通常landscapeのためorientation tagはnilであり、回転角の明示設定とportrait検証は未完了。テスト画像の内容はdocsへ収録しない。
 

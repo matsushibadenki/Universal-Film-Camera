@@ -1,0 +1,33 @@
+{
+  "$schema": "../../docs/schemas/development-profile-v1.schema.json",
+  "schema_version": 1,
+  "profile_version": "1.0.0",
+  "id": "org.universal-imaging.synthetic-neutral-raw-development",
+  "kind": "development",
+  "manufacturer": "Universal Imaging Project",
+  "model": "Synthetic Neutral RAW Development",
+  "license": "CC0-1.0",
+  "created_at": "2026-08-23T00:00:00Z",
+  "provenance": {
+    "quality": "synthetic",
+    "source_type": "project_generated",
+    "source_reference": "synthetic-raw-development-v1",
+    "measurement_method": null,
+    "measured_by": null
+  },
+  "references": [
+    {
+      "profile_id": "reference-bayer-sensor",
+      "expected_kind": "digital_sensor"
+    }
+  ],
+  "data": {
+    "development_type": "digital_raw",
+    "process_name": "Synthetic Neutral RAW",
+    "push_pull_stops": { "min": -5.0, "max": 5.0 },
+    "contrast_scale": 1.0,
+    "reference_temperature_celsius": null,
+    "reference_time_seconds": null,
+    "output_working_color_space": "aces_cg"
+  }
+}

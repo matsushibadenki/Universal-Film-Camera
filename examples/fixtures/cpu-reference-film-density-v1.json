@@ -1,0 +1,20 @@
+{
+  "fixture_version": 1,
+  "description": "Synthetic ACEScg neutral exposure sweep through virtual exposure, PCHIP sensitometry, and normal reference development",
+  "film_profile_id": "org.universal-imaging.synthetic-color-negative-500",
+  "development_profile_id": "org.universal-imaging.synthetic-ecn2-development",
+  "adapter": {
+    "reference_scene_linear": 0.18,
+    "reference_log_exposure": -1.0,
+    "exposure_compensation_ev": 0.0,
+    "minimum_scene_linear": 0.000001,
+    "negative_policy": "reject"
+  },
+  "samples": [
+    { "scene_linear": 0.00018, "alpha": 0.0, "expected_density": [0.1, 0.09, 0.08], "expected_display_linear": [0.0450074, 0.0450074, 0.0450074] },
+    { "scene_linear": 0.0018, "alpha": 0.25, "expected_density": [0.2566406, 0.2371314, 0.2240132], "expected_display_linear": [0.3341761, 0.3194366, 0.3145326] },
+    { "scene_linear": 0.018, "alpha": 0.5, "expected_density": [0.55, 0.52, 0.5], "expected_display_linear": [0.6611558, 0.6451866, 0.6369219] },
+    { "scene_linear": 0.18, "alpha": 0.75, "expected_density": [1.0183594, 0.9778686, 0.9459868], "expected_display_linear": [0.8847501, 0.8763679, 0.8699791] },
+    { "scene_linear": 1.8, "alpha": 1.0, "expected_density": [1.7, 1.65, 1.6], "expected_display_linear": [0.9760117, 0.9736973, 0.9711597] }
+  ]
+}

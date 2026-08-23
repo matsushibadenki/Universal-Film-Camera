@@ -25,9 +25,31 @@ type PreviewViewport = { x: number; y: number; width: number; height: number };
 type PreviewStatus = {
   running: boolean;
   device_id: string;
-  active_format: { width: number; height: number; fps: number } | null;
+  active_format: PreviewFormat | null;
+  format_restored: boolean;
+  settings_warning: string | null;
 };
-type CaptureAsset = { path: string; media_type: "photo" | "video" };
+type PreviewFormat = {
+  width: number;
+  height: number;
+  fps: number;
+  settings_persisted: boolean;
+  settings_warning: string | null;
+};
+type CaptureAsset = {
+  schema_version: number;
+  id: string;
+  media_type: "photo" | "video";
+  state: "incomplete" | "finalized" | "failed";
+  original: {
+    path: string;
+    pixel_width: number;
+    pixel_height: number;
+    frame_rate: { numerator: number; denominator: number } | null;
+    duration_ms: number | null;
+  };
+  validation: { status: "passed" | "warning" | "failed" };
+};
 
 type Copy = {
   photo: string;
@@ -66,6 +88,8 @@ type Copy = {
   format: string;
   apply: string;
   formatFailed: string;
+  formatPersistenceFailed: string;
+  assetMetadataWarning: string;
 };
 
 const copy: Record<Locale, Copy> = {
@@ -81,7 +105,9 @@ const copy: Record<Locale, Copy> = {
     restricted: "Camera access is restricted on this device.", unavailable: "Camera backend is unavailable on this platform.",
     noDevice: "No camera device was detected.", detected: "CAMERA DETECTED", previewPending: "Native preview is ready to start.",
     previewStarting: "Starting native preview…", previewFailed: "Native preview could not be started.",
-    format: "Format", apply: "Apply", formatFailed: "Format change failed"
+    format: "Format", apply: "Apply", formatFailed: "Format change failed",
+    formatPersistenceFailed: "Format applied, but the setting could not be saved",
+    assetMetadataWarning: "saved with a metadata warning"
   },
   ja: {
     photo: "写真", video: "動画", camera: "カメラ", noSignal: "カメラ信号なし",
@@ -95,7 +121,9 @@ const copy: Record<Locale, Copy> = {
     restricted: "このデバイスではカメラへのアクセスが制限されています。", unavailable: "このプラットフォームではカメラバックエンドを利用できません。",
     noDevice: "カメラデバイスが見つかりません。", detected: "カメラ検出済み", previewPending: "ネイティブプレビューを開始できます。",
     previewStarting: "ネイティブプレビューを開始しています…", previewFailed: "ネイティブプレビューを開始できませんでした。",
-    format: "フォーマット", apply: "適用", formatFailed: "フォーマット変更に失敗しました"
+    format: "フォーマット", apply: "適用", formatFailed: "フォーマット変更に失敗しました",
+    formatPersistenceFailed: "フォーマットは適用されましたが、設定を保存できませんでした",
+    assetMetadataWarning: "メタデータ警告付きで保存しました"
   },
   "zh-CN": {
     photo: "照片", video: "视频", camera: "相机", noSignal: "无相机信号",
@@ -109,7 +137,9 @@ const copy: Record<Locale, Copy> = {
     unavailable: "此平台无法使用相机后端。", noDevice: "未检测到相机设备。",
     detected: "已检测到相机", previewPending: "可以启动原生预览。",
     previewStarting: "正在启动原生预览…", previewFailed: "无法启动原生预览。",
-    format: "格式", apply: "应用", formatFailed: "格式更改失败"
+    format: "格式", apply: "应用", formatFailed: "格式更改失败",
+    formatPersistenceFailed: "格式已应用，但无法保存设置",
+    assetMetadataWarning: "已保存，但存在元数据警告"
   }
 };
 
@@ -362,6 +392,11 @@ async function startNativePreview(result: CameraDiscovery): Promise<void> {
     nativePreviewRunning = status.running;
     activeDeviceId = status.device_id;
     applyActiveFormat(status.active_format);
+    if (status.settings_warning) {
+      feedback.textContent = `${t.formatPersistenceFailed}: ${status.settings_warning}`;
+      feedback.classList.add("is-visible");
+      window.setTimeout(() => feedback.classList.remove("is-visible"), 5000);
+    }
     document.body.classList.toggle("has-native-preview", status.running);
     captureButton.disabled = !status.running || mode === "video";
   } catch (error) {
@@ -494,6 +529,7 @@ function stopRecording(): void {
 
 async function selectMode(nextMode: CameraMode): Promise<void> {
   if (recording) return;
+  captureButton.disabled = true;
   mode = nextMode;
   document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
     const active = button.dataset.mode === mode;
@@ -502,6 +538,7 @@ async function selectMode(nextMode: CameraMode): Promise<void> {
   });
   captureButton.classList.toggle("is-video", mode === "video");
   captureButton.setAttribute("aria-label", mode === "video" ? t.record : t.capture);
+  try { await invoke("select_camera_mode", { mode }); } catch { /* Browser preview has no Tauri IPC. */ }
   if (mode === "video") {
     try {
       microphoneAuthorization = await invoke<CameraAuthorization>("get_microphone_authorization");
@@ -523,7 +560,6 @@ async function selectMode(nextMode: CameraMode): Promise<void> {
     }
   }
   captureButton.disabled = !nativePreviewRunning || (mode === "video" && microphoneAuthorization !== "authorized");
-  try { await invoke("select_camera_mode", { mode }); } catch { /* Browser preview has no Tauri IPC. */ }
 }
 
 document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
@@ -562,13 +598,17 @@ formatApply.addEventListener("click", async () => {
   formatApply.dataset.state = "loading";
   formatStatus.textContent = "";
   try {
-    const active = await invoke<NonNullable<PreviewStatus["active_format"]>>("apply_camera_format", {
+    const active = await invoke<PreviewFormat>("apply_camera_format", {
       width: format.width,
       height: format.height,
       fps
     });
     applyActiveFormat(active);
-    formatPanel.hidden = true;
+    if (active.settings_persisted) {
+      formatPanel.hidden = true;
+    } else {
+      formatStatus.textContent = `${t.formatPersistenceFailed}: ${active.settings_warning ?? "unknown"}`;
+    }
     window.requestAnimationFrame(syncNativePreviewFrame);
   } catch (error) {
     formatApply.dataset.state = "error";
@@ -624,11 +664,14 @@ captureButton.addEventListener("click", async () => {
       const asset = await invoke<CaptureAsset>("stop_video_recording");
       stopRecording();
       captureButton.dataset.state = "success";
-      feedback.textContent = `${t.videoSaved} · ${asset.path.split("/").pop() ?? asset.path}`;
+      const path = asset.original.path;
+      const warning = asset.validation.status === "warning" ? ` · ${t.assetMetadataWarning}` : "";
+      feedback.textContent = `${t.videoSaved} · ${path.split("/").pop() ?? path}${warning}`;
     } catch (error) {
       if (recording) stopRecording();
       captureButton.dataset.state = "error";
       feedback.textContent = `${t.recordingFailed}: ${String(error)}`;
+      captureButton.setAttribute("aria-label", feedback.textContent);
     }
     feedback.classList.add("is-visible");
     window.setTimeout(() => {
@@ -643,10 +686,13 @@ captureButton.addEventListener("click", async () => {
   try {
     const asset = await invoke<CaptureAsset>("capture_photo");
     captureButton.dataset.state = "success";
-    feedback.textContent = `${t.captured} · ${asset.path.split("/").pop() ?? asset.path}`;
+    const path = asset.original.path;
+    const warning = asset.validation.status === "warning" ? ` · ${t.assetMetadataWarning}` : "";
+    feedback.textContent = `${t.captured} · ${path.split("/").pop() ?? path}${warning}`;
   } catch (error) {
     captureButton.dataset.state = "error";
     feedback.textContent = `${t.captureFailed}: ${String(error)}`;
+    captureButton.setAttribute("aria-label", feedback.textContent);
   }
   feedback.classList.add("is-visible");
   window.setTimeout(() => {

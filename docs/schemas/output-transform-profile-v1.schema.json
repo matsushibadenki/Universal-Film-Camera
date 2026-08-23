@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-imaging.local/schemas/output-transform-profile-v1.schema.json",
+  "title": "Universal Imaging Output Transform Profile v1",
+  "allOf": [
+    { "$ref": "profile-common-v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "output_transform" },
+        "data": { "$ref": "#/$defs/outputTransformData" }
+      }
+    }
+  ],
+  "$defs": {
+    "outputTransformData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_color_space", "output_encoding", "output_transfer_function", "method", "transform_id", "peak_luminance_nits", "tone_mapping"],
+      "properties": {
+        "input_color_space": { "const": "aces_cg" },
+        "output_encoding": { "enum": ["rec709", "srgb", "display_p3", "rec2020_pq", "rec2020_hlg", "custom"] },
+        "output_transfer_function": { "enum": ["srgb", "rec709", "pq", "hlg"] },
+        "method": { "enum": ["aces_odt", "matrix_tone_curve", "ocio"] },
+        "transform_id": { "type": "string", "minLength": 1 },
+        "peak_luminance_nits": { "type": "number", "exclusiveMinimum": 0 },
+        "tone_mapping": { "enum": ["none", "aces", "perceptual"] },
+        "custom_output_profile_id": { "type": ["string", "null"], "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "output_encoding": { "const": "custom" } }, "required": ["output_encoding"] },
+          "then": { "required": ["custom_output_profile_id"] },
+          "else": { "properties": { "custom_output_profile_id": { "type": "null" } } }
+        }
+      ]
+    }
+  }
+}

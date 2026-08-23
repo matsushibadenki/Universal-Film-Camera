@@ -4,6 +4,9 @@ use media_core::VideoFrame;
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fmt, path::PathBuf};
 
+mod asset;
+pub use asset::*;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CameraMode {
@@ -84,13 +87,9 @@ pub struct CameraConfig {
     pub audio_enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CaptureResult {
-    pub path: PathBuf,
-    pub media_type: CapturedMediaType,
-}
+pub type CaptureResult = CapturedAsset;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CapturedMediaType {
     Photo,

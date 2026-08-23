@@ -1,0 +1,33 @@
+{
+  "$schema": "../../docs/schemas/development-profile-v1.schema.json",
+  "schema_version": 1,
+  "profile_version": "1.0.0",
+  "id": "org.universal-imaging.synthetic-ecn2-development",
+  "kind": "development",
+  "manufacturer": "Universal Imaging Project",
+  "model": "Synthetic ECN-2 Reference Development",
+  "license": "CC0-1.0",
+  "created_at": "2026-08-23T00:00:00Z",
+  "provenance": {
+    "quality": "synthetic",
+    "source_type": "project_generated",
+    "source_reference": "synthetic-development-v1",
+    "measurement_method": null,
+    "measured_by": null
+  },
+  "references": [
+    {
+      "profile_id": "org.universal-imaging.synthetic-color-negative-500",
+      "expected_kind": "film"
+    }
+  ],
+  "data": {
+    "development_type": "chemical",
+    "process_name": "Synthetic ECN-2",
+    "push_pull_stops": { "min": -2.0, "max": 2.0 },
+    "contrast_scale": 1.0,
+    "reference_temperature_celsius": 41.1,
+    "reference_time_seconds": 180.0,
+    "output_working_color_space": null
+  }
+}

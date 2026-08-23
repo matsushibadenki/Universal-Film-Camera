@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-imaging.local/schemas/development-profile-v1.schema.json",
+  "title": "Universal Imaging Development Profile v1",
+  "allOf": [
+    { "$ref": "profile-common-v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "development" },
+        "data": { "$ref": "#/$defs/developmentData" }
+      }
+    }
+  ],
+  "$defs": {
+    "developmentData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["development_type", "process_name", "push_pull_stops", "contrast_scale"],
+      "properties": {
+        "development_type": { "enum": ["chemical", "digital_raw"] },
+        "process_name": { "type": "string", "minLength": 1 },
+        "push_pull_stops": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "number", "maximum": 0 },
+            "max": { "type": "number", "minimum": 0 }
+          }
+        },
+        "contrast_scale": { "type": "number", "exclusiveMinimum": 0 },
+        "reference_temperature_celsius": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+        "reference_time_seconds": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+        "output_working_color_space": {
+          "enum": ["aces2065", "aces_cg", "linear_rec2020", "linear_p3", null]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "development_type": { "const": "chemical" } }, "required": ["development_type"] },
+          "then": {
+            "required": ["reference_temperature_celsius", "reference_time_seconds"],
+            "properties": { "output_working_color_space": { "type": "null" } }
+          },
+          "else": {
+            "required": ["output_working_color_space"],
+            "properties": {
+              "reference_temperature_celsius": { "type": "null" },
+              "reference_time_seconds": { "type": "null" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

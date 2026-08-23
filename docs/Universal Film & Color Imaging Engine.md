@@ -5,7 +5,7 @@
 
 Version: 0.2  
 Status: Active design specification  
-Updated: 2026-08-22  
+Updated: 2026-08-23
 Target: macOS / Windows / Linux / iOS / Android  
 Core Language: Rust
 
@@ -799,6 +799,8 @@ Scene Light
 ```
 
 既存のデジタル画像、動画、AI生成画像へFilmを適用する場合は、入力encodingからscene-linear ACEScgへ明示変換した後、`scene_linear → virtual_exposure` adapterを通してFilm emulation subgraphへ接続する。scene-linearをscene lightやfilm exposureへ暗黙に読み替えてはいけない。
+
+RGB adapterはチャンネル`c`について`log10(H_c) = log10(H_ref) + log10(max(C_c, C_floor) / C_ref) + EV × log10(2)`を使用する。`C_ref`は通常0.18だが、18% grayだけでは絶対的なlux·sは決まらない。`log10(H_ref)`をfilm／metering／測定fixtureごとの校正値として保存し、black floorと負値方針も明示する。これはRGB emulation用の近似であり、分光放射量を積分するSpectral／Physical Modeの代替ではない。詳細契約は [`VIRTUAL_EXPOSURE_ADAPTER.md`](VIRTUAL_EXPOSURE_ADAPTER.md) を正本とする。
 
 各nodeは`SignalDomain`を宣言し、隣接nodeのoutputとinputが一致しないPipelineは実行前に拒否する。現在の正規domainは`scene_light`、`optical_image`、`film_latent_image`、`film_density`、`sensor_raw`、`scene_linear`、`display_linear`、`display_encoded`である。
 
@@ -2064,15 +2066,18 @@ Phase 1 — 共通契約：
 [Done] imaging-core signal domains and Film/Digital pipeline validation
 [Done] camera-core state/capability/session boundary
 [Done] common profile metadata, JSON Schema, loader, and Catalog reference validation
-[Next] scene_linear → virtual_exposure adapter
+[Done] scene_linear → virtual_exposure adapter and calibrated mapping fixture
 ```
 
 Phase 2 — Reference renderer：
 
 ```text
 [Done] film-core renderer boundary and FilmRecipe type
-[Next] scene-linear exposure and RGB sensitometry CPU executor
-[Next] deterministic reference fixtures
+[Done] scene-linear exposure and PCHIP RGB sensitometry CPU executor
+[Done] deterministic interpolation, extrapolation, negative-input, and alpha unit fixtures
+[Done] golden exposure sweep and minimal matrix output transform fixture
+[Done] explicit synthetic print response and display encoding
+[Later] measured print response and calibrated ColorChecker fixture after dataset selection
 [Later] spectral reference renderer
 ```
 
@@ -2394,9 +2399,17 @@ Still acceptanceではdecode可能、寸法、orientation、embedded color descr
 - [Done] Profile共通JSON Schemaとloaderを実装し、validation errorにJSON pathを追加
 - [Done] Film kindのdata Schema、typed payload、sensitometry curve validatorを実装
 - [Done] Lens／Digital Sensor kindのSchema、typed payload、物理値validatorを実装
-- [Next] Development／Print／Display／Output Transform kindとrender snapshotを実装
-- [Next] `scene_linear → virtual_exposure` adapterを数式、基準露光、white point込みで規定・実装
-- [Next] CPU Reference executorへexposure、RGB sensitometry、output transformを接続
-- [Next] 選択camera formatでStill／Videoを撮影し、寸法、FPS、orientation、color metadataを検証
+- [Done] `scene_linear → virtual_exposure` adapterを数式、基準露光、black floor、負値方針込みで実装
+- [Done] CPU Reference executorへvirtual exposure、linear／PCHIP RGB sensitometry、alpha保持を接続
+- [Done] Development／Print／Display／Output Transform kindのtyped payloadとSchemaを実装
+- [Done] directory loader、Profile closure解決、content hash付きrender snapshotを実装
+- [Done] explicit major-step Profile schema migration registryを実装
+- [Done] CPU Reference executorへnormal developmentと最小matrix output transformを接続
+- [Done] explicit synthetic Print responseをFilm Density→Display Linearへ接続
+- [Done] Still／Video共通`CapturedAsset`と保存後JPEG／QuickTime probeを実装
+- [Done] device別format永続化、1280×720／24 FPSのStill／Video実機validation
+- [Later] 測定dataset確定後にmeasured Print responseとColorChecker fixtureを追加
+- [Next] capture connectionのorientation／rotation同期とportrait／mirror実機case
+- [Next] CapturedAsset derivativeへrender snapshotと再現情報を保存
 - [Later] wgpu renderer、OCIO adapter、LUT compiler、GPU conformance runner
 - [Later] Spectral Engine、profile measurement、Film Profile Editor

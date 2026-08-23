@@ -141,3 +141,67 @@ Status: Accepted (2026-08-22)
 Lens Profile v1は焦点距離とF-numberを正の数値範囲として保持し、prime lensも`min = max`で表現する。UI向けの「標準」「望遠」などの名称を物理contractにしない。Anamorphic squeezeはanamorphic lensだけに許可し、spherical lensへ暗黙defaultを設定しない。
 
 Digital Sensor Profile v1はactive pixel寸法と物理寸法、native bit depth、CFA、black／white level、base ISOとISO範囲を分離する。white levelはnative code range内、base ISOは宣言範囲内でなければならない。分光感度は任意だが、存在する場合は360–830 nmのstrictな昇順sampleと非負responseを要求し、波長点を自動sortしない。
+
+## ADR-021: Virtual exposure is an explicit calibrated RGB adapter
+
+Status: Accepted (2026-08-23)
+
+既存素材のscene-linear ACEScgは、`virtual_exposure` nodeでのみFilm sensitometry用のRGB `log10(lux·s)`へ接続する。version 1は18% neutral grayを通常の相対anchorとし、`reference_log_exposure`、EV補正、正のblack floor、負値のclamp／reject方針をPipelineへ明示保存する。18% grayから絶対露光を推測しない。
+
+このadapterはRGB Film Emulation用の校正近似であり、scene radiance、レンズ透過、photometric weighting、film spectral sensitivityの物理積分を表すものではない。Spectral／Physical Modeは別adapterとして実装する。ACEScg以外のworking space、非有限値、不正な基準値は実行前に拒否する。数式と受け入れ条件は [`VIRTUAL_EXPOSURE_ADAPTER.md`](VIRTUAL_EXPOSURE_ADAPTER.md) を正本とする。
+
+## ADR-022: CPU Film rendering belongs to film-core and returns a density-domain type
+
+Status: Accepted (2026-08-23)
+
+Pipeline記述、Profile、SignalDomainを所有する`imaging-core`はrendererへ依存させない。CPU画素処理は専門rendererの`film-core`へ置き、`film-core → imaging-core`の一方向依存とする。
+
+scene-linear入力には既存の`LinearImage`を使うが、sensitometry後のRGBは色値ではなくlog10 optical densityであるため、ACEScg `FrameDescriptor`を持つ同じ型へ上書きしない。width、height、density RGBAを持つ`FilmDensityImage`として返す。straight alphaはFilm演算の対象外として保持する。補間、範囲外処理、error条件は [`CPU_REFERENCE_FILM_EXECUTOR.md`](CPU_REFERENCE_FILM_EXECUTOR.md) を正本とする。
+
+## ADR-023: Finishing profiles encode domain and display constraints before rendering
+
+Status: Accepted (2026-08-23)
+
+Development、Print、Display、Output Transformは共通Envelopeの任意JSONとして扱わず、schema version 1のtyped payloadとしてrender前に検証する。ChemicalとDigital RAWの必須条件、Print種別とSignalDomain、Display xy／transfer／luminance、Output encodingとtransferの組合せを不変条件にする。
+
+Profile artifactの存在はrenderer完成を意味しない。現在のexamplesはすべてsynthetic provenanceであり、正式なECN-2、ACES ODT、測定済みRec.709 monitorの再現とは表現しない。詳細contractと未実装範囲は [`FINISHING_PROFILES.md`](FINISHING_PROFILES.md) を正本とする。
+
+## ADR-024: Render snapshots hash the enabled Pipeline and selected Profile closure
+
+Status: Accepted (2026-08-23)
+
+render snapshotはCatalog全体ではなく、有効Pipeline nodeが直接参照するProfileと、その`references`の推移closureだけを含む。disabled nodeと無関係なProfileを含めず、ID順へ正規化する。Pipeline、各Profile、snapshot payloadをSHA-256で個別に固定し、Profile version据え置きの内容変更も検出する。
+
+hashは検証済みRust型の決定論的JSONから計算し、元fileの空白やobject key順には依存しない。未知same-major extensionは再現対象なのでhashへ含む。SHA-256を作成者署名やtrustの代替には使わない。loaderとhashの詳細は [`PROFILE_DIRECTORY_AND_SNAPSHOT.md`](PROFILE_DIRECTORY_AND_SNAPSHOT.md) を正本とする。
+
+## ADR-025: Minimal CPU output is a matrix transform, not a synthetic ACES ODT
+
+Status: Accepted (2026-08-23)
+
+最初のCPU Output Transformは`matrix_tone_curve`かつtone mapping `none`に限定する。ACEScg AP1／D60からDisplay Profileのprimaries／whiteへRGB–XYZ行列とBradford adaptationで変換し、display gamut clamp後に宣言transferを適用する。straight alphaは演算対象外とする。
+
+`aces_odt`、`ocio`、ACES／perceptual tone mappingは、正式transformまたは依存runtimeが接続されるまで拒否する。実装していないlookを合成近似で同じ名称にしない。Chemical Developmentも測定push／pull curveがないためnormal 0 stopだけを処理する。詳細とgolden fixtureは [`CPU_REFERENCE_FINISHING.md`](CPU_REFERENCE_FINISHING.md) を正本とする。
+
+## ADR-026: The first Print renderer is explicitly synthetic and versioned
+
+Status: Accepted (2026-08-23)
+
+測定済みprint sensitometryがない状態で、一般的なphotochemical responseを暗黙に推測しない。最初のFilm Density→Display Linear縦切りは`inverse_density_preview_v1`というversioned synthetic response modelをProfileへ必須記録し、base density、contrast、printer exposureから単調なpreview値を生成する。
+
+`measured_curve`と`digital_transform`は別modelとして予約し、対応dataとrendererができるまで実行を拒否する。合成modelの出力を実print film、paper、printer lightの測定再現と表現してはいけない。数式と適用範囲は [`CPU_REFERENCE_FINISHING.md`](CPU_REFERENCE_FINISHING.md) を正本とする。
+
+## ADR-027: Profile migrations are explicit trusted major-version steps
+
+Status: Accepted (2026-08-23)
+
+Profile migrationは`from N → N+1`ごとの名前付きcompiled functionだけを実行する。missing step、duplicate source step、future schema、宣言と異なる出力versionは拒否し、近いSchemaやfield名を推測しない。migration後に共通Envelopeとtyped payloadを再検証し、その最終内容をsnapshot hashへ使う。
+
+現在公開済みのlegacy Profile schemaはないためbuilt-in migrationは0件とする。合成v0→v1 stepはregistry test専用であり、製品仕様として受理しない。旧Schemaが実在した時点でbefore／after fixtureと情報損失policyを伴って追加する。詳細は [`PROFILE_MIGRATION_REGISTRY.md`](PROFILE_MIGRATION_REGISTRY.md) を正本とする。
+
+## ADR-028: A capture is finalized only after an in-process media probe
+
+Status: Accepted (2026-08-24)
+
+AVFoundation delegate完了とfile非空だけでは、UIで選択したformatが保存trackへ反映されたことを保証できない。Still／Videoは`.incomplete`へ保存し、camera-coreがJPEGまたはQuickTime／ISO BMFFを直接probeして、寸法、container、codec、FPS、duration、audio、orientation／rotation、color metadataを`CapturedAsset`へ格納する。必須check不一致のresourceは完成directoryへrenameしない。
+
+macOSではPhotoOutputとMovieFileOutputの同時接続によるformat再交渉を避けるため、Video開始時にPhotoOutputを外し、標準session presetをcommitしてからdevice active formatを最終適用する。Stillへ戻るとPhotoOutputを再接続し同じformatを再適用する。外部`ffprobe`や`mdls`はcross-checkだけに使い、製品の成功判定へ依存させない。詳細は[`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)を正本とする。

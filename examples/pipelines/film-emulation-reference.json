@@ -1,46 +1,34 @@
 {
-  "id": "film-negative-print-reference",
+  "id": "scene-linear-film-emulation-reference",
   "schema_version": 1,
   "intent": "emulation",
   "working_color_space": "aces_cg",
   "nodes": [
     {
-      "id": "scene",
+      "id": "scene-linear-input",
       "role": "observed",
       "enabled": true,
       "operation": {
         "type": "source",
         "config": {
-          "source": "scene",
-          "output_domain": "scene_light",
+          "source": "image_file",
+          "output_domain": "scene_linear",
           "profile_id": null
         }
       }
     },
     {
-      "id": "camera",
-      "role": "simulated",
+      "id": "virtual-exposure",
+      "role": "transform",
       "enabled": true,
       "operation": {
-        "type": "camera",
+        "type": "virtual_exposure",
         "config": {
-          "profile_id": "reference-cinema-camera-body",
-          "shutter_seconds": 0.0208333333,
-          "exposure_compensation_ev": 0.0
-        }
-      }
-    },
-    {
-      "id": "lens",
-      "role": "simulated",
-      "enabled": true,
-      "operation": {
-        "type": "lens",
-        "config": {
-          "profile_id": "reference-lens-50mm",
-          "focal_length_mm": 50.0,
-          "aperture_f_number": 2.0,
-          "focus_distance_m": 4.0
+          "reference_scene_linear": 0.18,
+          "reference_log_exposure": -1.0,
+          "exposure_compensation_ev": 0.0,
+          "minimum_scene_linear": 0.000001,
+          "negative_policy": "clamp_to_floor"
         }
       }
     },

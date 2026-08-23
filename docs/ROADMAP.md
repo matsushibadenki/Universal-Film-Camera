@@ -1,6 +1,6 @@
 # Universal Imaging Camera Roadmap
 
-更新日: 2026-08-22  
+更新日: 2026-08-24
 対象: macOS / iOS / Android / Windows / Linux  
 正本仕様: [`Universal Film & Color Imaging Engine.md`](Universal%20Film%20%26%20Color%20Imaging%20Engine.md)
 
@@ -18,11 +18,11 @@
 
 | 領域 | 現在の段階 | 最も近い完了条件 |
 |---|---|---|
-| macOS camera | [Done] native MVP | 選択formatでStill／Video assetを再検証 |
+| macOS camera | [Done] validated native MVP | orientation capture同期とMedia管理 |
 | Professional UI | [Done] capture-first shell | native／GPU monitoring overlayを接続 |
-| Imaging Pipeline model | [Done] schema v1 foundation | virtual exposure adapterとexecutorを追加 |
-| Profile system | [Done] common + Film／Lens／Sensor v1 | Development／Print／Display Profileを追加 |
-| Film renderer | [Next] contract only | CPU exposure＋RGB sensitometry縦切り |
+| Imaging Pipeline model | [Done] schema v1 + render snapshot | CPU finishing縦切りを追加 |
+| Profile system | [Done] typed Profiles + loader + migration registry | assetへsnapshotを保存 |
+| Film renderer | [Done] CPU synthetic finishing縦切り | measured Print／ColorCheckerを追加 |
 | GPU renderer | [Later] architecture only | wgpu texture pipelineとreference比較 |
 | Nearby sharing | [Later] transport方針確定 | CapturedAsset／Media管理後にpeer転送MVP |
 | iOS／Android | [Next] 未初期化 | Tauri mobile project、権限、native preview |
@@ -35,7 +35,7 @@
 ```text
 Profile Schema / Loader
   → Lens・Sensor・Development・Display typed Profile
-  → scene_linear → virtual_exposure adapter
+  → scene_linear → virtual_exposure adapter [Done]
   → CPU Reference executor
   → deterministic fixtures / conformance
   → GPU renderer
@@ -75,14 +75,18 @@ Selected camera format
 - [Done] Photo／Videoを同格にした中央正円capture control
 - [Done] resolution／FPS能力列挙、active format表示、1280×720／24 FPS適用
 - [Done] 録画中のmode／format変更拒否
-- [Next] 選択formatでJPEG／MOVを生成し、寸法・FPS・色metadataを検証
-- [Next] format設定の永続化とsession開始時の復元
-- [Next] Still／Video orientation、rotation、保存metadataの統一
+- [Done] 選択formatでJPEG／MOVを生成し、寸法・FPS・色metadataを保存後probeで検証
+- [Done] format設定のdevice別永続化とsession開始時の復元
+- [Done] Still／Video共通`CapturedAsset`、Incomplete→probe→Finalized公開境界
+- [Done] EXIF orientation／MOV track rotationと保存metadataの共通読出し
+- [Next] capture connectionへ端末姿勢を同期し、portrait／mirror実機caseを検証
 - [Next] HEIF／RAW、codec／container／bitrate／audio channelの能力モデル
 - [Next] window close、sleep、background、device切断時の復旧
 - [Later] `AVCaptureVideoDataOutput → CVPixelBuffer → Metal texture`
 
 詳細: [`APPLE_CAMERA_BACKEND.md`](APPLE_CAMERA_BACKEND.md)
+
+Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 
 ## Milestone 2 — Professional camera UI
 
@@ -109,8 +113,10 @@ Selected camera format
 - [Done] Sensitometryの単位、非負density、strictな露光軸、補間／外挿contract
 - [Done] Lens Profile v1 Schema、typed payload、焦点距離／絞り／image circle検証
 - [Done] Digital Sensor Profile v1 Schema、typed payload、CFA／code range／ISO／分光感度検証
-- [Next] Development／Print／Display／Output Transform Profile
-- [Next] directory loader、migration registry、content hash付きrender snapshot
+- [Done] Development／Print／Display／Output Transform Profile、Schema、synthetic examples
+- [Done] recursive directory loaderとcontent hash付きrender snapshot
+- [Done] explicit major-step schema migration registryと適用履歴
+- [Later] 実在するlegacy schema用built-in migration
 - [Later] 署名済みProfile package、registry、license enforcement
 
 詳細: [`PROFILE_SCHEMA_AND_LOADER.md`](PROFILE_SCHEMA_AND_LOADER.md)
@@ -121,11 +127,15 @@ Selected camera format
 - [Done] ACES2065-1をinterchange／archive用途へ分離
 - [Done] Film／Digital reference pipeline JSONとdomain validation test
 - [Done] CPU ReferenceとGPU Realtimeの初期誤差基準を規定
-- [Next] `scene_linear → virtual_exposure`の基準露光、white point、数式を確定
-- [Next] CPU exposure node
-- [Next] monotonic cubic RGB sensitometry evaluator
-- [Next] output transformを含む最小Reference executor
-- [Next] exposure sweep、ColorChecker、negative RGB、alpha fixture
+- [Done] `scene_linear → virtual_exposure`のACEScg／D60、18%基準、校正露光、black floor、負値方針、数式を確定
+- [Done] typed virtual exposure node、ACEScg制約、Film emulation Pipeline例、数式fixture
+- [Done] CPU Reference executorでvirtual exposure nodeを実画素bufferへ適用
+- [Done] linear／PCHIP RGB sensitometry evaluatorと全extrapolation方針
+- [Done] straight alpha保持、負値error、補間fixture
+- [Done] normal Developmentとmatrix output transformを含む最小Reference executor
+- [Done] JSON golden exposure sweep fixture
+- [Done] explicit synthetic Print responseとDisplay encoding
+- [Later] measured Print responseと校正済みColorChecker fixture（測定dataset確定後）
 - [Later] spectral sensitivity、dye density、chemical development、print response
 - [Later] Grain、Halation、MTF／PSF、Lens optical model
 
@@ -203,16 +213,25 @@ Bluetooth LE / Bonjour / Nearby discovery
 
 今回完了:
 
-- [Done] Lens Profile v1とDigital Sensor Profile v1
+- [Done] `scene_linear → virtual_exposure` adapterとFilm emulation Pipeline fixture
+- [Done] CPU virtual exposure＋RGB sensitometry Reference executor
+- [Done] Development／Print／Display／Output Transform typed Profile
+- [Done] directory loaderとSHA-256付きrender snapshot
+- [Done] normal Development、matrix Output Transform、golden exposure fixture
+- [Done] synthetic Print responseとDisplay encoding
+- [Done] explicit schema migration registry
+- [Done] device別camera format設定のatomic保存とsession再開時の復元
+- [Done] JPEG／QuickTimeを外部toolなしで検査する共通`CapturedAsset` probe
+- [Done] 1280×720／24 FPSのStill／Video保存後実機validation
+- [Done] Video出力時のPhotoOutput切替とsession preset再適用
 
 次の順序:
 
-1. [Next] `scene_linear → virtual_exposure` adapterを科学的に定義する
-2. [Next] CPU exposure＋RGB sensitometryのReference executorを実装する
-3. [Next] Development／Print／Display／Output Transform Profileを実装する
-4. [Next] 選択camera formatでStill／Video assetを再検証する
-5. [Next] orientation／rotation／metadataとformat設定永続化を実装する
-6. [Next] iOS／Android Tauri projectを初期化する
+1. [Next] capture connectionへorientation／rotationを設定しportrait／mirror caseを検証する
+2. [Next] CapturedAsset derivativeへrender snapshot／parent／engine version／seedを保存する
+3. [Next] Finalized／Incomplete／Failedを扱うMedia indexとcleanup UIを実装する
+4. [Next] iOS／Android Tauri projectを初期化する
+5. [Later] measured Print dataset確定後にresponse／ColorChecker fixtureを追加する
 
 Nearby Peer Transferは上記4–5で`CapturedAsset`とMedia管理が成立した後に着手するため、現時点では`[Later]`とする。
 
@@ -220,18 +239,22 @@ Nearby Peer Transferは上記4–5で`CapturedAsset`とMedia管理が成立し�
 
 ## Verification baseline
 
-2026-08-22時点:
+2026-08-24時点:
 
 ```text
 npm run check
   TypeScript / Vite production build: passed
-  Rust workspace tests: 17 passed, 0 failed
+  Rust workspace tests: 48 passed, 0 failed
 
 macOS native runtime
   camera preview: passed
   JPEG Still capture: passed
   H.264 + AAC MOV recording: passed
   active format 1920×1080/30 → 1280×720/24: passed
+  persisted format restore: 1280×720/24 passed
+  selected-format JPEG: 1280×720 / EXIF sRGB passed
+  selected-format MOV: H.264 1280×720 / 23.998 FPS / BT.709 + AAC mono passed
+  save-before-publish asset probe: passed
   continuous full-frame WebView IPC: none
 ```
 

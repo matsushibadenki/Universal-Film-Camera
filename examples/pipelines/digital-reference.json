@@ -69,7 +69,7 @@
         "config": {
           "process": {
             "kind": "digital_raw",
-            "profile_id": "neutral-raw-v1",
+            "profile_id": "org.universal-imaging.synthetic-neutral-raw-development",
             "exposure_ev": 0.0,
             "white_balance_kelvin": 5600,
             "tint": 0.0
@@ -83,7 +83,7 @@
       "enabled": true,
       "operation": {
         "type": "output_transform",
-        "config": { "transform_id": "aces-2-rec709" }
+        "config": { "transform_id": "org.universal-imaging.aces-rec709-output-transform" }
       }
     },
     {
@@ -93,7 +93,7 @@
       "operation": {
         "type": "display",
         "config": {
-          "profile_id": "rec709-reference-100nit",
+          "profile_id": "org.universal-imaging.reference-rec709-display",
           "peak_luminance_nits": 100.0,
           "surround": "dim"
         }

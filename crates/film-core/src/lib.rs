@@ -3,6 +3,17 @@
 use media_core::{FrameDescriptor, WorkingColorSpace};
 use serde::{Deserialize, Serialize};
 
+mod finishing;
+mod reference;
+
+pub use finishing::{
+    CpuReferenceDevelopmentExecutor, CpuReferenceDisplayEncoder, CpuReferenceOutputExecutor,
+    CpuReferencePrintExecutor, DisplayEncodedImage, DisplayLinearImage, FinishingError,
+};
+pub use reference::{
+    CpuReferenceFilmExecutor, FilmDensityImage, ReferenceRenderError, SensitometryEvaluator,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QualityLevel {

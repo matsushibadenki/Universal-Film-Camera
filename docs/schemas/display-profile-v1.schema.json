@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-imaging.local/schemas/display-profile-v1.schema.json",
+  "title": "Universal Imaging Display Profile v1",
+  "allOf": [
+    { "$ref": "profile-common-v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "display" },
+        "data": { "$ref": "#/$defs/displayData" }
+      }
+    }
+  ],
+  "$defs": {
+    "xy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 1 },
+        "y": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+      }
+    },
+    "displayData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["technology", "primaries", "transfer_function", "peak_luminance_nits", "black_luminance_nits", "surround"],
+      "properties": {
+        "technology": { "enum": ["lcd", "oled", "projector", "reference_monitor", "custom"] },
+        "primaries": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["red", "green", "blue", "white"],
+          "properties": {
+            "red": { "$ref": "#/$defs/xy" },
+            "green": { "$ref": "#/$defs/xy" },
+            "blue": { "$ref": "#/$defs/xy" },
+            "white": { "$ref": "#/$defs/xy" }
+          }
+        },
+        "transfer_function": { "enum": ["srgb", "rec709", "pq", "hlg"] },
+        "peak_luminance_nits": { "type": "number", "exclusiveMinimum": 0 },
+        "black_luminance_nits": { "type": "number", "minimum": 0 },
+        "surround": { "enum": ["dark", "dim", "average"] }
+      }
+    }
+  }
+}

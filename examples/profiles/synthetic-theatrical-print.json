@@ -1,0 +1,28 @@
+{
+  "$schema": "../../docs/schemas/print-profile-v1.schema.json",
+  "schema_version": 1,
+  "profile_version": "1.0.0",
+  "id": "org.universal-imaging.synthetic-theatrical-print",
+  "kind": "print",
+  "manufacturer": "Universal Imaging Project",
+  "model": "Synthetic Theatrical Print",
+  "license": "CC0-1.0",
+  "created_at": "2026-08-23T00:00:00Z",
+  "provenance": {
+    "quality": "synthetic",
+    "source_type": "project_generated",
+    "source_reference": "synthetic-print-v1",
+    "measurement_method": null,
+    "measured_by": null
+  },
+  "references": [],
+  "data": {
+    "print_type": "photochemical",
+    "response_model": "inverse_density_preview_v1",
+    "input_domain": "film_density",
+    "output_domain": "display_linear",
+    "exposure_offset_ev": 0.0,
+    "contrast_scale": 1.0,
+    "base_density": { "red": 0.08, "green": 0.07, "blue": 0.06 }
+  }
+}

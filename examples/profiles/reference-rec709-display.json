@@ -1,0 +1,32 @@
+{
+  "$schema": "../../docs/schemas/display-profile-v1.schema.json",
+  "schema_version": 1,
+  "profile_version": "1.0.0",
+  "id": "org.universal-imaging.reference-rec709-display",
+  "kind": "display",
+  "manufacturer": "Universal Imaging Project",
+  "model": "Synthetic Rec.709 100-nit Reference Display",
+  "license": "CC0-1.0",
+  "created_at": "2026-08-23T00:00:00Z",
+  "provenance": {
+    "quality": "synthetic",
+    "source_type": "project_generated",
+    "source_reference": "reference-display-v1",
+    "measurement_method": null,
+    "measured_by": null
+  },
+  "references": [],
+  "data": {
+    "technology": "reference_monitor",
+    "primaries": {
+      "red": { "x": 0.64, "y": 0.33 },
+      "green": { "x": 0.30, "y": 0.60 },
+      "blue": { "x": 0.15, "y": 0.06 },
+      "white": { "x": 0.3127, "y": 0.3290 }
+    },
+    "transfer_function": "rec709",
+    "peak_luminance_nits": 100.0,
+    "black_luminance_nits": 0.01,
+    "surround": "dim"
+  }
+}

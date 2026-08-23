@@ -1,6 +1,6 @@
 # Camera App Implementation Handoff
 
-更新日: 2026-08-22  
+更新日: 2026-08-23
 対象: macOS / Windows / Linux / iOS / Android  
 UIシェル: Tauri 2 + TypeScript  
 共有コア: Rust
@@ -36,11 +36,16 @@ UIシェル: Tauri 2 + TypeScript
 - [Next] 選択formatで生成したphoto／movieの寸法・FPS・metadataを再検証し、設定を永続化
 - [Next] RAW／HDR／LOGをformat単位の能力モデルへ拡張
 - [Next] still／videoのorientation、rotation、保存metadataを統一
-- [Next] CPU reference rendererの露出・RGB sensitometryとfixtureテストを追加
+- [Done] CPU Reference rendererのvirtual exposure・PCHIP RGB sensitometry・alpha保持を追加
+- [Done] CPU Referenceへnormal Development／matrix output transformとgolden fixtureを追加
+- [Done] explicit synthetic Print responseとDisplay encodingを接続
+- [Done] explicit major-step schema migration registryと適用履歴を追加
 - [Done] Profile共通metadata、JSON Schema、Rust loader、extension保持、Catalog参照検証を追加
 - [Done] Film Profile専用Schema、typed payload、sensitometry単位／curve検証を追加
 - [Done] Lens／Digital Sensor専用Schema、typed payload、物理値／CFA／分光感度検証を追加
-- [Next] Development／Print／Display Profileと`scene_linear → virtual exposure` adapterを追加
+- [Done] ACEScg `scene_linear → virtual exposure` adapter、Film emulation Pipeline例、数式fixtureを追加
+- [Done] Development／Print／Display／Output Transform typed Profile、Schema、synthetic例を追加
+- [Done] recursive directory loader、Profile closure解決、SHA-256付きrender snapshotを追加
 - [Next] Tauri mobileのiOS/Androidプロジェクトを初期化し、カメラ／マイク権限文言を追加
 - [Later] Android CameraX、Windows Media Foundation、Linux V4L2/GStreamerバックエンド
 - [Later] wgpu処理、native texture相互運用、ハードウェアエンコード、OCIO/ACESの完全実装
@@ -173,6 +178,27 @@ native runtime
 debug bundleの実機検証では、生成後の`.app`を`Entitlements.plist`付きでadhoc再署名し、LaunchServices経由で起動する。bundle内実行ファイルをCodexやterminalの子processとして直接起動すると、TCCが親processをresponsible applicationとして扱い、アプリ固有のmicrophone promptが成立しない場合がある。配布手順へadhoc運用を持ち込まず、正式な署名とnotarizationを用意すること。
 
 Windows、Linux、iOS、Androidではまだbuildしていない。CI matrixを追加するまで、各OS対応を完了扱いにしない。
+
+2026-08-24、macOS capture asset milestoneで次を追加検証した。
+
+```text
+camera format settings
+  device別JSON atomic save: passed
+  relaunch restore 1280 × 720 / 24 FPS: passed
+
+CapturedAsset probe
+  JPEG: dimensions / bit depth / EXIF orientation / sRGB
+  QuickTime: codecs / dimensions / rational FPS / duration / rotation / audio / colr
+  required mismatch remains under captures/.incomplete
+
+selected-format runtime
+  JPEG: 1280 × 720 / 8-bit / EXIF sRGB
+  MOV: H.264 1280 × 720 / 100000/4167 FPS / BT.709
+  audio: AAC / 16 kHz / mono
+  Video → Still output restoration: 1280 × 720 passed
+```
+
+AVFoundationではPhotoOutputとMovieFileOutputの同時接続がMovie出力formatを再交渉したため、Video開始前にPhotoOutputを外し、対応`AVCaptureSessionPreset`をcommit後にdevice active formatを最終適用する。Video後のStill captureではPhotoOutputを戻してformatを再適用する。この順序を崩すとUIは720pでも保存MOVが1080pまたはsquareになる。正本は[`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)と[`APPLE_CAMERA_BACKEND.md`](APPLE_CAMERA_BACKEND.md)。
 
 ## 未確定事項（実装前に決める）
 

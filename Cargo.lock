@@ -800,8 +800,10 @@ dependencies = [
 name = "film-core"
 version = "0.1.0"
 dependencies = [
+ "imaging-core",
  "media-core",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1499,9 +1501,11 @@ dependencies = [
 name = "imaging-core"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "media-core",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -3847,6 +3851,7 @@ dependencies = [
  "film-core",
  "imaging-core",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
 ]

@@ -1,7 +1,7 @@
 # Universal Imaging Pipeline Architecture
 
 Version: 0.2  
-更新日: 2026-08-22  
+更新日: 2026-08-23
 実装: `crates/imaging-core`
 
 ## 目的
@@ -105,7 +105,7 @@ SceneLight
 
 ### デジタル素材へのFilm Emulation
 
-実カメラのレンズ／センサー特性をsource metadataとして保持し、RAW decode/input transformで一度`scene_linear`へ戻す。その後にFilm Engine用のemulation subgraphを実行する。このsubgraphには、scene-linear値を仮想露光へ対応付ける明示的なadapter nodeが必要である。adapterは未実装であり、scene-linearを`scene_light`へ暗黙に読み替えてはいけない。
+実カメラのレンズ／センサー特性をsource metadataとして保持し、RAW decode/input transformで一度`scene_linear`へ戻す。その後にFilm Engine用のemulation subgraphを実行する。実装済みの`virtual_exposure` nodeがscene-linear ACEScgを校正済みRGB `log10(lux·s)`へ対応付け、`optical_image` domainとしてFilm captureへ渡す。scene-linearを`scene_light`へ暗黙に読み替えてはいけない。数式、black floor、負値方針、科学的な適用範囲は [`VIRTUAL_EXPOSURE_ADAPTER.md`](VIRTUAL_EXPOSURE_ADAPTER.md) を正本とする。
 
 ## Profile設計
 
@@ -149,9 +149,14 @@ Profile共通metadataには最低限、`id`、`schema_version`、`profile_versio
 - [Done] Profile共通metadata、JSON Schema、Rust loader、Catalog参照検証を実装
 - [Done] Film Profile data Schema／typed payloadとsensitometry curve検証を実装
 - [Done] Lens／Digital Sensor Profile Schema、typed payload、物理範囲／分光感度検証を実装
-- [Next] Development／Print／Display／Output Transformのtyped payloadとrender snapshotを実装
-- [Next] `scene_linear → virtual exposure` adapterの科学的定義を追加
-- [Next] CPU reference executorを作り、Digital chainの最小縦切りを実行
+- [Done] `scene_linear → virtual_exposure` adapter、Film emulation Pipeline例、数式fixtureを実装
+- [Done] CPU Reference executorでvirtual exposureとRGB sensitometryを実画素bufferへ接続
+- [Done] Development／Print／Display／Output Transformのtyped payload、Schema、synthetic例を実装
+- [Done] directory loader、Profile closure解決、content hash付きrender snapshotを実装
+- [Done] CPU Referenceへnormal Development／matrix output transformとgolden fixtureを追加
+- [Done] explicit synthetic Print responseをFilm Density→Display Linearへ接続
+- [Done] explicit major-step schema migration registryを追加
+- [Later] measured Print dataset確定後にresponseを追加
 - [Later] Lens、Sensor、Development、Print、Displayを個別crateへ分離
 - [Later] linear sequenceをtyped-port DAGへ拡張
 - [Later] wgpu schedulerでnode fusion、texture lifetime、zero-copyを最適化

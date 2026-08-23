@@ -40,9 +40,10 @@ mod platform {
         AVCaptureDeviceTypeExternalUnknown, AVCaptureExposureMode, AVCaptureFileOutput,
         AVCaptureFileOutputRecordingDelegate, AVCaptureFocusMode, AVCaptureMovieFileOutput,
         AVCapturePhoto, AVCapturePhotoCaptureDelegate, AVCapturePhotoOutput,
-        AVCapturePhotoSettings, AVCaptureSession, AVCaptureSessionPresetInputPriority,
-        AVCaptureVideoPreviewLayer, AVLayerVideoGravityResizeAspectFill, AVMediaType,
-        AVMediaTypeAudio, AVMediaTypeVideo,
+        AVCapturePhotoSettings, AVCaptureSession, AVCaptureSessionPreset640x480,
+        AVCaptureSessionPreset1280x720, AVCaptureSessionPreset1920x1080,
+        AVCaptureSessionPresetInputPriority, AVCaptureVideoPreviewLayer,
+        AVLayerVideoGravityResizeAspectFill, AVMediaType, AVMediaTypeAudio, AVMediaTypeVideo,
     };
     use objc2_core_media::{CMTimeMakeWithSeconds, CMVideoFormatDescriptionGetDimensions};
     use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol, NSString, NSURL};
@@ -212,6 +213,7 @@ mod platform {
         movie_output: objc2::rc::Retained<AVCaptureMovieFileOutput>,
         preview_layer: objc2::rc::Retained<AVCaptureVideoPreviewLayer>,
         operation_lock: std::sync::Mutex<()>,
+        photo_output_added: std::sync::Mutex<bool>,
         audio_input_added: std::sync::Mutex<bool>,
         recording: std::sync::Mutex<Option<MovieRecording>>,
     }
@@ -275,6 +277,7 @@ mod platform {
                 movie_output,
                 preview_layer,
                 operation_lock: std::sync::Mutex::new(()),
+                photo_output_added: std::sync::Mutex::new(true),
                 audio_input_added: std::sync::Mutex::new(false),
                 recording: std::sync::Mutex::new(None),
             })
@@ -344,6 +347,15 @@ mod platform {
                 return Err(CameraError("cannot change format while recording".into()));
             }
 
+            self.set_active_format_locked(width, height, requested_fps)
+        }
+
+        fn set_active_format_locked(
+            &self,
+            width: u32,
+            height: u32,
+            requested_fps: u32,
+        ) -> Result<ActiveCameraFormat, CameraError> {
             let requested = f64::from(requested_fps);
             let mut candidate = None;
             for format in unsafe { self.video_device.formats() }.iter() {
@@ -374,17 +386,30 @@ mod platform {
             })?;
 
             let input_priority = unsafe { AVCaptureSessionPresetInputPriority };
-            let uses_input_priority = unsafe { self.session.canSetSessionPreset(input_priority) };
-            if uses_input_priority {
+            let concrete_preset = match (width, height) {
+                (640, 480) => Some(unsafe { AVCaptureSessionPreset640x480 }),
+                (1280, 720) => Some(unsafe { AVCaptureSessionPreset1280x720 }),
+                (1920, 1080) => Some(unsafe { AVCaptureSessionPreset1920x1080 }),
+                _ => None,
+            }
+            .filter(|preset| unsafe { self.session.canSetSessionPreset(preset) });
+            let selected_preset = concrete_preset.or_else(|| {
+                unsafe { self.session.canSetSessionPreset(input_priority) }
+                    .then_some(input_priority)
+            });
+            // Output settings may renegotiate the graph. Apply them before
+            // making the device format the final source-of-truth mutation.
+            if concrete_preset.is_some() {
+                self.configure_movie_output(actual_fps)?;
+            }
+            if let Some(preset) = selected_preset {
                 unsafe {
                     self.session.beginConfiguration();
-                    self.session.setSessionPreset(input_priority);
+                    self.session.setSessionPreset(preset);
+                    self.session.commitConfiguration();
                 }
             }
             if let Err(error) = unsafe { self.video_device.lockForConfiguration() } {
-                if uses_input_priority {
-                    unsafe { self.session.commitConfiguration() };
-                }
                 return Err(CameraError(error.localizedDescription().to_string()));
             }
             // SAFETY: `actual_fps` is positive and finite because it was
@@ -395,11 +420,28 @@ mod platform {
                 self.video_device.setActiveVideoMinFrameDuration(duration);
                 self.video_device.setActiveVideoMaxFrameDuration(duration);
                 self.video_device.unlockForConfiguration();
-                if uses_input_priority {
-                    self.session.commitConfiguration();
-                }
             }
             Ok(self.active_format())
+        }
+
+        fn configure_movie_output(&self, fps: f64) -> Result<(), CameraError> {
+            let connection = unsafe {
+                self.movie_output
+                    .connectionWithMediaType(video_media_type())
+            }
+            .ok_or_else(|| CameraError("movie output has no video connection".into()))?;
+            unsafe {
+                self.movie_output
+                    .setOutputSettings_forConnection(None, &connection);
+            }
+            let duration = unsafe { CMTimeMakeWithSeconds(1.0 / fps, 60_000) };
+            if unsafe { connection.isVideoMinFrameDurationSupported() } {
+                unsafe { connection.setVideoMinFrameDuration(duration) };
+            }
+            if unsafe { connection.isVideoMaxFrameDurationSupported() } {
+                unsafe { connection.setVideoMaxFrameDuration(duration) };
+            }
+            Ok(())
         }
 
         pub fn capture_photo(&self, destination: PathBuf) -> Result<PathBuf, CameraError> {
@@ -410,6 +452,7 @@ mod platform {
             if !self.is_running() {
                 return Err(CameraError("camera preview is not running".into()));
             }
+            self.ensure_photo_output_locked()?;
 
             let (sender, receiver) = mpsc::channel();
             let delegate = PhotoCaptureDelegate::new(sender);
@@ -469,6 +512,7 @@ mod platform {
             if !self.is_running() {
                 return Err(CameraError("camera preview is not running".into()));
             }
+            self.prepare_video_output_locked()?;
             let mut recording = self
                 .recording
                 .lock()
@@ -511,6 +555,56 @@ mod platform {
                     .and_then(|_| Err(CameraError("recording finished before it started".into()))),
                 Err(_) => Err(CameraError("video recording did not start in time".into())),
             }
+        }
+
+        fn prepare_video_output_locked(&self) -> Result<(), CameraError> {
+            let active = self.active_format();
+            let mut photo_added = self
+                .photo_output_added
+                .lock()
+                .map_err(|_| CameraError("photo output state lock poisoned".into()))?;
+            if *photo_added {
+                unsafe {
+                    self.session.beginConfiguration();
+                    self.session.removeOutput(&self.photo_output);
+                    self.session.commitConfiguration();
+                }
+                *photo_added = false;
+            }
+            self.set_active_format_locked(
+                active.width,
+                active.height,
+                active.fps.round().max(1.0) as u32,
+            )?;
+            Ok(())
+        }
+
+        fn ensure_photo_output_locked(&self) -> Result<(), CameraError> {
+            let active = self.active_format();
+            let mut photo_added = self
+                .photo_output_added
+                .lock()
+                .map_err(|_| CameraError("photo output state lock poisoned".into()))?;
+            if !*photo_added {
+                unsafe {
+                    self.session.beginConfiguration();
+                    if !self.session.canAddOutput(&self.photo_output) {
+                        self.session.commitConfiguration();
+                        return Err(CameraError(
+                            "photo output cannot be restored to the session".into(),
+                        ));
+                    }
+                    self.session.addOutput(&self.photo_output);
+                    self.session.commitConfiguration();
+                }
+                *photo_added = true;
+                self.set_active_format_locked(
+                    active.width,
+                    active.height,
+                    active.fps.round().max(1.0) as u32,
+                )?;
+            }
+            Ok(())
         }
 
         pub fn stop_recording(&self) -> Result<PathBuf, CameraError> {

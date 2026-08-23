@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+imaging-core.workspace = true
 media-core.workspace = true
 serde.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true

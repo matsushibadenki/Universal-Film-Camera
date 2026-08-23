@@ -12,6 +12,14 @@ use std::{
     fmt,
 };
 
+mod profile_io;
+
+pub use profile_io::{
+    AppliedProfileMigration, MigrationError, ProfileDirectoryError, ProfileDirectoryLoad,
+    ProfileFileMigration, ProfileMigrationFn, ProfileMigrationRegistry, ProfileSnapshotEntry,
+    RenderProfileSnapshot, SnapshotError,
+};
+
 pub const PROFILE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -165,6 +173,150 @@ pub struct DigitalSensorProfileData {
     pub spectral_sensitivity: Vec<SpectralSensitivitySample>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SignedRange {
+    pub min: f32,
+    pub max: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DevelopmentProfileKind {
+    Chemical,
+    DigitalRaw,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevelopmentProfileData {
+    pub development_type: DevelopmentProfileKind,
+    pub process_name: String,
+    pub push_pull_stops: SignedRange,
+    pub contrast_scale: f32,
+    #[serde(default)]
+    pub reference_temperature_celsius: Option<f32>,
+    #[serde(default)]
+    pub reference_time_seconds: Option<f32>,
+    #[serde(default)]
+    pub output_working_color_space: Option<WorkingColorSpace>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrintProfileKind {
+    Photochemical,
+    DigitalIntermediate,
+    Paper,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrintResponseModel {
+    InverseDensityPreviewV1,
+    MeasuredCurve,
+    DigitalTransform,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RgbDensity {
+    pub red: f32,
+    pub green: f32,
+    pub blue: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrintProfileData {
+    pub print_type: PrintProfileKind,
+    pub response_model: PrintResponseModel,
+    pub input_domain: SignalDomain,
+    pub output_domain: SignalDomain,
+    pub exposure_offset_ev: f32,
+    pub contrast_scale: f32,
+    #[serde(default)]
+    pub base_density: Option<RgbDensity>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DisplayTechnology {
+    Lcd,
+    Oled,
+    Projector,
+    ReferenceMonitor,
+    Custom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Chromaticity {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DisplayPrimaries {
+    pub red: Chromaticity,
+    pub green: Chromaticity,
+    pub blue: Chromaticity,
+    pub white: Chromaticity,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DisplayProfileData {
+    pub technology: DisplayTechnology,
+    pub primaries: DisplayPrimaries,
+    pub transfer_function: media_core::TransferFunction,
+    pub peak_luminance_nits: f32,
+    pub black_luminance_nits: f32,
+    pub surround: DisplaySurround,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputEncoding {
+    Rec709,
+    Srgb,
+    DisplayP3,
+    Rec2020Pq,
+    Rec2020Hlg,
+    Custom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputTransformMethod {
+    AcesOdt,
+    MatrixToneCurve,
+    Ocio,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToneMappingMethod {
+    None,
+    Aces,
+    Perceptual,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutputTransformProfileData {
+    pub input_color_space: WorkingColorSpace,
+    pub output_encoding: OutputEncoding,
+    pub output_transfer_function: media_core::TransferFunction,
+    pub method: OutputTransformMethod,
+    pub transform_id: String,
+    pub peak_luminance_nits: f32,
+    pub tone_mapping: ToneMappingMethod,
+    #[serde(default)]
+    pub custom_output_profile_id: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileProvenance {
@@ -287,6 +439,14 @@ impl ProfileEnvelope {
             self.lens_data()?;
         } else if self.kind == ProfileKind::DigitalSensor {
             self.digital_sensor_data()?;
+        } else if self.kind == ProfileKind::Development {
+            self.development_data()?;
+        } else if self.kind == ProfileKind::Print {
+            self.print_data()?;
+        } else if self.kind == ProfileKind::Display {
+            self.display_data()?;
+        } else if self.kind == ProfileKind::OutputTransform {
+            self.output_transform_data()?;
         }
         Ok(())
     }
@@ -334,6 +494,58 @@ impl ProfileEnvelope {
                 )
             })?;
         data.validate()?;
+        Ok(data)
+    }
+
+    pub fn development_data(&self) -> Result<DevelopmentProfileData, ProfileError> {
+        self.decode_typed_data(
+            ProfileKind::Development,
+            "development",
+            |data: &DevelopmentProfileData| data.validate(),
+        )
+    }
+
+    pub fn print_data(&self) -> Result<PrintProfileData, ProfileError> {
+        self.decode_typed_data(ProfileKind::Print, "print", |data: &PrintProfileData| {
+            data.validate()
+        })
+    }
+
+    pub fn display_data(&self) -> Result<DisplayProfileData, ProfileError> {
+        self.decode_typed_data(
+            ProfileKind::Display,
+            "display",
+            |data: &DisplayProfileData| data.validate(),
+        )
+    }
+
+    pub fn output_transform_data(&self) -> Result<OutputTransformProfileData, ProfileError> {
+        self.decode_typed_data(
+            ProfileKind::OutputTransform,
+            "output transform",
+            |data: &OutputTransformProfileData| data.validate(),
+        )
+    }
+
+    fn decode_typed_data<T>(
+        &self,
+        expected_kind: ProfileKind,
+        label: &str,
+        validate: impl FnOnce(&T) -> Result<(), ProfileError>,
+    ) -> Result<T, ProfileError>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
+        if self.kind != expected_kind {
+            return Err(ProfileError::new(
+                "$.kind",
+                format!("expected {label} profile, found {:?}", self.kind),
+            ));
+        }
+        let data: T = serde_json::from_value(self.data.clone()).map_err(|error| {
+            ProfileError::new("$.data", format!("invalid {label} profile data: {error}"))
+        })?;
+        validate(&data)?;
         Ok(data)
     }
 }
@@ -537,6 +749,202 @@ impl DigitalSensorProfileData {
     }
 }
 
+impl DevelopmentProfileData {
+    pub fn validate(&self) -> Result<(), ProfileError> {
+        validate_non_empty("$.data.process_name", &self.process_name)?;
+        validate_signed_range("$.data.push_pull_stops", self.push_pull_stops)?;
+        if self.push_pull_stops.min > 0.0 || self.push_pull_stops.max < 0.0 {
+            return Err(ProfileError::new(
+                "$.data.push_pull_stops",
+                "must include the normal-process value of zero stops",
+            ));
+        }
+        validate_positive_finite("$.data.contrast_scale", self.contrast_scale)?;
+        match self.development_type {
+            DevelopmentProfileKind::Chemical => {
+                validate_positive_option(
+                    "$.data.reference_temperature_celsius",
+                    self.reference_temperature_celsius,
+                    "is required for chemical development",
+                )?;
+                validate_positive_option(
+                    "$.data.reference_time_seconds",
+                    self.reference_time_seconds,
+                    "is required for chemical development",
+                )?;
+                if self.output_working_color_space.is_some() {
+                    return Err(ProfileError::new(
+                        "$.data.output_working_color_space",
+                        "is only valid for digital RAW development",
+                    ));
+                }
+            }
+            DevelopmentProfileKind::DigitalRaw => {
+                if self.reference_temperature_celsius.is_some()
+                    || self.reference_time_seconds.is_some()
+                {
+                    return Err(ProfileError::new(
+                        "$.data.reference_temperature_celsius",
+                        "chemical temperature and time are not valid for digital RAW development",
+                    ));
+                }
+                let output = self.output_working_color_space.ok_or_else(|| {
+                    ProfileError::new(
+                        "$.data.output_working_color_space",
+                        "is required for digital RAW development",
+                    )
+                })?;
+                if output == WorkingColorSpace::Custom {
+                    return Err(ProfileError::new(
+                        "$.data.output_working_color_space",
+                        "custom output requires a separately identified color-space profile",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl PrintProfileData {
+    pub fn validate(&self) -> Result<(), ProfileError> {
+        validate_finite("$.data.exposure_offset_ev", self.exposure_offset_ev)?;
+        validate_positive_finite("$.data.contrast_scale", self.contrast_scale)?;
+        if self.output_domain != SignalDomain::DisplayLinear {
+            return Err(ProfileError::new(
+                "$.data.output_domain",
+                "must be display_linear for profile schema version 1",
+            ));
+        }
+        match self.print_type {
+            PrintProfileKind::Photochemical | PrintProfileKind::Paper => {
+                if self.input_domain != SignalDomain::FilmDensity {
+                    return Err(ProfileError::new(
+                        "$.data.input_domain",
+                        "photochemical and paper print profiles require film_density",
+                    ));
+                }
+                validate_rgb_density(
+                    "$.data.base_density",
+                    self.base_density.ok_or_else(|| {
+                        ProfileError::new(
+                            "$.data.base_density",
+                            "is required for photochemical and paper print profiles",
+                        )
+                    })?,
+                )?;
+                if self.response_model == PrintResponseModel::DigitalTransform {
+                    return Err(ProfileError::new(
+                        "$.data.response_model",
+                        "digital_transform is only valid for a digital intermediate",
+                    ));
+                }
+            }
+            PrintProfileKind::DigitalIntermediate => {
+                if self.input_domain != SignalDomain::SceneLinear {
+                    return Err(ProfileError::new(
+                        "$.data.input_domain",
+                        "digital intermediate profiles require scene_linear",
+                    ));
+                }
+                if self.base_density.is_some() {
+                    return Err(ProfileError::new(
+                        "$.data.base_density",
+                        "is not valid for a digital intermediate profile",
+                    ));
+                }
+                if self.response_model != PrintResponseModel::DigitalTransform {
+                    return Err(ProfileError::new(
+                        "$.data.response_model",
+                        "digital intermediate requires digital_transform",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl DisplayProfileData {
+    pub fn validate(&self) -> Result<(), ProfileError> {
+        for (name, value) in [
+            ("red", self.primaries.red),
+            ("green", self.primaries.green),
+            ("blue", self.primaries.blue),
+            ("white", self.primaries.white),
+        ] {
+            validate_chromaticity(&format!("$.data.primaries.{name}"), value)?;
+        }
+        if matches!(
+            self.transfer_function,
+            media_core::TransferFunction::Linear | media_core::TransferFunction::Log
+        ) {
+            return Err(ProfileError::new(
+                "$.data.transfer_function",
+                "a display profile requires an encoded display transfer function",
+            ));
+        }
+        validate_positive_finite("$.data.peak_luminance_nits", self.peak_luminance_nits)?;
+        validate_finite("$.data.black_luminance_nits", self.black_luminance_nits)?;
+        if self.black_luminance_nits < 0.0 || self.black_luminance_nits >= self.peak_luminance_nits
+        {
+            return Err(ProfileError::new(
+                "$.data.black_luminance_nits",
+                "must be zero or greater and below peak_luminance_nits",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl OutputTransformProfileData {
+    pub fn validate(&self) -> Result<(), ProfileError> {
+        if self.input_color_space != WorkingColorSpace::AcesCg {
+            return Err(ProfileError::new(
+                "$.data.input_color_space",
+                "output transform schema version 1 requires aces_cg input",
+            ));
+        }
+        validate_non_empty("$.data.transform_id", &self.transform_id)?;
+        validate_positive_finite("$.data.peak_luminance_nits", self.peak_luminance_nits)?;
+        let expected_transfer = match self.output_encoding {
+            OutputEncoding::Rec709 => Some(media_core::TransferFunction::Rec709),
+            OutputEncoding::Srgb | OutputEncoding::DisplayP3 => {
+                Some(media_core::TransferFunction::Srgb)
+            }
+            OutputEncoding::Rec2020Pq => Some(media_core::TransferFunction::Pq),
+            OutputEncoding::Rec2020Hlg => Some(media_core::TransferFunction::Hlg),
+            OutputEncoding::Custom => None,
+        };
+        if expected_transfer.is_some_and(|expected| expected != self.output_transfer_function) {
+            return Err(ProfileError::new(
+                "$.data.output_transfer_function",
+                "does not match output_encoding",
+            ));
+        }
+        match (
+            self.output_encoding,
+            self.custom_output_profile_id.as_deref(),
+        ) {
+            (OutputEncoding::Custom, Some(id)) if !id.trim().is_empty() => {}
+            (OutputEncoding::Custom, _) => {
+                return Err(ProfileError::new(
+                    "$.data.custom_output_profile_id",
+                    "is required for custom output encoding",
+                ));
+            }
+            (_, Some(_)) => {
+                return Err(ProfileError::new(
+                    "$.data.custom_output_profile_id",
+                    "is only valid for custom output encoding",
+                ));
+            }
+            (_, None) => {}
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ProfileCatalog {
     profiles: BTreeMap<String, ProfileEnvelope>,
@@ -616,6 +1024,57 @@ fn validate_positive_range(path: &str, range: PositiveRange) -> Result<(), Profi
         return Err(ProfileError::new(
             format!("{path}.max"),
             "must be greater than or equal to min",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_signed_range(path: &str, range: SignedRange) -> Result<(), ProfileError> {
+    validate_finite(format!("{path}.min"), range.min)?;
+    validate_finite(format!("{path}.max"), range.max)?;
+    if range.min > range.max {
+        return Err(ProfileError::new(
+            format!("{path}.max"),
+            "must be greater than or equal to min",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_positive_option(
+    path: &str,
+    value: Option<f32>,
+    missing_reason: &str,
+) -> Result<(), ProfileError> {
+    let value = value.ok_or_else(|| ProfileError::new(path, missing_reason))?;
+    validate_positive_finite(path, value)
+}
+
+fn validate_rgb_density(path: &str, density: RgbDensity) -> Result<(), ProfileError> {
+    for (channel, value) in [
+        ("red", density.red),
+        ("green", density.green),
+        ("blue", density.blue),
+    ] {
+        validate_finite(format!("{path}.{channel}"), value)?;
+        if value < 0.0 {
+            return Err(ProfileError::new(
+                format!("{path}.{channel}"),
+                "optical density must be zero or greater",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_chromaticity(path: &str, value: Chromaticity) -> Result<(), ProfileError> {
+    validate_finite(format!("{path}.x"), value.x)?;
+    validate_finite(format!("{path}.y"), value.y)?;
+    if value.x < 0.0 || value.y <= 0.0 || value.x > 1.0 || value.y > 1.0 || value.x + value.y > 1.0
+    {
+        return Err(ProfileError::new(
+            path,
+            "must be a valid CIE 1931 xy chromaticity",
         ));
     }
     Ok(())
@@ -737,6 +1196,128 @@ fn validate_rfc3339(path: &str, value: &str) -> Result<(), ProfileError> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum NegativeSceneLinearPolicy {
+    ClampToFloor,
+    Reject,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VirtualExposureNode {
+    /// Neutral scene-linear value used as the calibration anchor, normally 0.18.
+    pub reference_scene_linear: f32,
+    /// log10(lux-seconds) assigned to the calibration anchor at zero compensation.
+    pub reference_log_exposure: f32,
+    /// Creative or metering offset measured in photographic stops.
+    pub exposure_compensation_ev: f32,
+    /// Positive floor used for zero and, when selected, negative input values.
+    pub minimum_scene_linear: f32,
+    pub negative_policy: NegativeSceneLinearPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LogExposureRgb {
+    pub red: f32,
+    pub green: f32,
+    pub blue: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VirtualExposureError {
+    pub path: String,
+    pub reason: String,
+}
+
+impl VirtualExposureError {
+    fn new(path: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            reason: reason.into(),
+        }
+    }
+}
+
+impl fmt::Display for VirtualExposureError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}: {}", self.path, self.reason)
+    }
+}
+
+impl Error for VirtualExposureError {}
+
+impl VirtualExposureNode {
+    pub fn validate(&self) -> Result<(), VirtualExposureError> {
+        validate_virtual_positive("$.reference_scene_linear", self.reference_scene_linear)?;
+        validate_virtual_positive("$.minimum_scene_linear", self.minimum_scene_linear)?;
+        if self.minimum_scene_linear > self.reference_scene_linear {
+            return Err(VirtualExposureError::new(
+                "$.minimum_scene_linear",
+                "must not exceed reference_scene_linear",
+            ));
+        }
+        if !self.reference_log_exposure.is_finite() {
+            return Err(VirtualExposureError::new(
+                "$.reference_log_exposure",
+                "must be finite",
+            ));
+        }
+        if !self.exposure_compensation_ev.is_finite() {
+            return Err(VirtualExposureError::new(
+                "$.exposure_compensation_ev",
+                "must be finite",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn map_acescg(&self, rgb: [f32; 3]) -> Result<LogExposureRgb, VirtualExposureError> {
+        self.validate()?;
+        Ok(LogExposureRgb {
+            red: self.map_channel("red", rgb[0])?,
+            green: self.map_channel("green", rgb[1])?,
+            blue: self.map_channel("blue", rgb[2])?,
+        })
+    }
+
+    fn map_channel(&self, channel: &str, value: f32) -> Result<f32, VirtualExposureError> {
+        if !value.is_finite() {
+            return Err(VirtualExposureError::new(
+                format!("$input.{channel}"),
+                "must be finite",
+            ));
+        }
+        if value < 0.0 && self.negative_policy == NegativeSceneLinearPolicy::Reject {
+            return Err(VirtualExposureError::new(
+                format!("$input.{channel}"),
+                "negative scene-linear input is not allowed",
+            ));
+        }
+        let scene_value = value.max(self.minimum_scene_linear);
+        let relative_log = (scene_value / self.reference_scene_linear).log10();
+        let stop_offset = self.exposure_compensation_ev * std::f32::consts::LOG10_2;
+        let result = self.reference_log_exposure + relative_log + stop_offset;
+        if !result.is_finite() {
+            return Err(VirtualExposureError::new(
+                format!("$output.{channel}"),
+                "computed exposure is not finite",
+            ));
+        }
+        Ok(result)
+    }
+}
+
+fn validate_virtual_positive(path: &str, value: f32) -> Result<(), VirtualExposureError> {
+    if !value.is_finite() || value <= 0.0 {
+        return Err(VirtualExposureError::new(
+            path,
+            "must be a positive finite value",
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PipelineIntent {
     PhysicalCapture,
     Emulation,
@@ -789,6 +1370,7 @@ pub enum ImagingOperation {
     Source(SourceNode),
     Camera(CameraNode),
     Lens(LensNode),
+    VirtualExposure(VirtualExposureNode),
     CaptureMedium(CaptureMediumNode),
     Development(DevelopmentNode),
     Print(PrintNode),
@@ -905,6 +1487,7 @@ impl ImagingOperation {
             Self::Source(_) => None,
             Self::Camera(_) => Some(SignalDomain::SceneLight),
             Self::Lens(_) => Some(SignalDomain::SceneLight),
+            Self::VirtualExposure(_) => Some(SignalDomain::SceneLinear),
             Self::CaptureMedium(_) => Some(SignalDomain::OpticalImage),
             Self::Development(node) => Some(match node.process {
                 DevelopmentProcess::Chemical { .. } => SignalDomain::FilmLatentImage,
@@ -924,6 +1507,7 @@ impl ImagingOperation {
             Self::Source(node) => node.output_domain,
             Self::Camera(_) => SignalDomain::SceneLight,
             Self::Lens(_) => SignalDomain::OpticalImage,
+            Self::VirtualExposure(_) => SignalDomain::OpticalImage,
             Self::CaptureMedium(node) => match node.medium {
                 CaptureMedium::Film { .. } => SignalDomain::FilmLatentImage,
                 CaptureMedium::DigitalSensor { .. } => SignalDomain::SensorRaw,
@@ -971,6 +1555,22 @@ impl ImagingPipeline {
 
         let mut domain = enabled[0].operation.output_domain();
         for node in enabled.iter().skip(1) {
+            if let ImagingOperation::VirtualExposure(adapter) = &node.operation {
+                if self.working_color_space != WorkingColorSpace::AcesCg {
+                    return Err(PipelineError::InvalidNodeConfiguration {
+                        node_id: node.id.clone(),
+                        path: "$.working_color_space".into(),
+                        reason: "virtual exposure v1 requires scene-linear ACEScg".into(),
+                    });
+                }
+                adapter
+                    .validate()
+                    .map_err(|error| PipelineError::InvalidNodeConfiguration {
+                        node_id: node.id.clone(),
+                        path: error.path,
+                        reason: error.reason,
+                    })?;
+            }
             let expected = node
                 .operation
                 .input_domain()
@@ -1005,6 +1605,11 @@ pub enum PipelineError {
         node_id: String,
         expected: SignalDomain,
         actual: SignalDomain,
+    },
+    InvalidNodeConfiguration {
+        node_id: String,
+        path: String,
+        reason: String,
     },
     Incomplete {
         final_domain: SignalDomain,
@@ -1223,11 +1828,73 @@ mod tests {
         let examples = [
             include_str!("../../../examples/pipelines/digital-reference.json"),
             include_str!("../../../examples/pipelines/film-reference.json"),
+            include_str!("../../../examples/pipelines/film-emulation-reference.json"),
         ];
         for json in examples {
             let pipeline: ImagingPipeline = serde_json::from_str(json).unwrap();
             pipeline.validate().unwrap();
         }
+    }
+
+    #[test]
+    fn virtual_exposure_maps_reference_gray_and_photographic_stops() {
+        let adapter = VirtualExposureNode {
+            reference_scene_linear: 0.18,
+            reference_log_exposure: -1.0,
+            exposure_compensation_ev: 0.0,
+            minimum_scene_linear: 1.0e-6,
+            negative_policy: NegativeSceneLinearPolicy::ClampToFloor,
+        };
+        let reference = adapter.map_acescg([0.18; 3]).unwrap();
+        assert!((reference.red + 1.0).abs() < 1.0e-6);
+        assert!((reference.green + 1.0).abs() < 1.0e-6);
+        assert!((reference.blue + 1.0).abs() < 1.0e-6);
+
+        let doubled = adapter.map_acescg([0.36; 3]).unwrap();
+        let compensated = VirtualExposureNode {
+            exposure_compensation_ev: 1.0,
+            ..adapter
+        }
+        .map_acescg([0.18; 3])
+        .unwrap();
+        let expected = -1.0 + std::f32::consts::LOG10_2;
+        assert!((doubled.red - expected).abs() < 1.0e-6);
+        assert!((compensated.red - expected).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn virtual_exposure_negative_policy_and_black_floor_are_explicit() {
+        let adapter = VirtualExposureNode {
+            reference_scene_linear: 0.18,
+            reference_log_exposure: -1.0,
+            exposure_compensation_ev: 0.0,
+            minimum_scene_linear: 1.0e-6,
+            negative_policy: NegativeSceneLinearPolicy::ClampToFloor,
+        };
+        let clamped = adapter.map_acescg([-0.1, 0.0, 1.0e-6]).unwrap();
+        assert_eq!(clamped.red, clamped.green);
+        assert_eq!(clamped.green, clamped.blue);
+
+        let rejecting = VirtualExposureNode {
+            negative_policy: NegativeSceneLinearPolicy::Reject,
+            ..adapter
+        };
+        let error = rejecting.map_acescg([-0.1, 0.18, 0.18]).unwrap_err();
+        assert_eq!(error.path, "$input.red");
+    }
+
+    #[test]
+    fn virtual_exposure_pipeline_requires_acescg() {
+        let mut pipeline: ImagingPipeline = serde_json::from_str(include_str!(
+            "../../../examples/pipelines/film-emulation-reference.json"
+        ))
+        .unwrap();
+        pipeline.working_color_space = WorkingColorSpace::LinearRec2020;
+        assert!(matches!(
+            pipeline.validate(),
+            Err(PipelineError::InvalidNodeConfiguration { ref node_id, .. })
+                if node_id == "virtual-exposure"
+        ));
     }
 
     #[test]
@@ -1307,6 +1974,129 @@ mod tests {
     }
 
     #[test]
+    fn bundled_finishing_profiles_match_typed_contracts() {
+        let schemas = [
+            (
+                include_str!("../../../docs/schemas/development-profile-v1.schema.json"),
+                "development",
+            ),
+            (
+                include_str!("../../../docs/schemas/print-profile-v1.schema.json"),
+                "print",
+            ),
+            (
+                include_str!("../../../docs/schemas/display-profile-v1.schema.json"),
+                "display",
+            ),
+            (
+                include_str!("../../../docs/schemas/output-transform-profile-v1.schema.json"),
+                "output_transform",
+            ),
+        ];
+        for (json, kind) in schemas {
+            let schema: Value = serde_json::from_str(json).unwrap();
+            assert_eq!(schema["allOf"][1]["properties"]["kind"]["const"], kind);
+        }
+
+        let development = ProfileEnvelope::from_json(include_str!(
+            "../../../examples/profiles/synthetic-ecn2-development.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            development.development_data().unwrap().development_type,
+            DevelopmentProfileKind::Chemical
+        );
+        let raw_development = ProfileEnvelope::from_json(include_str!(
+            "../../../examples/profiles/synthetic-neutral-raw-development.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            raw_development.development_data().unwrap().development_type,
+            DevelopmentProfileKind::DigitalRaw
+        );
+        let print = ProfileEnvelope::from_json(include_str!(
+            "../../../examples/profiles/synthetic-theatrical-print.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            print.print_data().unwrap().input_domain,
+            SignalDomain::FilmDensity
+        );
+        let display = ProfileEnvelope::from_json(include_str!(
+            "../../../examples/profiles/reference-rec709-display.json"
+        ))
+        .unwrap();
+        assert_eq!(display.display_data().unwrap().peak_luminance_nits, 100.0);
+        let output = ProfileEnvelope::from_json(include_str!(
+            "../../../examples/profiles/aces-rec709-output-transform.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            output.output_transform_data().unwrap().output_encoding,
+            OutputEncoding::Rec709
+        );
+
+        let film = ProfileEnvelope::from_json(include_str!(
+            "../../../examples/profiles/synthetic-color-negative-500.json"
+        ))
+        .unwrap();
+        let sensor = ProfileEnvelope::from_json(include_str!(
+            "../../../examples/profiles/reference-bayer-sensor.json"
+        ))
+        .unwrap();
+        let mut catalog = ProfileCatalog::default();
+        for profile in [
+            film,
+            sensor,
+            development,
+            raw_development,
+            print,
+            display,
+            output,
+        ] {
+            catalog.insert(profile).unwrap();
+        }
+        catalog.validate_references().unwrap();
+    }
+
+    #[test]
+    fn chemical_development_requires_reference_conditions() {
+        let json = include_str!("../../../examples/profiles/synthetic-ecn2-development.json");
+        let mut profile: ProfileEnvelope = serde_json::from_str(json).unwrap();
+        profile.data["reference_temperature_celsius"] = Value::Null;
+        let error = profile.validate().unwrap_err();
+        assert_eq!(error.path, "$.data.reference_temperature_celsius");
+    }
+
+    #[test]
+    fn print_profile_rejects_wrong_signal_domain() {
+        let json = include_str!("../../../examples/profiles/synthetic-theatrical-print.json");
+        let mut profile: ProfileEnvelope = serde_json::from_str(json).unwrap();
+        profile.data["input_domain"] = "scene_linear".into();
+        let error = profile.validate().unwrap_err();
+        assert_eq!(error.path, "$.data.input_domain");
+    }
+
+    #[test]
+    fn display_profile_rejects_invalid_chromaticity() {
+        let json = include_str!("../../../examples/profiles/reference-rec709-display.json");
+        let mut profile: ProfileEnvelope = serde_json::from_str(json).unwrap();
+        profile.data["primaries"]["red"]["x"] = 0.9.into();
+        profile.data["primaries"]["red"]["y"] = 0.9.into();
+        let error = profile.validate().unwrap_err();
+        assert_eq!(error.path, "$.data.primaries.red");
+    }
+
+    #[test]
+    fn output_transform_rejects_encoding_transfer_mismatch() {
+        let json = include_str!("../../../examples/profiles/aces-rec709-output-transform.json");
+        let mut profile: ProfileEnvelope = serde_json::from_str(json).unwrap();
+        profile.data["output_transfer_function"] = "pq".into();
+        let error = profile.validate().unwrap_err();
+        assert_eq!(error.path, "$.data.output_transfer_function");
+    }
+
+    #[test]
     fn lens_profile_rejects_reversed_focal_range() {
         let json = include_str!("../../../examples/profiles/reference-lens-50mm.json");
         let mut profile: ProfileEnvelope = serde_json::from_str(json).unwrap();
@@ -1337,13 +2127,10 @@ mod tests {
     fn catalog_validates_reference_existence_and_kind() {
         let json = include_str!("../../../examples/profiles/synthetic-color-negative-500.json");
         let film = ProfileEnvelope::from_json(json).unwrap();
-        let mut development = film.clone();
-        development.id = "org.universal-imaging.synthetic-development".into();
-        development.kind = ProfileKind::Development;
-        development.references = vec![ProfileReference {
-            profile_id: film.id.clone(),
-            expected_kind: Some(ProfileKind::Film),
-        }];
+        let mut development = ProfileEnvelope::from_json(include_str!(
+            "../../../examples/profiles/synthetic-ecn2-development.json"
+        ))
+        .unwrap();
 
         let mut catalog = ProfileCatalog::default();
         catalog.insert(development.clone()).unwrap();

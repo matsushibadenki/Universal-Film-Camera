@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-imaging.local/schemas/print-profile-v1.schema.json",
+  "title": "Universal Imaging Print Profile v1",
+  "allOf": [
+    { "$ref": "profile-common-v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "print" },
+        "data": { "$ref": "#/$defs/printData" }
+      }
+    }
+  ],
+  "$defs": {
+    "density": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["red", "green", "blue"],
+      "properties": {
+        "red": { "type": "number", "minimum": 0 },
+        "green": { "type": "number", "minimum": 0 },
+        "blue": { "type": "number", "minimum": 0 }
+      }
+    },
+    "printData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["print_type", "response_model", "input_domain", "output_domain", "exposure_offset_ev", "contrast_scale"],
+      "properties": {
+        "print_type": { "enum": ["photochemical", "digital_intermediate", "paper"] },
+        "response_model": { "enum": ["inverse_density_preview_v1", "measured_curve", "digital_transform"] },
+        "input_domain": { "enum": ["film_density", "scene_linear"] },
+        "output_domain": { "const": "display_linear" },
+        "exposure_offset_ev": { "type": "number" },
+        "contrast_scale": { "type": "number", "exclusiveMinimum": 0 },
+        "base_density": { "oneOf": [{ "$ref": "#/$defs/density" }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "print_type": { "const": "digital_intermediate" } }, "required": ["print_type"] },
+          "then": {
+            "properties": {
+              "input_domain": { "const": "scene_linear" },
+              "response_model": { "const": "digital_transform" },
+              "base_density": { "type": "null" }
+            }
+          },
+          "else": {
+            "required": ["base_density"],
+            "properties": {
+              "input_domain": { "const": "film_density" },
+              "response_model": { "enum": ["inverse_density_preview_v1", "measured_curve"] }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

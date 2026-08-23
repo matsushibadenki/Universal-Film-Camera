@@ -1,6 +1,6 @@
 # Profile Schema and Loader
 
-更新日: 2026-08-22  
+更新日: 2026-08-23
 Schema: `profile-common-v1`  
 実装: `crates/imaging-core`
 
@@ -17,9 +17,11 @@ Schema: `profile-common-v1`
 - [Done] Film sensitometryの単位、sample順序、非負density、補間／外挿enumを検証
 - [Done] Lens Profile v1 Schema、typed payload、物理範囲／anamorphic条件を検証
 - [Done] Digital Sensor Profile v1 Schema、typed payload、CFA／code range／ISO／分光感度を検証
-- [Next] Development／Print／Display／Output Transformの`data` Schemaとtyped payloadを追加
-- [Next] file／directory loaderとschema migration registryを追加
-- [Next] pipelineが参照する全profileをCatalogで解決し、render開始前にsnapshot化
+- [Done] Development／Print／Display／Output Transformの`data` Schemaとtyped payloadを追加
+- [Done] recursive directory loaderとtransactional Catalog構築を追加
+- [Done] Pipelineが参照するProfile closureを解決し、SHA-256付きrender snapshot化
+- [Done] explicit major-step schema migration registryを追加
+- [Later] 実在するlegacy schema用built-in migration
 - [Later] 署名済みProfile package、remote registry、license policy enforcement
 
 ## ファイル
@@ -28,6 +30,10 @@ Schema: `profile-common-v1`
 - `docs/schemas/film-profile-v1.schema.json`: Film Profile専用JSON Schema
 - `docs/schemas/lens-profile-v1.schema.json`: Lens Profile専用JSON Schema
 - `docs/schemas/digital-sensor-profile-v1.schema.json`: Digital Sensor Profile専用JSON Schema
+- `docs/schemas/development-profile-v1.schema.json`: Chemical／Digital RAW Development Schema
+- `docs/schemas/print-profile-v1.schema.json`: Print／DI Profile Schema
+- `docs/schemas/display-profile-v1.schema.json`: Display measurement／target Schema
+- `docs/schemas/output-transform-profile-v1.schema.json`: ACEScg Output Transform Schema
 - `examples/profiles/synthetic-color-negative-500.json`: 合成fixture
 - `crates/imaging-core/src/lib.rs`: `ProfileEnvelope`、`ProfileCatalog`、validator
 
@@ -62,13 +68,15 @@ catalog.validate_references()?;
 
 `from_json`は構文解析後に共通validationを実行する。`insert`も再検証するため、deserialize後に書き換えられた不正profileはCatalogへ入らない。同じIDの上書きは暗黙に行わず拒否する。
 
-共通Envelopeの`data`はJSON objectとして保持する。`kind = film`では追加で`FilmProfileData`へdecodeし、専用validatorを必ず通す。Lens、Sensorなど未実装kindのpayloadをrendererが任意のJSONとして信用して実行してはいけない。
+共通Envelopeの`data`はJSON objectとして保持する。Film、Lens、Digital Sensor、Development、Print、Display、Output Transformは対応するtyped payloadへdecodeし、専用validatorを必ず通す。CameraとSyntheticなどtyped payload未実装kindの任意JSONをrendererが信用して実行してはいけない。
 
 Film v1は`film_type`、nominal exposure index、native color temperature、sensitometryを必須とする。Sensitometryのx単位は`log10_lux_seconds`、y単位は`log10_optical_density`へ固定し、最低2 sample、露光軸のstrictな単調増加、RGB densityの非負値を検証する。補間は`monotonic_cubic | linear`、範囲外は`clamp | linear | reject`から明示選択する。
 
 Lens v1はlens type、mount、焦点距離範囲、F-number範囲、最短撮影距離、image circleを必須とする。範囲は正の有限値かつ`min <= max`とする。Anamorphic lensだけが1より大きいsqueeze ratioを持てる。
 
 Digital Sensor v1はactive pixel寸法、物理寸法、native bit depth、CFA、black／white level、base ISO、ISO範囲を必須とする。white levelはblack levelより大きくnative bit-depth内、base ISOは宣言範囲内とする。分光感度は省略可能だが、存在する場合は360–830 nm、最低2 sample、strictな波長増加、非負RGB responseを要求する。
+
+Development／Print／Display／Output Transform v1の工程別条件は [`FINISHING_PROFILES.md`](FINISHING_PROFILES.md) を正本とする。
 
 ## Extension policy
 
@@ -94,4 +102,6 @@ UIへ表示するときはpathと技術的reasonを開発者logへ残し、英�
 - profile version: Profile内容の版。Schema versionとは別管理
 - engine version: CapturedAsset／derivative側で記録し、Profileへ埋め込まない
 
-Profileの`id + profile_version`と内容hashをrender snapshotへ保存する設計を次工程で追加する。同じversion文字列で測定値を書き換える運用は禁止する。
+Profileの`id + profile_version + content_sha256`とPipeline hashをrender snapshotへ保存する。同じversion文字列で測定値を書き換える運用は禁止する。
+
+directory traversal、選択Profile closure、正規化hash、snapshot形式は [`PROFILE_DIRECTORY_AND_SNAPSHOT.md`](PROFILE_DIRECTORY_AND_SNAPSHOT.md) を正本とする。
