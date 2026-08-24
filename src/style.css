@@ -267,19 +267,22 @@ body:not(.tool-scope) .histogram, body:not(.tool-scope) .audio-meter { display: 
   background: var(--color-paper-2);
   color: var(--color-muted);
 }
-.rail-leading { min-width: 0; display: flex; align-items: center; justify-self: start; gap: var(--space-2xs); }
-.rail-trailing { min-width: 0; display: flex; align-items: center; justify-self: end; gap: var(--space-2xs); }
+.rail-leading { grid-column: 1; grid-row: 1; min-width: 0; display: flex; align-items: center; justify-self: start; gap: var(--space-2xs); }
+.rail-trailing { grid-column: 3; grid-row: 1; min-width: 0; display: flex; align-items: center; justify-self: end; gap: var(--space-2xs); }
 .mode-switch, .destination-tools { display: flex; min-width: 0; align-items: center; gap: var(--space-2xs); }
 .monitor-tools { display: none; }
+.tool-rail.is-menu-open { grid-template-rows: auto auto; }
+.tool-rail.is-menu-open .rail-leading,
+.tool-rail.is-menu-open .rail-trailing,
+.tool-rail.is-menu-open .shutter { grid-row: 2; }
 .monitor-tools.is-open {
-  position: fixed;
-  inset-inline-end: max(var(--space-md), env(safe-area-inset-right));
-  inset-block-end: calc(max(var(--space-md), env(safe-area-inset-bottom)) + 4.5rem);
-  z-index: var(--z-sticky);
+  grid-column: 1 / -1;
+  grid-row: 1;
   display: grid;
-  grid-template-columns: repeat(2, minmax(4rem, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-2xs);
-  padding: var(--space-2xs);
+  width: 100%;
+  padding: 0 var(--space-2xs) var(--space-2xs);
   border-radius: var(--radius-xs);
   background: var(--color-paper-2);
   color: var(--color-muted);
@@ -306,6 +309,8 @@ body:not(.tool-scope) .histogram, body:not(.tool-scope) .audio-meter { display: 
 .tool-rail button[data-state="success"] { color: var(--color-success); }
 
 .shutter {
+  grid-column: 2;
+  grid-row: 1;
   justify-self: center;
   width: 3.5rem;
   height: 3.5rem;
@@ -348,16 +353,43 @@ body:not(.tool-scope) .histogram, body:not(.tool-scope) .audio-meter { display: 
   .brand-mark { font: 700 var(--text-sm)/1 var(--font-mono); letter-spacing: .08em; }
   .format-lockup strong { padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-xs); background: var(--color-ink); color: var(--color-paper); font: 700 var(--text-xs)/1 var(--font-mono); }
   .tool-rail { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto auto; align-items: start; padding: var(--space-xs); }
-  .rail-leading { grid-row: 1; width: 100%; flex-direction: column; }
-  .rail-trailing { grid-row: 4; width: 100%; align-self: end; flex-direction: column; }
+  .tool-rail.is-menu-open { grid-template-rows: auto 1fr auto auto; }
+  .rail-leading,
+  .tool-rail.is-menu-open .rail-leading { grid-column: 1; grid-row: 1; width: 100%; flex-direction: column; }
+  .rail-trailing,
+  .tool-rail.is-menu-open .rail-trailing { grid-column: 1; grid-row: 4; width: 100%; align-self: end; flex-direction: column; }
   .mode-switch, .monitor-tools, .destination-tools { width: 100%; flex-direction: column; }
   .monitor-tools { display: none; }
-  .monitor-tools.is-open { position: fixed; display: grid; width: auto; flex-direction: initial; }
+  .monitor-tools.is-open {
+    position: absolute;
+    inset: 0;
+    z-index: var(--z-raised);
+    display: block;
+    padding: 0;
+    background: transparent;
+    pointer-events: none;
+  }
+  .monitor-tools.is-open button {
+    position: absolute;
+    inset-inline: var(--space-xs);
+    width: calc(100% - 2 * var(--space-xs));
+    min-height: 44px;
+    padding: var(--space-2xs);
+    pointer-events: auto;
+  }
+  .monitor-tools.is-open button:nth-child(1) { inset-block-end: calc(50% + 6rem); }
+  .monitor-tools.is-open button:nth-child(2) { inset-block-end: calc(50% + 3rem); }
+  .monitor-tools.is-open button:nth-child(3) { inset-block-start: calc(50% + 3rem); }
+  .monitor-tools.is-open button:nth-child(4) { inset-block-start: calc(50% + 6rem); }
+  .monitor-tools.is-open button span { display: none !important; }
   .monitor-tools-toggle { display: grid !important; }
   .destination-tools { justify-content: end; }
   .tool-rail button { width: 100%; }
   .tool-rail button span { display: block; }
-  .shutter {
+  .shutter,
+  .tool-rail.is-menu-open .shutter {
+    grid-column: auto;
+    grid-row: auto;
     position: absolute;
     inset-block-start: 50%;
     inset-inline-start: 50%;

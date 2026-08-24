@@ -734,14 +734,18 @@ fn matrix_transform(a: i32, b: i32, c: i32, d: i32) -> (u16, bool) {
         }
     };
     let (a, b, c, d) = (normalize(a), normalize(b), normalize(c), normalize(d));
-    let rotation = match (a, b, c, d) {
-        (0, x, y, 0) if x > 0 && y < 0 => 90,
-        (x, 0, 0, y) if x < 0 && y < 0 => 180,
-        (0, x, y, 0) if x < 0 && y > 0 => 270,
-        _ => 0,
+    let (rotation, mirrored) = match (a, b, c, d) {
+        (x, 0, 0, y) if x > 0 && y > 0 => (0, false),
+        (0, x, y, 0) if x > 0 && y < 0 => (90, false),
+        (x, 0, 0, y) if x < 0 && y < 0 => (180, false),
+        (0, x, y, 0) if x < 0 && y > 0 => (270, false),
+        (x, 0, 0, y) if x < 0 && y > 0 => (0, true),
+        (0, x, y, 0) if x > 0 && y > 0 => (90, true),
+        (x, 0, 0, y) if x > 0 && y < 0 => (180, true),
+        (0, x, y, 0) if x < 0 && y < 0 => (270, true),
+        _ => (0, false),
     };
-    let determinant = i64::from(a) * i64::from(d) - i64::from(b) * i64::from(c);
-    (rotation, determinant < 0)
+    (rotation, mirrored)
 }
 
 fn reduce_rate(numerator: u64, denominator: u64) -> RationalRate {
@@ -834,18 +838,7 @@ mod tests {
 
     #[test]
     fn jpeg_probe_reads_dimensions_orientation_and_srgb() {
-        let mut jpeg = vec![0xff, 0xd8];
-        let exif = [
-            b'E', b'x', b'i', b'f', 0, 0, b'I', b'I', 42, 0, 8, 0, 0, 0, 2, 0, 0x12, 0x01, 3, 0, 1,
-            0, 0, 0, 6, 0, 0, 0, 0x69, 0x87, 4, 0, 1, 0, 0, 0, 38, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0x01,
-            0xa0, 3, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        jpeg.extend([0xff, 0xe1]);
-        jpeg.extend(((exif.len() + 2) as u16).to_be_bytes());
-        jpeg.extend(exif);
-        jpeg.extend([
-            0xff, 0xc0, 0, 17, 8, 4, 0, 6, 0, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0, 0xff, 0xd9,
-        ]);
+        let jpeg = jpeg_fixture(6);
         let resource = probe_jpeg(Path::new("fixture.jpg"), &jpeg).unwrap();
         assert_eq!((resource.pixel_width, resource.pixel_height), (1536, 1024));
         assert_eq!(resource.orientation, 6);
@@ -854,6 +847,52 @@ mod tests {
             resource.color.embedded_profile.as_deref(),
             Some("srgb_exif")
         );
+    }
+
+    #[test]
+    fn jpeg_probe_maps_all_exif_orientation_values() {
+        let expected = [
+            (0, false),
+            (0, true),
+            (180, false),
+            (180, true),
+            (90, true),
+            (90, false),
+            (270, true),
+            (270, false),
+        ];
+        for (index, transform) in expected.into_iter().enumerate() {
+            let orientation = (index + 1) as u16;
+            let resource = probe_jpeg(
+                Path::new("orientation-fixture.jpg"),
+                &jpeg_fixture(orientation),
+            )
+            .unwrap();
+            assert_eq!(resource.orientation, orientation);
+            assert_eq!(
+                (resource.rotation_degrees, resource.mirrored),
+                transform,
+                "EXIF orientation {orientation}"
+            );
+        }
+    }
+
+    #[test]
+    fn movie_matrix_maps_all_quarter_turn_and_mirror_combinations() {
+        let unit = 1 << 16;
+        let fixtures = [
+            ((unit, 0, 0, unit), (0, false)),
+            ((0, unit, -unit, 0), (90, false)),
+            ((-unit, 0, 0, -unit), (180, false)),
+            ((0, -unit, unit, 0), (270, false)),
+            ((-unit, 0, 0, unit), (0, true)),
+            ((0, unit, unit, 0), (90, true)),
+            ((unit, 0, 0, -unit), (180, true)),
+            ((0, -unit, -unit, 0), (270, true)),
+        ];
+        for ((a, b, c, d), expected) in fixtures {
+            assert_eq!(matrix_transform(a, b, c, d), expected);
+        }
     }
 
     #[test]
@@ -956,6 +995,23 @@ mod tests {
     fn unix_epoch_calendar_conversion_is_stable() {
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(20_324), (2025, 8, 24));
+    }
+
+    fn jpeg_fixture(orientation: u16) -> Vec<u8> {
+        let mut jpeg = vec![0xff, 0xd8];
+        let mut exif = [
+            b'E', b'x', b'i', b'f', 0, 0, b'I', b'I', 42, 0, 8, 0, 0, 0, 2, 0, 0x12, 0x01, 3, 0, 1,
+            0, 0, 0, 1, 0, 0, 0, 0x69, 0x87, 4, 0, 1, 0, 0, 0, 38, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0x01,
+            0xa0, 3, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        exif[24..26].copy_from_slice(&orientation.to_le_bytes());
+        jpeg.extend([0xff, 0xe1]);
+        jpeg.extend(((exif.len() + 2) as u16).to_be_bytes());
+        jpeg.extend(exif);
+        jpeg.extend([
+            0xff, 0xc0, 0, 17, 8, 4, 0, 6, 0, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0, 0xff, 0xd9,
+        ]);
+        jpeg
     }
 
     fn synthetic_track(

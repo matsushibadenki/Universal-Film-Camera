@@ -68,6 +68,8 @@ macOSではAVFoundation native preview、JPEG still capture、音声付きMOV re
 
 native previewは公開APIでWKWebView上の`NSView`に配置するため、Web contentより前面に出る。現在はpreview内のHTML guide／timecode／histogram／audio meterを映像表示中だけ隠し、誤って表示済みと見せない。parameter stripとtool railはpreview外に保ち、引き続きWeb UIで操作する。次工程でoverlayをnative layerまたはMetal compositorへ移す。
 
+monitor tools menuもnative preview上へ重ねない。bottom railではmenuを独立した上段として展開してpreviewを縮め、right railでは中央の正円capture controlを避けて上下2個ずつ配置する。開閉時はResizeObserverに加えてnative preview frame同期を明示実行する。native `NSView`はCSS `z-index`で前後関係を変更できないため、HTML popupをpreview領域へ戻してはいけない。
+
 ## Roadmap
 
 - [Done] プロ向けdark camera layoutと撮影優先のpreview面を実装
@@ -77,6 +79,7 @@ native previewは公開APIでWKWebView上の`NSView`に配置するため、Web 
 - [Done] macOS AVFoundation native previewを`preview-surface`へ接続
 - [Done] 1100 × 760／880 × 650でnative previewのresizeとtitle bar補正を実機確認
 - [Done] シャッター／録画ボタンをbottom railの水平中央、right railの垂直中央に正円で固定
+- [Done] monitor tools menuをnative preview外へ配置し、中央capture controlとの重なりを解消
 - [Done] Still modeの中央シャッターをJPEG実撮影へ接続
 - [Done] Video modeの中央録画ボタンを音声付きMOVの開始／停止へ接続
 - [Done] 録画中timecode、停止形状、mode lock、保存完了feedbackをnative stateと同期
@@ -84,7 +87,8 @@ native previewは公開APIでWKWebView上の`NSView`に配置するため、Web 
 - [Done] 未接続のLens／Iris／WBと手動非対応のEI／Shutterから架空の固定値を除去
 - [Done] format／FPS選択panelを対応組合せから生成し、sessionへ適用
 - [Done] format panelを英語・日本語・简体中文へ翻訳し、44px以上の選択controlを確保
-- [Next] format選択の永続化と、still／video別の出力preset表示
+- [Done] format選択のdevice別永続化
+- [Next] still／video別の出力preset表示
 - [Next] waveform、vectorscope、false color、peakingのGPU rendererを接続
 - [Later] UI customization、button remapping、external monitor layout
 
@@ -105,6 +109,8 @@ native previewは公開APIでWKWebView上の`NSView`に配置するため、Web 
 2026-08-16に署名済みdebug appと内蔵cameraでnative previewを確認した。1100 × 760ではright rail、880 × 650ではbottom railとなり、どちらもparameter strip、preview、操作railの重なりはない。カメラ映像は引き継ぎ資料へ保存しない。
 
 2026-08-17に録画ボタンの中央配置を実機UIで再確認した。right railでは垂直中央、bottom railでは水平中央を維持し、Video modeでは赤い正円として表示される。右レールのmonitor toolsは中央領域を侵食しない展開式へ変更した。
+
+2026-08-24、monitor toolsを固定popupとしてpreviewへ重ねる実装では、前面にあるnative `NSView`がmenu文字を隠す問題を確認した。menuをtool rail内へ戻し、320 × 700ではpreview下の独立行、880 × 650でもbottom rail内、1100 × 760ではright rail内へ配置した。1100 × 760では4つのtool buttonとcapture controlの矩形が非重複、capture中心とrail中心が一致、320 × 700ではmenu上端がpreview下端より12px下、horizontal overflowなしを実画面で確認した。
 
 2026-08-18にStill modeの中央シャッターから実機JPEGを保存し、処理中のdisabled状態と完了後の復帰を確認した。成功時はボタン状態と多言語statusを更新する。この時点のVideo modeは疑似timerを開始せず、実収録が接続されるまでボタンをdisabledに保っていた。
 

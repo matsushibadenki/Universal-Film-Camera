@@ -5,7 +5,7 @@
 
 use camera_core::{
     CameraAuthorizationStatus, CameraBackend, CameraCapabilities, CameraConfig, CameraDevice,
-    CameraError, CameraFormatCapability, CameraSession,
+    CameraError, CameraFormatCapability, CameraSession, CaptureOrientation,
 };
 
 #[derive(Debug, Default)]
@@ -35,15 +35,16 @@ mod platform {
     use objc2::runtime::{Bool, ProtocolObject};
     use objc2::{AnyThread, DefinedClass, define_class, msg_send};
     use objc2_av_foundation::{
-        AVAuthorizationStatus, AVCaptureDevice, AVCaptureDeviceDiscoverySession,
-        AVCaptureDeviceInput, AVCaptureDevicePosition, AVCaptureDeviceTypeBuiltInWideAngleCamera,
-        AVCaptureDeviceTypeExternalUnknown, AVCaptureExposureMode, AVCaptureFileOutput,
-        AVCaptureFileOutputRecordingDelegate, AVCaptureFocusMode, AVCaptureMovieFileOutput,
-        AVCapturePhoto, AVCapturePhotoCaptureDelegate, AVCapturePhotoOutput,
-        AVCapturePhotoSettings, AVCaptureSession, AVCaptureSessionPreset640x480,
-        AVCaptureSessionPreset1280x720, AVCaptureSessionPreset1920x1080,
-        AVCaptureSessionPresetInputPriority, AVCaptureVideoPreviewLayer,
-        AVLayerVideoGravityResizeAspectFill, AVMediaType, AVMediaTypeAudio, AVMediaTypeVideo,
+        AVAuthorizationStatus, AVCaptureConnection, AVCaptureDevice,
+        AVCaptureDeviceDiscoverySession, AVCaptureDeviceInput, AVCaptureDevicePosition,
+        AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureDeviceTypeExternalUnknown,
+        AVCaptureExposureMode, AVCaptureFileOutput, AVCaptureFileOutputRecordingDelegate,
+        AVCaptureFocusMode, AVCaptureMovieFileOutput, AVCapturePhoto,
+        AVCapturePhotoCaptureDelegate, AVCapturePhotoOutput, AVCapturePhotoSettings,
+        AVCaptureSession, AVCaptureSessionPreset640x480, AVCaptureSessionPreset1280x720,
+        AVCaptureSessionPreset1920x1080, AVCaptureSessionPresetInputPriority,
+        AVCaptureVideoPreviewLayer, AVLayerVideoGravityResizeAspectFill, AVMediaType,
+        AVMediaTypeAudio, AVMediaTypeVideo,
     };
     use objc2_core_media::{CMTimeMakeWithSeconds, CMVideoFormatDescriptionGetDimensions};
     use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol, NSString, NSURL};
@@ -213,6 +214,7 @@ mod platform {
         movie_output: objc2::rc::Retained<AVCaptureMovieFileOutput>,
         preview_layer: objc2::rc::Retained<AVCaptureVideoPreviewLayer>,
         operation_lock: std::sync::Mutex<()>,
+        orientation: std::sync::Mutex<CaptureOrientation>,
         photo_output_added: std::sync::Mutex<bool>,
         audio_input_added: std::sync::Mutex<bool>,
         recording: std::sync::Mutex<Option<MovieRecording>>,
@@ -277,6 +279,7 @@ mod platform {
                 movie_output,
                 preview_layer,
                 operation_lock: std::sync::Mutex::new(()),
+                orientation: std::sync::Mutex::new(CaptureOrientation::default()),
                 photo_output_added: std::sync::Mutex::new(true),
                 audio_input_added: std::sync::Mutex::new(false),
                 recording: std::sync::Mutex::new(None),
@@ -421,7 +424,95 @@ mod platform {
                 self.video_device.setActiveVideoMaxFrameDuration(duration);
                 self.video_device.unlockForConfiguration();
             }
+            let orientation = *self
+                .orientation
+                .lock()
+                .map_err(|_| CameraError("capture orientation lock poisoned".into()))?;
+            self.apply_orientation_locked(orientation)?;
             Ok(self.active_format())
+        }
+
+        pub fn set_capture_orientation(
+            &self,
+            orientation: CaptureOrientation,
+        ) -> Result<CaptureOrientation, CameraError> {
+            let orientation = CaptureOrientation::new(
+                orientation.rotation_degrees,
+                orientation.preview_mirrored,
+                orientation.capture_mirrored,
+            )?;
+            let _guard = self
+                .operation_lock
+                .lock()
+                .map_err(|_| CameraError("capture session lock poisoned".into()))?;
+            if self
+                .recording
+                .lock()
+                .map_err(|_| CameraError("movie recording lock poisoned".into()))?
+                .is_some()
+            {
+                return Err(CameraError(
+                    "cannot change capture orientation while recording".into(),
+                ));
+            }
+            self.apply_orientation_locked(orientation)?;
+            *self
+                .orientation
+                .lock()
+                .map_err(|_| CameraError("capture orientation lock poisoned".into()))? =
+                orientation;
+            Ok(orientation)
+        }
+
+        pub fn capture_orientation(&self) -> CaptureOrientation {
+            *self
+                .orientation
+                .lock()
+                .expect("capture orientation lock poisoned")
+        }
+
+        fn apply_orientation_locked(
+            &self,
+            orientation: CaptureOrientation,
+        ) -> Result<(), CameraError> {
+            let preview = unsafe { self.preview_layer.connection() }
+                .ok_or_else(|| CameraError("preview layer has no video connection".into()))?;
+            apply_connection_orientation(
+                &preview,
+                orientation.rotation_degrees,
+                orientation.preview_mirrored,
+                "preview",
+            )?;
+
+            let photo_added = *self
+                .photo_output_added
+                .lock()
+                .map_err(|_| CameraError("photo output state lock poisoned".into()))?;
+            if photo_added {
+                let photo = unsafe {
+                    self.photo_output
+                        .connectionWithMediaType(video_media_type())
+                }
+                .ok_or_else(|| CameraError("photo output has no video connection".into()))?;
+                apply_connection_orientation(
+                    &photo,
+                    orientation.rotation_degrees,
+                    orientation.capture_mirrored,
+                    "photo",
+                )?;
+            }
+
+            let movie = unsafe {
+                self.movie_output
+                    .connectionWithMediaType(video_media_type())
+            }
+            .ok_or_else(|| CameraError("movie output has no video connection".into()))?;
+            apply_connection_orientation(
+                &movie,
+                orientation.rotation_degrees,
+                orientation.capture_mirrored,
+                "movie",
+            )
         }
 
         fn configure_movie_output(&self, fps: f64) -> Result<(), CameraError> {
@@ -571,6 +662,7 @@ mod platform {
                 }
                 *photo_added = false;
             }
+            drop(photo_added);
             self.set_active_format_locked(
                 active.width,
                 active.height,
@@ -598,6 +690,7 @@ mod platform {
                     self.session.commitConfiguration();
                 }
                 *photo_added = true;
+                drop(photo_added);
                 self.set_active_format_locked(
                     active.width,
                     active.height,
@@ -711,6 +804,32 @@ mod platform {
             self.preview_layer.setFrame(view.bounds());
             Ok(())
         }
+    }
+
+    fn apply_connection_orientation(
+        connection: &AVCaptureConnection,
+        rotation_degrees: u16,
+        mirrored: bool,
+        label: &str,
+    ) -> Result<(), CameraError> {
+        let angle = f64::from(rotation_degrees);
+        if !unsafe { connection.isVideoRotationAngleSupported(angle) } {
+            return Err(CameraError(format!(
+                "{label} connection does not support {rotation_degrees}-degree rotation"
+            )));
+        }
+        unsafe { connection.setVideoRotationAngle(angle) };
+        if unsafe { connection.isVideoMirroringSupported() } {
+            unsafe {
+                connection.setAutomaticallyAdjustsVideoMirroring(false);
+                connection.setVideoMirrored(mirrored);
+            }
+        } else if mirrored {
+            return Err(CameraError(format!(
+                "{label} connection does not support mirroring"
+            )));
+        }
+        Ok(())
     }
 
     fn write_photo_atomically(destination: &Path, bytes: &[u8]) -> Result<(), CameraError> {

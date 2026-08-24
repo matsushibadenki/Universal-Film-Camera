@@ -2409,7 +2409,8 @@ Still acceptanceではdecode可能、寸法、orientation、embedded color descr
 - [Done] Still／Video共通`CapturedAsset`と保存後JPEG／QuickTime probeを実装
 - [Done] device別format永続化、1280×720／24 FPSのStill／Video実機validation
 - [Later] 測定dataset確定後にmeasured Print responseとColorChecker fixtureを追加
-- [Next] capture connectionのorientation／rotation同期とportrait／mirror実機case
+- [Done] UI姿勢からPreview／Photo／Movie connectionへのrotation同期とpreview／capture mirror分離
+- [Next] iOS実機でportrait／upside-down／front-camera mirror caseを検証
 - [Next] CapturedAsset derivativeへrender snapshotと再現情報を保存
 - [Later] wgpu renderer、OCIO adapter、LUT compiler、GPU conformance runner
 - [Later] Spectral Engine、profile measurement、Film Profile Editor

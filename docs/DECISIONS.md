@@ -205,3 +205,11 @@ Status: Accepted (2026-08-24)
 AVFoundation delegate完了とfile非空だけでは、UIで選択したformatが保存trackへ反映されたことを保証できない。Still／Videoは`.incomplete`へ保存し、camera-coreがJPEGまたはQuickTime／ISO BMFFを直接probeして、寸法、container、codec、FPS、duration、audio、orientation／rotation、color metadataを`CapturedAsset`へ格納する。必須check不一致のresourceは完成directoryへrenameしない。
 
 macOSではPhotoOutputとMovieFileOutputの同時接続によるformat再交渉を避けるため、Video開始時にPhotoOutputを外し、標準session presetをcommitしてからdevice active formatを最終適用する。Stillへ戻るとPhotoOutputを再接続し同じformatを再適用する。外部`ffprobe`や`mdls`はcross-checkだけに使い、製品の成功判定へ依存させない。詳細は[`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)を正本とする。
+
+## ADR-029: Preview mirroring is independent from captured-media mirroring
+
+Status: Accepted (2026-08-24)
+
+画面姿勢は共通`CaptureOrientation`で0／90／180／270度だけを受理し、Preview、Photo、MovieのAVFoundation connectionへ同じrotationを適用する。AVFoundationがStillではEXIF、VideoではQuickTime track matrix、Previewではlayer transformを生成するため、保存後にpixelを再回転しない。
+
+front cameraのpreviewは操作感のためmirrorを許可する一方、Photo／Movieは他のImaging Pipelineや編集ソフトとの相互運用を優先して既定で非mirrorにする。このため`preview_mirrored`と`capture_mirrored`を独立fieldとして保持する。録画途中のorientation変更は拒否し、停止後に最新のUI姿勢を同期する。portrait／upside-down／front-cameraの最終受け入れはiOS実機で行う。

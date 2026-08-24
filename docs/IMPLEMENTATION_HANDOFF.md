@@ -200,6 +200,20 @@ selected-format runtime
 
 AVFoundationではPhotoOutputとMovieFileOutputの同時接続がMovie出力formatを再交渉したため、Video開始前にPhotoOutputを外し、対応`AVCaptureSessionPreset`をcommit後にdevice active formatを最終適用する。Video後のStill captureではPhotoOutputを戻してformatを再適用する。この順序を崩すとUIは720pでも保存MOVが1080pまたはsquareになる。正本は[`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)と[`APPLE_CAMERA_BACKEND.md`](APPLE_CAMERA_BACKEND.md)。
 
+2026-08-24、rotation／mirror同期を次の境界で実装した。
+
+```text
+Screen Orientation + camera position
+  → CaptureOrientation(0/90/180/270)
+  → AVCaptureVideoPreviewLayer connection
+  → AVCapturePhotoOutput connection → EXIF orientation
+  → AVCaptureMovieFileOutput connection → QuickTime track matrix
+```
+
+front cameraはpreviewだけmirror、保存Still／Videoは既定で非mirrorとする。PhotoOutput切離し／再接続やactive format再適用後にも保持したorientationを再設定する。録画中のorientation変更は拒否し、停止後にUIが再同期する。EXIF orientation 1–8とMOVの4回転×mirror有無はfixture test済み。macOSの0度・非mirror保存は既存実機assetで確認済みだが、portrait／upside-down／front cameraはiOS実機受け入れが必要であり完了扱いにしない。判断根拠は[`DECISIONS.md`](DECISIONS.md) ADR-029を参照する。
+
+同日の実機再検証ではorientation IPCを含むpreview start、1280×720 JPEG、H.264＋AAC MOVが成功し、両resourceのprobeでrotation 0度／非mirrorを確認した。`npm run tauri dev`はTauri `devUrl`が1420、Vite既定が5173だったため待機し続ける既存不具合があり、rootの`vite.config.ts`で127.0.0.1:1420へ固定した。開発起動設定を変更するときは`tauri.conf.json`と必ず同時に更新する。
+
 ## 未確定事項（実装前に決める）
 
 1. 正式な製品名、bundle/application identifier、著作権表記

@@ -12,7 +12,9 @@
 - [Done] 選択camera formatと保存resourceの寸法／FPS照合
 - [Done] container、video codec、audio track、正duration、color宣言のvalidation result
 - [Done] synthetic JPEG／MOV fixture testと実asset用`probe_asset` diagnostic
-- [Next] capture connectionへ端末姿勢を設定し、portrait／mirrorを実機検証
+- [Done] UI端末姿勢をPreview／Photo／Movie connectionへ同期し、preview mirrorと保存mirrorを分離
+- [Done] EXIF orientation 1–8とMOV quarter-turn／mirror行列の全組合せfixture
+- [Next] iPhone／iPadのportrait／upside-down／front-camera mirrorを実機検証
 - [Next] derivativeへparent resource、render snapshot、engine version、seedを保存
 - [Next] asset manifest／sidecarとMedia indexを永続化
 
@@ -52,6 +54,12 @@ AVFoundation output
 
 Video開始時はPhotoOutputをsessionから外し、標準解像度では対応する`AVCaptureSessionPreset`をcommitしてからdevice `activeFormat`とframe durationを最終適用する。Video後のStill撮影時はPhotoOutputを戻し、同じ選択formatを再適用する。format mutation、output切替、録画開始／停止は既存`operation_lock`内で直列化する。
 
+## Rotation／Mirror契約
+
+`CaptureOrientation`はrotationを0／90／180／270度に限定し、`preview_mirrored`と`capture_mirrored`を別fieldにする。Web UIはScreen Orientationの角度とcamera positionから要求値を生成する。front cameraはpreviewだけを鏡像にし、Still／Videoの保存物は既定で非鏡像とする。
+
+Apple backendは同じrotationを`AVCaptureVideoPreviewLayer`、`AVCapturePhotoOutput`、`AVCaptureMovieFileOutput`の各connectionへ設定する。AVFoundationはpreviewをlayer transform、StillをEXIF、VideoをQuickTime track matrixとして表現するため、pixelを別途回転しない。output切替やactive format再適用後にも保持値を再設定し、二重回転を防ぐ。
+
 ## 2026-08-24実機検証
 
 内蔵camera、macOS debug bundle、1280×720／24 FPSで次を確認した。
@@ -73,6 +81,11 @@ Video
 
 Video → Still output restoration
   JPEG / 1280×720: passed
+
+orientation connection同期後の再検証
+  Preview start / Still / Video: passed
+  JPEG: rotation 0° / not mirrored
+  MOV track matrix: rotation 0° / not mirrored
 ```
 
 検証中、選択formatと異なるMOVを2本検出し、意図どおり`.incomplete`へ隔離した。これはvalidation failure時のcleanup policy実装前の診断artifactであり、Media画面へは公開されない。自動cleanup／quarantine UIは`[Next]`である。
@@ -90,7 +103,7 @@ cargo run -p camera-core --example probe_asset -- video /path/to/capture.mov
 
 ## 制限
 
-- EXIF orientationの読出しは実装済みだが、capture connectionへのrotation angle設定とportrait実機caseは未完了。
+- connectionへのrotation／mirror設定とmetadata probeは実装済み。macOS 0度・非鏡像の保存結果は確認済みだが、iOSのportrait、upside-down、front-camera鏡像は実機未検証。
 - MOV probeはQuickTime／一般的なISO BMFF sample tableを対象とする。fragmented MP4、複数video track、edit listによるpresentation duration、VFR詳細判定は未対応。
 - `duration_ms`はmovie headerを優先し、なければvideo media headerへfallbackする。A/V start offsetとtimestamp単調性はまだ検証していない。
 - color codeが未知の場合は文字列`unknown`として保持し、BT.709などへ推測変換しない。

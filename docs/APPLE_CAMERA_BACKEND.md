@@ -29,8 +29,11 @@
 - [Done] JPEG／QuickTime保存後probeと選択format照合を`CapturedAsset`へ統合
 - [Done] 1280×720／24 FPSでJPEG StillとH.264＋AAC MOVを実機検証
 - [Done] Video開始時のPhotoOutput切離しとVideo→Still時の再接続
+- [Done] UI姿勢をPreview／Photo／Movie connectionへ同期し、front preview鏡像と非鏡像保存を分離
+- [Done] output再接続／format再適用後のrotation／mirror再設定
+- [Done] `vite.config.ts`でTauri `devUrl`と開発serverを127.0.0.1:1420へ固定
 - [Next] RAW photo format、HDR／LOG color spaceをformat単位で能力モデルへ追加
-- [Next] photo／video connectionのrotation／orientationをUI・端末姿勢と同期
+- [Next] iPhone／iPad実機でportrait／upside-down／front-camera mirrorを検証
 - [Next] JPEG／HEIF／RAW選択、保存先選択、オリジナル＋処理済みasset管理
 - [Next] video connectionのrotation／orientation、codec、container、bitrate、audio channelを能力値と設定へ接続
 - [Next] window close、sleep、background、device切断時のsession終了／復旧をイベント駆動にする
@@ -50,6 +53,7 @@ TypeScript UI
   ├─ get/request_microphone_authorization
   ├─ start_camera_preview
   ├─ resize_camera_preview
+  ├─ set_camera_orientation
   ├─ capture_photo
   └─ start/stop_video_recording
              ↓ metadata / state only
@@ -72,6 +76,8 @@ AppleCameraBackend
 ```
 
 `CameraController`はアプリ状態機械、`AppleCaptureSession`はAVFoundation lifecycleの正本である。start／stopはblocking workerで実行し、`operation_lock`で直列化する。NSViewとpreview layerのattach／resize／detachは`MainThreadMarker`を要求する。この条件を根拠にAVFoundation objectへ`Send + Sync`を付与しているため、新しいsession mutationを追加するときは必ず同じ直列化または専用serial queueへ載せること。
+
+`CaptureOrientation`は0／90／180／270度だけを受理する。UIのScreen Orientationを3つのvideo connectionへ同一角度で適用し、front cameraはpreviewだけmirror、Photo／Movieは既定で非mirrorとする。録画中の変更はtrack途中の表示変化を避けるためnative側で拒否し、停止後にUIが最新姿勢を再同期する。
 
 macOS previewは公開APIだけでWKWebViewの上にnative viewを重ねる。private APIでWebViewを透過させて背面合成する方式は採用しない。このため現段階ではpreview内部のHTML guide、histogram、audio meterを映像表示中だけ隠す。上部parameter stripと右／下tool railはWeb UIのまま操作できる。
 

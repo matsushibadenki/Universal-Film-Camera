@@ -5,8 +5,8 @@ use camera_apple::AppleCameraBackend;
 use camera_apple::{ActiveCameraFormat, AppleCaptureSession, MacPreviewHost, PreviewRect};
 use camera_core::{
     CameraAuthorizationStatus, CameraBackend, CameraCapabilities, CameraController, CameraDevice,
-    CameraMode, CameraState, CaptureMetadata, CapturedAsset, CapturedMediaType, RationalRate,
-    SelectedCaptureFormat, probe_media_resource,
+    CameraMode, CameraState, CaptureMetadata, CaptureOrientation, CapturedAsset, CapturedMediaType,
+    RationalRate, SelectedCaptureFormat, probe_media_resource,
 };
 #[cfg(target_os = "macos")]
 use camera_settings::{StoredCameraFormat, load_format, save_format};
@@ -87,6 +87,7 @@ struct PreviewStatus {
     active_format: Option<PreviewFormat>,
     format_restored: bool,
     settings_warning: Option<String>,
+    orientation: CaptureOrientation,
 }
 
 #[derive(Serialize)]
@@ -324,6 +325,7 @@ async fn stop_preview_runtime(
 async fn start_camera_preview(
     device_id: String,
     viewport: PreviewViewport,
+    orientation: CaptureOrientation,
     window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
 ) -> Result<PreviewStatus, String> {
@@ -415,6 +417,13 @@ async fn start_camera_preview(
         } else {
             session.active_format()
         };
+        let orientation_session = Arc::clone(&session);
+        let orientation = tauri::async_runtime::spawn_blocking(move || {
+            orientation_session.set_capture_orientation(orientation)
+        })
+        .await
+        .map_err(|error| format!("camera orientation task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
 
         state
             .camera
@@ -436,13 +445,46 @@ async fn start_camera_preview(
             active_format: Some(active_format.into()),
             format_restored,
             settings_warning,
+            orientation,
         });
     }
 
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (device_id, viewport, window, state);
+        let _ = (device_id, viewport, orientation, window, state);
         Err("native preview is not implemented on this platform yet".into())
+    }
+}
+
+#[tauri::command]
+async fn set_camera_orientation(
+    orientation: CaptureOrientation,
+    state: tauri::State<'_, AppState>,
+) -> Result<CaptureOrientation, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let session = {
+            let preview = state
+                .preview
+                .lock()
+                .map_err(|_| "preview state lock poisoned")?;
+            let Some(runtime) = preview.as_ref() else {
+                return Err("camera preview is not running".into());
+            };
+            Arc::clone(&runtime.session)
+        };
+        return tauri::async_runtime::spawn_blocking(move || {
+            session.set_capture_orientation(orientation)
+        })
+        .await
+        .map_err(|error| format!("camera orientation task failed: {error}"))?
+        .map_err(|error| error.to_string());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (orientation, state);
+        Err("camera orientation is not implemented on this platform yet".into())
     }
 }
 
@@ -811,6 +853,7 @@ pub fn run() {
             request_microphone_authorization,
             start_camera_preview,
             resize_camera_preview,
+            set_camera_orientation,
             stop_camera_preview,
             capture_photo,
             start_video_recording,

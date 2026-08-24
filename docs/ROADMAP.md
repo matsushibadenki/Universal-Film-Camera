@@ -18,7 +18,7 @@
 
 | 領域 | 現在の段階 | 最も近い完了条件 |
 |---|---|---|
-| macOS camera | [Done] validated native MVP | orientation capture同期とMedia管理 |
+| macOS camera | [Done] validated native MVP | iOS姿勢実機検証とMedia管理 |
 | Professional UI | [Done] capture-first shell | native／GPU monitoring overlayを接続 |
 | Imaging Pipeline model | [Done] schema v1 + render snapshot | CPU finishing縦切りを追加 |
 | Profile system | [Done] typed Profiles + loader + migration registry | assetへsnapshotを保存 |
@@ -79,7 +79,9 @@ Selected camera format
 - [Done] format設定のdevice別永続化とsession開始時の復元
 - [Done] Still／Video共通`CapturedAsset`、Incomplete→probe→Finalized公開境界
 - [Done] EXIF orientation／MOV track rotationと保存metadataの共通読出し
-- [Next] capture connectionへ端末姿勢を同期し、portrait／mirror実機caseを検証
+- [Done] UI端末姿勢をPreview／Photo／Movie connectionへ同期し、preview／capture mirrorを分離
+- [Done] EXIF 1–8とMOV quarter-turn／mirror行列のfixture検証
+- [Next] iOS実機でportrait／upside-down／front-camera mirror caseを検証
 - [Next] HEIF／RAW、codec／container／bitrate／audio channelの能力モデル
 - [Next] window close、sleep、background、device切断時の復旧
 - [Later] `AVCaptureVideoDataOutput → CVPixelBuffer → Metal texture`
@@ -93,6 +95,7 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - [Done] 技術的・暗色・撮影画面優先のresponsive layout
 - [Done] 320／375／414／768／1280pxのlayout検証
 - [Done] right rail／bottom railで中央正円capture controlを維持
+- [Done] scope／monitor tools menuをnative preview外へ配置
 - [Done] 英語、日本語、简体中文の主要UI
 - [Done] 実機active formatとmanual control可否を表示
 - [Done] 対応組合せから生成するformat／FPS panel
@@ -224,16 +227,19 @@ Bluetooth LE / Bonjour / Nearby discovery
 - [Done] JPEG／QuickTimeを外部toolなしで検査する共通`CapturedAsset` probe
 - [Done] 1280×720／24 FPSのStill／Video保存後実機validation
 - [Done] Video出力時のPhotoOutput切替とsession preset再適用
+- [Done] Preview／Photo／Movie orientation同期と全EXIF／MOV変換fixture
+- [Done] Tauri／Vite開発serverを127.0.0.1:1420へ統一
 
 次の順序:
 
-1. [Next] capture connectionへorientation／rotationを設定しportrait／mirror caseを検証する
-2. [Next] CapturedAsset derivativeへrender snapshot／parent／engine version／seedを保存する
-3. [Next] Finalized／Incomplete／Failedを扱うMedia indexとcleanup UIを実装する
-4. [Next] iOS／Android Tauri projectを初期化する
-5. [Later] measured Print dataset確定後にresponse／ColorChecker fixtureを追加する
+1. [Done] UI姿勢をPreview／Photo／Movie connectionへ同期し、保存mirrorを分離する
+2. [Next] iOS実機でportrait／upside-down／front-camera mirrorを検証する
+3. [Next] CapturedAsset derivativeへrender snapshot／parent／engine version／seedを保存する
+4. [Next] Finalized／Incomplete／Failedを扱うMedia indexとcleanup UIを実装する
+5. [Next] iOS／Android Tauri projectを初期化する
+6. [Later] measured Print dataset確定後にresponse／ColorChecker fixtureを追加する
 
-Nearby Peer Transferは上記4–5で`CapturedAsset`とMedia管理が成立した後に着手するため、現時点では`[Later]`とする。
+Nearby Peer Transferは上記3–5で`CapturedAsset`とMedia管理が成立した後に着手するため、現時点では`[Later]`とする。
 
 優先キューを変更するときは、依存関係、受け入れ条件、変更理由を本書か[`DECISIONS.md`](DECISIONS.md)へ残す。
 
@@ -244,7 +250,7 @@ Nearby Peer Transferは上記4–5で`CapturedAsset`とMedia管理が成立し�
 ```text
 npm run check
   TypeScript / Vite production build: passed
-  Rust workspace tests: 48 passed, 0 failed
+  Rust workspace tests: 51 passed, 0 failed
 
 macOS native runtime
   camera preview: passed
@@ -254,6 +260,7 @@ macOS native runtime
   persisted format restore: 1280×720/24 passed
   selected-format JPEG: 1280×720 / EXIF sRGB passed
   selected-format MOV: H.264 1280×720 / 23.998 FPS / BT.709 + AAC mono passed
+  orientation IPC at macOS 0°: preview / JPEG / MOV passed, not mirrored
   save-before-publish asset probe: passed
   continuous full-frame WebView IPC: none
 ```
@@ -271,7 +278,8 @@ macOS native runtime
 ### macOS technical preview
 
 - [Done] native preview、Still、Video、format選択
-- [Next] orientation／metadata、設定永続化、Media一覧
+- [Done] orientation connection同期、metadata probe、設定永続化
+- [Next] iOS orientation実機検証、Media一覧
 - [Next] lifecycle／device disconnect recovery
 - [Next] 正式な署名、notarization、bundle identifier確定
 

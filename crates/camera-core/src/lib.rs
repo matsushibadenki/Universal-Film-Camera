@@ -87,6 +87,37 @@ pub struct CameraConfig {
     pub audio_enabled: bool,
 }
 
+/// Orientation requested by the UI for every native video connection.
+///
+/// Preview mirroring is intentionally independent from capture mirroring:
+/// front-camera monitoring may be mirrored while stored media remains
+/// unmirrored and interoperable with other imaging applications.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureOrientation {
+    pub rotation_degrees: u16,
+    pub preview_mirrored: bool,
+    pub capture_mirrored: bool,
+}
+
+impl CaptureOrientation {
+    pub fn new(
+        rotation_degrees: u16,
+        preview_mirrored: bool,
+        capture_mirrored: bool,
+    ) -> Result<Self, CameraError> {
+        if !matches!(rotation_degrees, 0 | 90 | 180 | 270) {
+            return Err(CameraError(format!(
+                "unsupported capture rotation: {rotation_degrees} degrees"
+            )));
+        }
+        Ok(Self {
+            rotation_degrees,
+            preview_mirrored,
+            capture_mirrored,
+        })
+    }
+}
+
 pub type CaptureResult = CapturedAsset;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -199,5 +230,11 @@ mod tests {
                 .transition(CameraState::Recording)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn capture_orientation_rejects_non_quarter_turns() {
+        assert!(CaptureOrientation::new(90, true, false).is_ok());
+        assert!(CaptureOrientation::new(45, false, false).is_err());
     }
 }

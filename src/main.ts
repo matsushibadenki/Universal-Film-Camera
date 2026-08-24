@@ -22,12 +22,18 @@ type CameraCapabilities = {
   hdr_video: boolean;
 };
 type PreviewViewport = { x: number; y: number; width: number; height: number };
+type CaptureOrientation = {
+  rotation_degrees: 0 | 90 | 180 | 270;
+  preview_mirrored: boolean;
+  capture_mirrored: boolean;
+};
 type PreviewStatus = {
   running: boolean;
   device_id: string;
   active_format: PreviewFormat | null;
   format_restored: boolean;
   settings_warning: string | null;
+  orientation: CaptureOrientation;
 };
 type PreviewFormat = {
   width: number;
@@ -90,6 +96,7 @@ type Copy = {
   formatFailed: string;
   formatPersistenceFailed: string;
   assetMetadataWarning: string;
+  orientationFailed: string;
 };
 
 const copy: Record<Locale, Copy> = {
@@ -107,7 +114,7 @@ const copy: Record<Locale, Copy> = {
     previewStarting: "Starting native preview…", previewFailed: "Native preview could not be started.",
     format: "Format", apply: "Apply", formatFailed: "Format change failed",
     formatPersistenceFailed: "Format applied, but the setting could not be saved",
-    assetMetadataWarning: "saved with a metadata warning"
+    assetMetadataWarning: "saved with a metadata warning", orientationFailed: "Camera orientation sync failed"
   },
   ja: {
     photo: "写真", video: "動画", camera: "カメラ", noSignal: "カメラ信号なし",
@@ -123,7 +130,7 @@ const copy: Record<Locale, Copy> = {
     previewStarting: "ネイティブプレビューを開始しています…", previewFailed: "ネイティブプレビューを開始できませんでした。",
     format: "フォーマット", apply: "適用", formatFailed: "フォーマット変更に失敗しました",
     formatPersistenceFailed: "フォーマットは適用されましたが、設定を保存できませんでした",
-    assetMetadataWarning: "メタデータ警告付きで保存しました"
+    assetMetadataWarning: "メタデータ警告付きで保存しました", orientationFailed: "カメラ姿勢の同期に失敗しました"
   },
   "zh-CN": {
     photo: "照片", video: "视频", camera: "相机", noSignal: "无相机信号",
@@ -139,7 +146,7 @@ const copy: Record<Locale, Copy> = {
     previewStarting: "正在启动原生预览…", previewFailed: "无法启动原生预览。",
     format: "格式", apply: "应用", formatFailed: "格式更改失败",
     formatPersistenceFailed: "格式已应用，但无法保存设置",
-    assetMetadataWarning: "已保存，但存在元数据警告"
+    assetMetadataWarning: "已保存，但存在元数据警告", orientationFailed: "相机方向同步失败"
   }
 };
 
@@ -248,7 +255,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         </div>
       </div>
 
-      <div class="monitor-tools">
+      <div class="monitor-tools" id="monitor-tools-panel">
         <button data-tool="focus" aria-pressed="false" aria-label="${t.focus}">${icon("focus")}<span>${t.focus}</span></button>
         <button data-tool="zebra" aria-pressed="false" aria-label="${t.zebra}">${icon("zebra")}<span>${t.zebra}</span></button>
         <button data-tool="guides" aria-pressed="true" class="is-active" aria-label="${t.guides}">${icon("guides")}<span>${t.guides}</span></button>
@@ -258,7 +265,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <button id="capture" class="shutter" aria-label="${t.capture}" data-state="default"><span></span></button>
 
       <div class="rail-trailing">
-        <button class="monitor-tools-toggle" id="monitor-tools-toggle" aria-expanded="false" aria-label="${t.scopes}">${icon("scope")}<span>${t.scopes}</span></button>
+        <button class="monitor-tools-toggle" id="monitor-tools-toggle" aria-expanded="false" aria-controls="monitor-tools-panel" aria-label="${t.scopes}">${icon("scope")}<span>${t.scopes}</span></button>
 
         <nav class="destination-tools" aria-label="Application sections">
           <button class="is-active" aria-label="${t.pipeline}">${icon("pipeline")}<span>${t.pipeline}</span></button>
@@ -289,10 +296,42 @@ const formatApply = document.querySelector<HTMLButtonElement>("#format-apply")!;
 let nativePreviewRunning = false;
 let nativePreviewStarting = false;
 let activeDeviceId: string | undefined;
+let activeDevicePosition: CameraDevice["position"] | undefined;
+let lastOrientationKey: string | undefined;
 
 function previewViewport(): PreviewViewport {
   const rect = previewSurface.getBoundingClientRect();
   return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+}
+
+function captureOrientation(position = activeDevicePosition): CaptureOrientation {
+  const angle = screen.orientation?.angle ?? 0;
+  const normalized = ((Math.round(angle / 90) * 90) % 360 + 360) % 360 as 0 | 90 | 180 | 270;
+  return {
+    rotation_degrees: normalized,
+    preview_mirrored: position === "front",
+    capture_mirrored: false
+  };
+}
+
+function orientationKey(orientation: CaptureOrientation): string {
+  return `${orientation.rotation_degrees}:${orientation.preview_mirrored}:${orientation.capture_mirrored}`;
+}
+
+async function syncNativeOrientation(): Promise<void> {
+  if (!nativePreviewRunning || recording) return;
+  const orientation = captureOrientation();
+  const key = orientationKey(orientation);
+  if (key === lastOrientationKey) return;
+  try {
+    const applied = await invoke<CaptureOrientation>("set_camera_orientation", { orientation });
+    lastOrientationKey = orientationKey(applied);
+  } catch (error) {
+    feedback.textContent = `${t.orientationFailed}: ${String(error)}`;
+    feedback.classList.add("is-visible");
+    captureButton.setAttribute("aria-label", feedback.textContent);
+    window.setTimeout(() => feedback.classList.remove("is-visible"), 5000);
+  }
 }
 
 function resolutionLabel(width: number, height: number): string {
@@ -387,10 +426,13 @@ async function startNativePreview(result: CameraDiscovery): Promise<void> {
     } catch { /* Preview can continue even if capability inspection fails. */ }
     const status = await invoke<PreviewStatus>("start_camera_preview", {
       deviceId: device.id,
-      viewport: previewViewport()
+      viewport: previewViewport(),
+      orientation: captureOrientation(device.position)
     });
     nativePreviewRunning = status.running;
     activeDeviceId = status.device_id;
+    activeDevicePosition = device.position;
+    lastOrientationKey = orientationKey(status.orientation);
     applyActiveFormat(status.active_format);
     if (status.settings_warning) {
       feedback.textContent = `${t.formatPersistenceFailed}: ${status.settings_warning}`;
@@ -485,6 +527,8 @@ function syncNativePreviewFrame(): void {
 
 new ResizeObserver(syncNativePreviewFrame).observe(previewSurface);
 window.addEventListener("resize", syncNativePreviewFrame);
+screen.orientation?.addEventListener("change", () => void syncNativeOrientation());
+window.addEventListener("orientationchange", () => void syncNativeOrientation());
 
 window.addEventListener("beforeunload", () => {
   if (!nativePreviewRunning) return;
@@ -525,6 +569,7 @@ function stopRecording(): void {
   if (timerId !== undefined) window.clearInterval(timerId);
   timerId = undefined;
   updateRecordingUI();
+  void syncNativeOrientation();
 }
 
 async function selectMode(nextMode: CameraMode): Promise<void> {
@@ -579,10 +624,13 @@ document.querySelectorAll<HTMLButtonElement>("[data-tool]").forEach((button) => 
 document.querySelector<HTMLButtonElement>("#monitor-tools-toggle")!.addEventListener("click", (event) => {
   const toggle = event.currentTarget as HTMLButtonElement;
   const tools = document.querySelector<HTMLElement>(".monitor-tools")!;
+  const rail = document.querySelector<HTMLElement>(".tool-rail")!;
   const open = toggle.getAttribute("aria-expanded") !== "true";
   toggle.setAttribute("aria-expanded", String(open));
   toggle.classList.toggle("is-active", open);
   tools.classList.toggle("is-open", open);
+  rail.classList.toggle("is-menu-open", open);
+  syncNativePreviewFrame();
 });
 
 formatResolution.addEventListener("change", () => populateFrameRates(recordingFrameRate));
