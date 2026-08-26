@@ -1,6 +1,6 @@
 # Universal Imaging Camera Roadmap
 
-更新日: 2026-08-24
+更新日: 2026-08-26
 対象: macOS / iOS / Android / Windows / Linux  
 正本仕様: [`Universal Film & Color Imaging Engine.md`](Universal%20Film%20%26%20Color%20Imaging%20Engine.md)
 
@@ -21,7 +21,7 @@
 | macOS camera | [Done] validated native MVP | iOS姿勢実機検証とMedia管理 |
 | Professional UI | [Done] capture-first shell | native／GPU monitoring overlayを接続 |
 | Imaging Pipeline model | [Done] schema v1 + render snapshot | CPU finishing縦切りを追加 |
-| Profile system | [Done] typed Profiles + loader + migration registry | assetへsnapshotを保存 |
+| Profile system | [Done] typed Profiles + loader + migration registry | manifestへsnapshotを永続化 |
 | Film renderer | [Done] CPU synthetic finishing縦切り | measured Print／ColorCheckerを追加 |
 | GPU renderer | [Later] architecture only | wgpu texture pipelineとreference比較 |
 | Nearby sharing | [Later] transport方針確定 | CapturedAsset／Media管理後にpeer転送MVP |
@@ -119,6 +119,7 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - [Done] Development／Print／Display／Output Transform Profile、Schema、synthetic examples
 - [Done] recursive directory loaderとcontent hash付きrender snapshot
 - [Done] explicit major-step schema migration registryと適用履歴
+- [Done] CapturedAsset schema v2のderivativeへrender snapshot／parent／engine version／seedを保持
 - [Later] 実在するlegacy schema用built-in migration
 - [Later] 署名済みProfile package、registry、license enforcement
 
@@ -229,12 +230,13 @@ Bluetooth LE / Bonjour / Nearby discovery
 - [Done] Video出力時のPhotoOutput切替とsession preset再適用
 - [Done] Preview／Photo／Movie orientation同期と全EXIF／MOV変換fixture
 - [Done] Tauri／Vite開発serverを127.0.0.1:1420へ統一
+- [Done] CapturedAsset derivativeの再現情報、非上書き、非循環parent contract
 
 次の順序:
 
 1. [Done] UI姿勢をPreview／Photo／Movie connectionへ同期し、保存mirrorを分離する
 2. [Next] iOS実機でportrait／upside-down／front-camera mirrorを検証する
-3. [Next] CapturedAsset derivativeへrender snapshot／parent／engine version／seedを保存する
+3. [Done] CapturedAsset derivativeへrender snapshot／parent／engine version／seedを保存する
 4. [Next] Finalized／Incomplete／Failedを扱うMedia indexとcleanup UIを実装する
 5. [Next] iOS／Android Tauri projectを初期化する
 6. [Later] measured Print dataset確定後にresponse／ColorChecker fixtureを追加する
@@ -245,12 +247,12 @@ Nearby Peer Transferは上記3–5で`CapturedAsset`とMedia管理が成立し�
 
 ## Verification baseline
 
-2026-08-24時点:
+2026-08-26時点:
 
 ```text
 npm run check
   TypeScript / Vite production build: passed
-  Rust workspace tests: 51 passed, 0 failed
+  Rust workspace tests: 53 passed, 0 failed
 
 macOS native runtime
   camera preview: passed

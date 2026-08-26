@@ -42,18 +42,44 @@ type PreviewFormat = {
   settings_persisted: boolean;
   settings_warning: string | null;
 };
+type CaptureResource = {
+  path: string;
+  pixel_width: number;
+  pixel_height: number;
+  frame_rate: { numerator: number; denominator: number } | null;
+  duration_ms: number | null;
+};
+type RenderProfileSnapshot = {
+  schema_version: number;
+  pipeline_id: string;
+  pipeline_sha256: string;
+  profiles: {
+    id: string;
+    kind: string;
+    profile_version: string;
+    content_sha256: string;
+  }[];
+  snapshot_sha256: string;
+};
 type CaptureAsset = {
   schema_version: number;
   id: string;
   media_type: "photo" | "video";
   state: "incomplete" | "finalized" | "failed";
-  original: {
-    path: string;
-    pixel_width: number;
-    pixel_height: number;
-    frame_rate: { numerator: number; denominator: number } | null;
-    duration_ms: number | null;
-  };
+  original_resource_id: string;
+  original: CaptureResource;
+  derivatives: {
+    resource_id: string;
+    purpose: "processed" | "thumbnail" | "proxy" | "export";
+    resource: CaptureResource;
+    provenance: {
+      parent_resource_id: string;
+      render_snapshot: RenderProfileSnapshot;
+      engine_version: string;
+      seed: number;
+    };
+    created_at_utc: string;
+  }[];
   validation: { status: "passed" | "warning" | "failed" };
 };
 

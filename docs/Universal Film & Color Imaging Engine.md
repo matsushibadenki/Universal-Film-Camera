@@ -2306,11 +2306,22 @@ struct CapturedAsset {
     id: String,
     media_type: MediaType,       // Still | Video
     state: AssetState,           // Incomplete | Finalized | Failed
+    original_resource_id: String,
     original: MediaResource,
-    derivatives: Vec<MediaResource>,
+    derivatives: Vec<CapturedDerivative>,
     capture: CaptureMetadata,
     pipeline: Option<PipelineReference>,
     created_at_utc: String,
+}
+
+struct CapturedDerivative {
+    resource_id: String,
+    purpose: DerivativePurpose, // Processed | Thumbnail | Proxy | Export
+    resource: MediaResource,
+    parent_resource_id: String,
+    render_snapshot: RenderProfileSnapshot,
+    engine_version: String,
+    seed: u64,
 }
 ```
 
@@ -2411,6 +2422,6 @@ Still acceptanceではdecode可能、寸法、orientation、embedded color descr
 - [Later] 測定dataset確定後にmeasured Print responseとColorChecker fixtureを追加
 - [Done] UI姿勢からPreview／Photo／Movie connectionへのrotation同期とpreview／capture mirror分離
 - [Next] iOS実機でportrait／upside-down／front-camera mirror caseを検証
-- [Next] CapturedAsset derivativeへrender snapshotと再現情報を保存
+- [Done] CapturedAsset schema v2 derivativeへrender snapshot、parent、engine version、seedを保存
 - [Later] wgpu renderer、OCIO adapter、LUT compiler、GPU conformance runner
 - [Later] Spectral Engine、profile measurement、Film Profile Editor

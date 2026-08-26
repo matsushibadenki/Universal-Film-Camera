@@ -1,11 +1,13 @@
 # Camera App Implementation Handoff
 
-更新日: 2026-08-23
+更新日: 2026-08-26
 対象: macOS / Windows / Linux / iOS / Android  
 UIシェル: Tauri 2 + TypeScript  
 共有コア: Rust
 
 プロジェクト全体の現在地と優先順位は [`ROADMAP.md`](ROADMAP.md) を正本とする。
+
+2026-08-26、`CapturedAsset`をschema version 2へ更新した。originalとderivativeへ安定resource IDを与え、derivativeはparent、完全なrender snapshot、engine version、seedを保持する。追加時にFinalized状態、既存parent、一意ID、一意path、snapshot hash／順序を検証し、JSON往復testで再現情報を固定した。次工程はこの構造をatomic manifestへ保存し、Finalized／Incomplete／Failedを扱うMedia indexから復元することである。
 
 ## 現在地
 

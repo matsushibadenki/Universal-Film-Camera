@@ -242,8 +242,10 @@ dependencies = [
 name = "camera-core"
 version = "0.1.0"
 dependencies = [
+ "imaging-core",
  "media-core",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

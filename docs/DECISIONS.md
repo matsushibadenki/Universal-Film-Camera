@@ -213,3 +213,11 @@ Status: Accepted (2026-08-24)
 画面姿勢は共通`CaptureOrientation`で0／90／180／270度だけを受理し、Preview、Photo、MovieのAVFoundation connectionへ同じrotationを適用する。AVFoundationがStillではEXIF、VideoではQuickTime track matrix、Previewではlayer transformを生成するため、保存後にpixelを再回転しない。
 
 front cameraのpreviewは操作感のためmirrorを許可する一方、Photo／Movieは他のImaging Pipelineや編集ソフトとの相互運用を優先して既定で非mirrorにする。このため`preview_mirrored`と`capture_mirrored`を独立fieldとして保持する。録画途中のorientation変更は拒否し、停止後に最新のUI姿勢を同期する。portrait／upside-down／front-cameraの最終受け入れはiOS実機で行う。
+
+## ADR-030: Derivatives form an append-only reproducible resource graph
+
+Status: Accepted (2026-08-26)
+
+`CapturedAsset` schema version 2ではoriginalにも明示的なresource IDを付け、各derivativeは既存originalまたは先に追加済みderivativeをparentとして参照する。未来のresourceをparentにできない追加順制約により循環を防ぎ、resource IDとpathの重複を拒否してoriginalを上書きしない。
+
+各derivativeはPipeline IDだけでなく、Pipelineと必要Profile closureのSHA-256を含む完全な`RenderProfileSnapshot`、engine version、seedを保持する。これらは再現条件の識別契約であり、Profile packageの真正性を証明する署名ではない。型・validation・JSON round-tripは実装済みだが、atomic manifestとMedia indexへの永続化は別milestoneとする。

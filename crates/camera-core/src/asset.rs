@@ -1,4 +1,5 @@
 use crate::{CameraError, CapturedMediaType};
+use imaging_core::RenderProfileSnapshot;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -6,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub const CAPTURED_ASSET_SCHEMA_VERSION: u32 = 1;
+pub const CAPTURED_ASSET_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -104,14 +105,45 @@ pub struct AssetValidation {
     pub checks: Vec<ValidationCheck>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DerivativePurpose {
+    Processed,
+    Thumbnail,
+    Proxy,
+    Export,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DerivativeProvenance {
+    /// Stable ID of the original or derivative resource used as input.
+    pub parent_resource_id: String,
+    /// Complete deterministic Pipeline/Profile closure used for the render.
+    pub render_snapshot: RenderProfileSnapshot,
+    /// Exact renderer build/version identifier. This is not inferred later.
+    pub engine_version: String,
+    /// Seed supplied to every stochastic operation in the render.
+    pub seed: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CapturedDerivative {
+    pub resource_id: String,
+    pub purpose: DerivativePurpose,
+    pub resource: MediaResource,
+    pub provenance: DerivativeProvenance,
+    pub created_at_utc: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CapturedAsset {
     pub schema_version: u32,
     pub id: String,
     pub media_type: CapturedMediaType,
     pub state: AssetState,
+    pub original_resource_id: String,
     pub original: MediaResource,
-    pub derivatives: Vec<MediaResource>,
+    pub derivatives: Vec<CapturedDerivative>,
     pub capture: CaptureMetadata,
     pub validation: AssetValidation,
     pub created_at_utc: String,
@@ -139,11 +171,13 @@ impl CapturedAsset {
             )));
         }
         original.path = finalized_path;
+        let original_resource_id = format!("{id}:original");
         Ok(Self {
             schema_version: CAPTURED_ASSET_SCHEMA_VERSION,
             id,
             media_type,
             state: AssetState::Finalized,
+            original_resource_id,
             original,
             derivatives: Vec::new(),
             capture,
@@ -151,6 +185,108 @@ impl CapturedAsset {
             created_at_utc: rfc3339_now(),
         })
     }
+
+    pub fn add_derivative(
+        &mut self,
+        resource_id: String,
+        purpose: DerivativePurpose,
+        resource: MediaResource,
+        provenance: DerivativeProvenance,
+    ) -> Result<(), CameraError> {
+        if self.state != AssetState::Finalized {
+            return Err(CameraError(
+                "derivatives can only be added to a finalized asset".into(),
+            ));
+        }
+        if resource_id.trim().is_empty() || resource_id == self.original_resource_id {
+            return Err(CameraError("derivative resource ID is invalid".into()));
+        }
+        if self
+            .derivatives
+            .iter()
+            .any(|item| item.resource_id == resource_id)
+        {
+            return Err(CameraError(format!(
+                "duplicate derivative resource ID: {resource_id}"
+            )));
+        }
+        let parent_exists = provenance.parent_resource_id == self.original_resource_id
+            || self
+                .derivatives
+                .iter()
+                .any(|item| item.resource_id == provenance.parent_resource_id);
+        if !parent_exists {
+            return Err(CameraError(format!(
+                "derivative parent resource was not found: {}",
+                provenance.parent_resource_id
+            )));
+        }
+        if resource.path == self.original.path
+            || self
+                .derivatives
+                .iter()
+                .any(|item| item.resource.path == resource.path)
+        {
+            return Err(CameraError(
+                "derivative must not overwrite an existing resource".into(),
+            ));
+        }
+        validate_derivative_provenance(&provenance)?;
+        self.derivatives.push(CapturedDerivative {
+            resource_id,
+            purpose,
+            resource,
+            provenance,
+            created_at_utc: rfc3339_now(),
+        });
+        Ok(())
+    }
+}
+
+fn validate_derivative_provenance(provenance: &DerivativeProvenance) -> Result<(), CameraError> {
+    if provenance.engine_version.trim().is_empty() {
+        return Err(CameraError("derivative engine version is empty".into()));
+    }
+    let snapshot = &provenance.render_snapshot;
+    if snapshot.schema_version != 1 || snapshot.pipeline_id.trim().is_empty() {
+        return Err(CameraError("derivative render snapshot is invalid".into()));
+    }
+    for (label, hash) in [
+        ("pipeline", snapshot.pipeline_sha256.as_str()),
+        ("snapshot", snapshot.snapshot_sha256.as_str()),
+    ] {
+        if !is_sha256(hash) {
+            return Err(CameraError(format!(
+                "derivative {label} SHA-256 is invalid"
+            )));
+        }
+    }
+    if snapshot.profiles.iter().any(|profile| {
+        profile.id.trim().is_empty()
+            || profile.profile_version.trim().is_empty()
+            || !is_sha256(&profile.content_sha256)
+    }) {
+        return Err(CameraError(
+            "derivative profile snapshot entry is invalid".into(),
+        ));
+    }
+    if snapshot
+        .profiles
+        .windows(2)
+        .any(|pair| pair[0].id >= pair[1].id)
+    {
+        return Err(CameraError(
+            "derivative profile snapshot entries are not strictly sorted".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 pub fn probe_media_resource(
@@ -835,6 +971,7 @@ fn civil_from_days(days_since_epoch: i64) -> (i64, i64, i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use imaging_core::{ProfileKind, ProfileSnapshotEntry};
 
     #[test]
     fn jpeg_probe_reads_dimensions_orientation_and_srgb() {
@@ -934,6 +1071,84 @@ mod tests {
     }
 
     #[test]
+    fn derivative_round_trip_preserves_reproducibility_contract() {
+        let mut asset = finalized_asset();
+        let mut derivative = asset.original.clone();
+        derivative.path = "capture-processed.jpg".into();
+        asset
+            .add_derivative(
+                "asset-1:processed:1".into(),
+                DerivativePurpose::Processed,
+                derivative,
+                DerivativeProvenance {
+                    parent_resource_id: asset.original_resource_id.clone(),
+                    render_snapshot: render_snapshot(),
+                    engine_version: "film-core/0.1.0+reference".into(),
+                    seed: 42,
+                },
+            )
+            .unwrap();
+
+        let json = serde_json::to_string(&asset).unwrap();
+        let decoded: CapturedAsset = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, asset);
+        let derivative = &decoded.derivatives[0];
+        assert_eq!(derivative.provenance.parent_resource_id, "asset-1:original");
+        assert_eq!(
+            derivative.provenance.render_snapshot.pipeline_id,
+            "film-preview"
+        );
+        assert_eq!(
+            derivative.provenance.engine_version,
+            "film-core/0.1.0+reference"
+        );
+        assert_eq!(derivative.provenance.seed, 42);
+    }
+
+    #[test]
+    fn derivative_rejects_unknown_parent_overwrite_and_invalid_snapshot() {
+        let mut asset = finalized_asset();
+        let original = asset.original.clone();
+        let provenance = DerivativeProvenance {
+            parent_resource_id: "missing".into(),
+            render_snapshot: render_snapshot(),
+            engine_version: "film-core/0.1.0".into(),
+            seed: 0,
+        };
+        assert!(
+            asset
+                .add_derivative(
+                    "asset-1:processed:1".into(),
+                    DerivativePurpose::Processed,
+                    original.clone(),
+                    provenance
+                )
+                .is_err()
+        );
+
+        let mut invalid = render_snapshot();
+        invalid.snapshot_sha256 = "not-a-hash".into();
+        assert!(
+            asset
+                .add_derivative(
+                    "asset-1:processed:2".into(),
+                    DerivativePurpose::Processed,
+                    MediaResource {
+                        path: "capture-processed.jpg".into(),
+                        ..original
+                    },
+                    DerivativeProvenance {
+                        parent_resource_id: asset.original_resource_id.clone(),
+                        render_snapshot: invalid,
+                        engine_version: "film-core/0.1.0".into(),
+                        seed: 0,
+                    }
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
     fn rate_is_reduced_without_losing_ntsc_fraction() {
         assert_eq!(
             reduce_rate(90_000, 3_003),
@@ -1012,6 +1227,64 @@ mod tests {
             0xff, 0xc0, 0, 17, 8, 4, 0, 6, 0, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0, 0xff, 0xd9,
         ]);
         jpeg
+    }
+
+    fn finalized_asset() -> CapturedAsset {
+        let resource = MediaResource {
+            path: "capture.jpg".into(),
+            byte_length: 100,
+            container: "jpeg".into(),
+            video_codec: Some("jpeg".into()),
+            audio_codec: None,
+            pixel_width: 1280,
+            pixel_height: 720,
+            bit_depth: Some(8),
+            orientation: 1,
+            orientation_explicit: false,
+            rotation_degrees: 0,
+            mirrored: false,
+            frame_rate: None,
+            duration_ms: None,
+            audio_channels: None,
+            audio_sample_rate_hz: None,
+            color: CapturedColorMetadata {
+                embedded_profile: Some("srgb_exif".into()),
+                ..Default::default()
+            },
+        };
+        CapturedAsset::from_probed_resource(
+            "asset-1".into(),
+            CapturedMediaType::Photo,
+            resource,
+            "capture.jpg".into(),
+            CaptureMetadata {
+                device_id: "camera-1".into(),
+                selected_format: SelectedCaptureFormat {
+                    width: 1280,
+                    height: 720,
+                    fps: RationalRate {
+                        numerator: 24,
+                        denominator: 1,
+                    },
+                },
+            },
+        )
+        .unwrap()
+    }
+
+    fn render_snapshot() -> RenderProfileSnapshot {
+        RenderProfileSnapshot {
+            schema_version: 1,
+            pipeline_id: "film-preview".into(),
+            pipeline_sha256: "1".repeat(64),
+            profiles: vec![ProfileSnapshotEntry {
+                id: "film.synthetic".into(),
+                kind: ProfileKind::Film,
+                profile_version: "1.0.0".into(),
+                content_sha256: "2".repeat(64),
+            }],
+            snapshot_sha256: "3".repeat(64),
+        }
     }
 
     fn synthetic_track(

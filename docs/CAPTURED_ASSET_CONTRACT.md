@@ -1,11 +1,11 @@
 # CapturedAsset Contract and Capture Validation
 
-更新日: 2026-08-24
+更新日: 2026-08-26
 実装: `crates/camera-core/src/asset.rs`、`apps/camera/src-tauri/src/lib.rs`
 
 ## 現在地
 
-- [Done] Still／Video共通の`CapturedAsset` schema version 1
+- [Done] Still／Video共通の`CapturedAsset` schema version 2
 - [Done] `Incomplete → probe → Finalized`の公開境界
 - [Done] JPEGの寸法、bit depth、EXIF orientation 1–8、ICC／EXIF sRGB probe
 - [Done] QuickTime／ISO BMFFのvideo／audio codec、寸法、rational FPS、duration、track matrix、audio channel／sample rate、`colr` probe
@@ -15,7 +15,7 @@
 - [Done] UI端末姿勢をPreview／Photo／Movie connectionへ同期し、preview mirrorと保存mirrorを分離
 - [Done] EXIF orientation 1–8とMOV quarter-turn／mirror行列の全組合せfixture
 - [Next] iPhone／iPadのportrait／upside-down／front-camera mirrorを実機検証
-- [Next] derivativeへparent resource、render snapshot、engine version、seedを保存
+- [Done] derivativeへparent resource、render snapshot、engine version、seedを保存する型・検証・JSON往復契約
 - [Next] asset manifest／sidecarとMedia indexを永続化
 
 ## 公開条件
@@ -33,9 +33,18 @@ AVFoundation output
 
 寸法、container、Video codec、Video FPS、正duration、Video audio trackのいずれかが不一致または欠落した場合、Tauri commandはerrorを返し、assetを完成directoryへ移動しない。color metadata欠落は現段階では`warning`とし、欠落を推測して補わない。
 
-## Schema version 1
+## Schema version 2
 
-`CapturedAsset`は`schema_version`、asset ID、media type、state、original resource、derivatives、capture metadata、validation、UTC作成時刻を返す。`original.path`が完成resourceの正本であり、旧IPCのtop-level `path`は廃止した。
+`CapturedAsset`は`schema_version`、asset ID、media type、state、`original_resource_id`、original resource、derivatives、capture metadata、validation、UTC作成時刻を返す。`original.path`が完成resourceの正本であり、旧IPCのtop-level `path`は廃止した。
+
+各`CapturedDerivative`は一意なresource ID、用途、別pathの`MediaResource`、UTC作成時刻に加え、次のprovenanceを保持する。
+
+- 既存originalまたは先に追加済みderivativeを指す`parent_resource_id`
+- Pipelineと必要Profile closureのcontent hashを含む`RenderProfileSnapshot`
+- rendererの`engine_version`
+- すべての確率的処理に渡す`seed`
+
+追加APIはFinalized assetだけを受理し、未知parent、重複ID、original／既存derivativeと同じpath、不正または未整列のsnapshotを拒否する。parentは追加時点で存在するresourceに限定されるため、derivative graphは循環しない。schema v1の永続manifestはまだ製品に存在しないため、自動migrationは設けずschema v2を最初の永続化候補とする。
 
 `MediaResource`は次を保持する。
 
@@ -107,4 +116,4 @@ cargo run -p camera-core --example probe_asset -- video /path/to/capture.mov
 - MOV probeはQuickTime／一般的なISO BMFF sample tableを対象とする。fragmented MP4、複数video track、edit listによるpresentation duration、VFR詳細判定は未対応。
 - `duration_ms`はmovie headerを優先し、なければvideo media headerへfallbackする。A/V start offsetとtimestamp単調性はまだ検証していない。
 - color codeが未知の場合は文字列`unknown`として保持し、BT.709などへ推測変換しない。
-- derivative配列は契約上存在するが、parent／pipeline snapshotを含む永続manifestは次工程で実装する。
+- derivativeの再現情報はRust／IPC型とJSON round-tripまで実装済み。asset manifestのatomic file保存とMedia indexへの登録は次工程であり、現在はアプリ再起動後に復元されない。

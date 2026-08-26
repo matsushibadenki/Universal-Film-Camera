@@ -1,6 +1,6 @@
 # Profile Directory Loader and Render Snapshot
 
-更新日: 2026-08-23
+更新日: 2026-08-26
 実装: `crates/imaging-core/src/profile_io.rs`
 
 ## Status
@@ -12,7 +12,8 @@
 - [Done] ID順の決定論的snapshotとmissing／kind mismatchの構造化error
 - [Done] schema migration registryをdirectory loaderへ接続
 - [Later] 実在する旧major Profileの明示migration
-- [Next] CapturedAsset／derivative metadataへsnapshotを保存
+- [Done] CapturedAsset schema v2のderivative metadataへsnapshotとengine version／seedを保持
+- [Next] asset manifestとMedia indexへsnapshotをatomic永続化
 - [Later] Profile package署名とtrust policy
 
 ## Directory loading contract
