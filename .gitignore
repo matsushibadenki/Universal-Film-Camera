@@ -2,8 +2,7 @@
 /dist/
 /target/
 **/target/
-apps/camera/src-tauri/gen/
 apps/camera/src-tauri/target/
 .DS_Store
 *.log
-
+artifacts/android-camera-conformance/

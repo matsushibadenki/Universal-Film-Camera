@@ -1,43 +1,60 @@
+#[cfg(target_os = "android")]
+mod android_camera;
+#[cfg(target_os = "macos")]
 mod camera_settings;
 
+#[cfg(not(target_os = "android"))]
 use camera_apple::AppleCameraBackend;
+#[cfg(target_os = "ios")]
+use camera_apple::IosPreviewHost as PlatformPreviewHost;
 #[cfg(target_os = "macos")]
-use camera_apple::{ActiveCameraFormat, AppleCaptureSession, MacPreviewHost, PreviewRect};
+use camera_apple::MacPreviewHost as PlatformPreviewHost;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use camera_apple::{ActiveCameraFormat, AppleCaptureSession, PreviewRect};
+#[cfg(not(target_os = "android"))]
+use camera_core::CameraBackend;
 use camera_core::{
-    CameraAuthorizationStatus, CameraBackend, CameraCapabilities, CameraController, CameraDevice,
-    CameraMode, CameraState, CaptureMetadata, CaptureOrientation, CapturedAsset, CapturedMediaType,
-    RationalRate, SelectedCaptureFormat, probe_media_resource,
+    CameraAuthorizationStatus, CameraCapabilities, CameraController, CameraDevice, CameraMode,
+    CameraState, CaptureOrientation, CapturedAsset, MediaIndex, MediaIndexEntry,
+};
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+use camera_core::{
+    CaptureMetadata, CapturedMediaType, RationalRate, SelectedCaptureFormat, probe_media_resource,
 };
 #[cfg(target_os = "macos")]
 use camera_settings::{StoredCameraFormat, load_format, save_format};
 use imaging_core::SignalDomain;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "android"))]
+use std::sync::Arc;
+use std::sync::Mutex;
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 
 struct AppState {
     camera: Mutex<CameraController>,
+    #[cfg(not(target_os = "android"))]
     backend: Arc<dyn CameraBackend>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     preview: Mutex<Option<PreviewRuntime>>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
     pending_movie: Mutex<Option<PendingMovie>>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 struct PreviewRuntime {
     session: Arc<AppleCaptureSession>,
-    host: MacPreviewHost,
+    host: PlatformPreviewHost,
     device_id: String,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
 struct PendingMovie {
     id: String,
     temporary: std::path::PathBuf,
     destination: std::path::PathBuf,
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     capture: CaptureMetadata,
 }
 
@@ -45,10 +62,11 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             camera: Mutex::new(CameraController::default()),
+            #[cfg(not(target_os = "android"))]
             backend: Arc::new(AppleCameraBackend),
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             preview: Mutex::new(None),
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
             pending_movie: Mutex::new(None),
         }
     }
@@ -73,6 +91,7 @@ struct ImagingPipelineContract {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 struct PreviewViewport {
     x: f64,
     y: f64,
@@ -99,7 +118,20 @@ struct PreviewFormat {
     settings_warning: Option<String>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "android")]
+impl From<android_camera::PreviewFormatResponse> for PreviewFormat {
+    fn from(value: android_camera::PreviewFormatResponse) -> Self {
+        Self {
+            width: value.width,
+            height: value.height,
+            fps: value.fps,
+            settings_persisted: value.settings_persisted,
+            settings_warning: value.settings_warning,
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 impl From<PreviewViewport> for PreviewRect {
     fn from(value: PreviewViewport) -> Self {
         Self {
@@ -111,7 +143,7 @@ impl From<PreviewViewport> for PreviewRect {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 impl From<ActiveCameraFormat> for PreviewFormat {
     fn from(value: ActiveCameraFormat) -> Self {
         Self {
@@ -134,7 +166,63 @@ fn settings_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
         .join("camera-format-v1.json"))
 }
 
-#[cfg(target_os = "macos")]
+fn captures_directory(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("failed to resolve app data directory: {error}"))?
+        .join("captures"))
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+fn finalize_captured_asset(
+    temporary: &std::path::Path,
+    destination: &std::path::Path,
+    asset: &CapturedAsset,
+) -> Result<(), String> {
+    std::fs::rename(temporary, destination)
+        .map_err(|error| format!("failed to finalize validated media: {error}"))?;
+    let captures = destination
+        .parent()
+        .ok_or("finalized media path has no captures directory")?;
+    if let Err(error) = MediaIndex::new(captures).persist_finalized(asset) {
+        let rollback = std::fs::rename(destination, temporary);
+        return Err(match rollback {
+            Ok(()) => format!(
+                "failed to persist media manifest; resource was returned to incomplete storage: {error}"
+            ),
+            Err(rollback_error) => format!(
+                "failed to persist media manifest ({error}) and failed to roll resource back ({rollback_error})"
+            ),
+        });
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_media_index(app: tauri::AppHandle) -> Result<Vec<MediaIndexEntry>, String> {
+    MediaIndex::new(captures_directory(&app)?)
+        .list()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn reconcile_media_index(app: tauri::AppHandle) -> Result<Vec<MediaIndexEntry>, String> {
+    MediaIndex::new(captures_directory(&app)?)
+        .reconcile_orphans()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn cleanup_media_entry(app: tauri::AppHandle, id: String) -> Result<Vec<MediaIndexEntry>, String> {
+    let index = MediaIndex::new(captures_directory(&app)?);
+    index
+        .cleanup_recoverable(&id)
+        .map_err(|error| error.to_string())?;
+    index.list().map_err(|error| error.to_string())
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn selected_capture_format(format: ActiveCameraFormat) -> SelectedCaptureFormat {
     const RATE_SCALE: u64 = 1_000_000;
     let numerator = (format.fps * RATE_SCALE as f64).round().max(1.0) as u64;
@@ -145,6 +233,37 @@ fn selected_capture_format(format: ActiveCameraFormat) -> SelectedCaptureFormat 
             numerator,
             denominator: RATE_SCALE,
         },
+    }
+}
+
+#[cfg(target_os = "android")]
+fn capture_metadata_from_resource(
+    device_id: &str,
+    resource: &camera_core::MediaResource,
+    requested: Option<android_camera::PreviewFormatResponse>,
+) -> CaptureMetadata {
+    const RATE_SCALE: u64 = 1_000_000;
+    let selected_format = requested.map_or_else(
+        || SelectedCaptureFormat {
+            width: resource.pixel_width,
+            height: resource.pixel_height,
+            fps: resource.frame_rate.clone().unwrap_or(RationalRate {
+                numerator: 30,
+                denominator: 1,
+            }),
+        },
+        |format| SelectedCaptureFormat {
+            width: format.width,
+            height: format.height,
+            fps: RationalRate {
+                numerator: (format.fps * RATE_SCALE as f64).round().max(1.0) as u64,
+                denominator: RATE_SCALE,
+            },
+        },
+    );
+    CaptureMetadata {
+        device_id: device_id.to_owned(),
+        selected_format,
     }
 }
 
@@ -160,6 +279,7 @@ fn get_camera_status(state: tauri::State<'_, AppState>) -> Result<CameraStatus, 
     })
 }
 
+#[cfg(not(target_os = "android"))]
 fn discovery(backend: &dyn CameraBackend) -> Result<CameraDiscovery, String> {
     let authorization = backend.authorization_status();
     let devices = backend.devices().map_err(|error| error.to_string())?;
@@ -170,19 +290,45 @@ fn discovery(backend: &dyn CameraBackend) -> Result<CameraDiscovery, String> {
 }
 
 #[tauri::command]
-fn get_camera_discovery(state: tauri::State<'_, AppState>) -> Result<CameraDiscovery, String> {
-    discovery(state.backend.as_ref())
+fn get_camera_discovery(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<CameraDiscovery, String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = state;
+        let result = android_camera::discovery(&app)?;
+        return Ok(CameraDiscovery {
+            authorization: result.authorization,
+            devices: result.devices,
+        });
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        discovery(state.backend.as_ref())
+    }
 }
 
 #[tauri::command]
 fn get_camera_capabilities(
     device_id: String,
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<CameraCapabilities, String> {
-    state
-        .backend
-        .capabilities(&device_id)
-        .map_err(|error| error.to_string())
+    #[cfg(target_os = "android")]
+    {
+        let _ = state;
+        return android_camera::capabilities(&app, &device_id);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        state
+            .backend
+            .capabilities(&device_id)
+            .map_err(|error| error.to_string())
+    }
 }
 
 #[tauri::command]
@@ -193,7 +339,21 @@ async fn apply_camera_format(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<PreviewFormat, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "android")]
+    {
+        if state
+            .camera
+            .lock()
+            .map_err(|_| "camera state lock poisoned")?
+            .state()
+            != CameraState::Previewing
+        {
+            return Err("camera format can only change while previewing".into());
+        }
+        let active = android_camera::apply_format(&app, width, height, fps).await?;
+        return Ok(active.into());
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         if state
             .camera
@@ -218,15 +378,23 @@ async fn apply_camera_format(
         .await
         .map_err(|error| format!("camera format task failed: {error}"))?
         .map_err(|error| error.to_string())?;
-        let settings_result = settings_path(&app).and_then(|path| {
-            save_format(&path, &device_id, StoredCameraFormat { width, height, fps })
-        });
         let mut response: PreviewFormat = active.into();
-        response.settings_persisted = settings_result.is_ok();
-        response.settings_warning = settings_result.err();
+        #[cfg(target_os = "macos")]
+        {
+            let settings_result = settings_path(&app).and_then(|path| {
+                save_format(&path, &device_id, StoredCameraFormat { width, height, fps })
+            });
+            response.settings_persisted = settings_result.is_ok();
+            response.settings_warning = settings_result.err();
+        }
+        #[cfg(target_os = "ios")]
+        {
+            let _ = (app, device_id);
+            response.settings_persisted = false;
+        }
         return Ok(response);
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
     {
         let _ = (width, height, fps, app, state);
         Err("camera format selection is not implemented on this platform yet".into())
@@ -235,32 +403,61 @@ async fn apply_camera_format(
 
 #[tauri::command]
 async fn request_camera_authorization(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<CameraDiscovery, String> {
-    let backend = Arc::clone(&state.backend);
-    tauri::async_runtime::spawn_blocking(move || {
-        backend
-            .request_authorization()
-            .map_err(|error| error.to_string())?;
-        discovery(backend.as_ref())
-    })
-    .await
-    .map_err(|error| format!("camera authorization task failed: {error}"))?
+    #[cfg(target_os = "android")]
+    {
+        let _ = state;
+        let result = android_camera::request_authorization(&app).await?;
+        return Ok(CameraDiscovery {
+            authorization: result.authorization,
+            devices: result.devices,
+        });
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        let backend = Arc::clone(&state.backend);
+        tauri::async_runtime::spawn_blocking(move || {
+            backend
+                .request_authorization()
+                .map_err(|error| error.to_string())?;
+            discovery(backend.as_ref())
+        })
+        .await
+        .map_err(|error| format!("camera authorization task failed: {error}"))?
+    }
 }
 
 #[tauri::command]
-fn get_microphone_authorization() -> CameraAuthorizationStatus {
-    #[cfg(target_os = "macos")]
+fn get_microphone_authorization(app: tauri::AppHandle) -> CameraAuthorizationStatus {
+    #[cfg(target_os = "android")]
+    {
+        return android_camera::microphone_authorization(&app)
+            .unwrap_or(CameraAuthorizationStatus::Unavailable);
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         return AppleCameraBackend.microphone_authorization_status();
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
     CameraAuthorizationStatus::Unavailable
 }
 
 #[tauri::command]
-async fn request_microphone_authorization() -> Result<CameraAuthorizationStatus, String> {
-    #[cfg(target_os = "macos")]
+async fn request_microphone_authorization(
+    app: tauri::AppHandle,
+) -> Result<CameraAuthorizationStatus, String> {
+    #[cfg(target_os = "android")]
+    {
+        return android_camera::request_microphone_authorization(&app).await;
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         return tauri::async_runtime::spawn_blocking(|| {
             AppleCameraBackend
@@ -270,25 +467,27 @@ async fn request_microphone_authorization() -> Result<CameraAuthorizationStatus,
         .await
         .map_err(|error| format!("microphone authorization task failed: {error}"))?;
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
     Err("microphone authorization is unavailable on this platform".into())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 async fn attach_preview_host(
     window: &tauri::WebviewWindow,
     session: Arc<AppleCaptureSession>,
     viewport: PreviewViewport,
-) -> Result<MacPreviewHost, String> {
+) -> Result<PlatformPreviewHost, String> {
     let (sender, receiver) = std::sync::mpsc::channel();
     window
         .with_webview(move |webview| {
             // Attach to WKWebView rather than the window content view. Tauri
             // resizes content-view children to the full window during layout,
             // while WebKit leaves this explicitly framed overlay unchanged.
-            let result = session
-                .attach_to_ns_view(webview.inner(), viewport.into())
-                .map_err(|error| error.to_string());
+            #[cfg(target_os = "macos")]
+            let result = session.attach_to_ns_view(webview.inner(), viewport.into());
+            #[cfg(target_os = "ios")]
+            let result = session.attach_to_ui_view(webview.inner(), viewport.into());
+            let result = result.map_err(|error| error.to_string());
             let _ = sender.send(result);
         })
         .map_err(|error| error.to_string())?;
@@ -298,7 +497,7 @@ async fn attach_preview_host(
         .map_err(|_| "preview attachment channel closed".to_string())?
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 async fn stop_preview_runtime(
     window: &tauri::WebviewWindow,
     runtime: PreviewRuntime,
@@ -329,7 +528,54 @@ async fn start_camera_preview(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
 ) -> Result<PreviewStatus, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "android")]
+    {
+        state
+            .camera
+            .lock()
+            .map_err(|_| "camera state lock poisoned")?
+            .transition(CameraState::Starting)
+            .map_err(|error| error.to_string())?;
+        let result = android_camera::start_preview(
+            window.app_handle(),
+            &device_id,
+            android_camera::PreviewViewport {
+                x: viewport.x,
+                y: viewport.y,
+                width: viewport.width,
+                height: viewport.height,
+            },
+        )
+        .await;
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                let _ = state
+                    .camera
+                    .lock()
+                    .map_err(|_| "camera state lock poisoned")?
+                    .transition(CameraState::Failed);
+                return Err(error);
+            }
+        };
+        let applied_orientation =
+            android_camera::set_orientation(window.app_handle(), orientation)?;
+        state
+            .camera
+            .lock()
+            .map_err(|_| "camera state lock poisoned")?
+            .transition(CameraState::Previewing)
+            .map_err(|error| error.to_string())?;
+        return Ok(PreviewStatus {
+            running: result.running,
+            device_id: result.device_id,
+            active_format: result.active_format.map(Into::into),
+            format_restored: result.format_restored,
+            settings_warning: result.settings_warning,
+            orientation: applied_orientation,
+        });
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         if state
             .camera
@@ -389,13 +635,16 @@ async fn start_camera_preview(
         tauri::async_runtime::spawn_blocking(move || start_session.start())
             .await
             .map_err(|error| format!("camera start task failed: {error}"))?;
+        #[cfg(target_os = "macos")]
         let (stored_format, mut settings_warning) = match settings_path(window.app_handle())
             .and_then(|path| load_format(&path, &device_id))
         {
             Ok(format) => (format, None),
             Err(error) => (None, Some(error)),
         };
+        #[cfg(target_os = "macos")]
         let mut format_restored = false;
+        #[cfg(target_os = "macos")]
         let active_format = if let Some(stored) = stored_format {
             let restore_session = Arc::clone(&session);
             match tauri::async_runtime::spawn_blocking(move || {
@@ -417,6 +666,9 @@ async fn start_camera_preview(
         } else {
             session.active_format()
         };
+        #[cfg(target_os = "ios")]
+        let (active_format, format_restored, settings_warning) =
+            (session.active_format(), false, None);
         let orientation_session = Arc::clone(&session);
         let orientation = tauri::async_runtime::spawn_blocking(move || {
             orientation_session.set_capture_orientation(orientation)
@@ -449,7 +701,7 @@ async fn start_camera_preview(
         });
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
     {
         let _ = (device_id, viewport, orientation, window, state);
         Err("native preview is not implemented on this platform yet".into())
@@ -459,9 +711,17 @@ async fn start_camera_preview(
 #[tauri::command]
 async fn set_camera_orientation(
     orientation: CaptureOrientation,
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<CaptureOrientation, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "android")]
+    {
+        let _ = state;
+        return android_camera::set_orientation(&app, orientation);
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         let session = {
             let preview = state
@@ -481,7 +741,7 @@ async fn set_camera_orientation(
         .map_err(|error| error.to_string());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
     {
         let _ = (orientation, state);
         Err("camera orientation is not implemented on this platform yet".into())
@@ -494,7 +754,20 @@ fn resize_camera_preview(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "android")]
+    {
+        let _ = state;
+        return android_camera::resize_preview(
+            window.app_handle(),
+            android_camera::PreviewViewport {
+                x: viewport.x,
+                y: viewport.y,
+                width: viewport.width,
+                height: viewport.height,
+            },
+        );
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         let preview = state
             .preview
@@ -507,13 +780,17 @@ fn resize_camera_preview(
         let host = runtime.host;
         window
             .run_on_main_thread(move || {
-                let _ = session.resize_ns_view(host, viewport.into());
+                #[cfg(target_os = "macos")]
+                let result = session.resize_ns_view(host, viewport.into());
+                #[cfg(target_os = "ios")]
+                let result = session.resize_ui_view(host, viewport.into());
+                let _ = result;
             })
             .map_err(|error| error.to_string())?;
         return Ok(());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
     {
         let _ = (viewport, window, state);
         Ok(())
@@ -525,7 +802,22 @@ async fn stop_camera_preview(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "android")]
+    {
+        android_camera::stop_preview(window.app_handle())?;
+        let mut camera = state
+            .camera
+            .lock()
+            .map_err(|_| "camera state lock poisoned")?;
+        if camera.state() == CameraState::Previewing {
+            camera
+                .transition(CameraState::Stopping)
+                .and_then(|_| camera.transition(CameraState::Idle))
+                .map_err(|error| error.to_string())?;
+        }
+        return Ok(());
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         if state
             .camera
@@ -557,7 +849,7 @@ async fn stop_camera_preview(
         return Ok(());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
     {
         let _ = (window, state);
         Ok(())
@@ -569,7 +861,66 @@ async fn capture_photo(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<CapturedAsset, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "android")]
+    {
+        {
+            let camera = state
+                .camera
+                .lock()
+                .map_err(|_| "camera state lock poisoned")?;
+            if camera.state() != CameraState::Previewing {
+                return Err("camera preview is not ready".into());
+            }
+            if camera.mode() != CameraMode::Still {
+                return Err("photo capture requires still mode".into());
+            }
+        }
+        let captures = captures_directory(&app)?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("system clock error: {error}"))?;
+        let id = format!("UFC-{}-{:09}", now.as_secs(), now.subsec_nanos());
+        let destination = captures.join(format!("{id}.jpg"));
+        let temporary = captures.join(".incomplete").join(format!("{id}.jpg"));
+        let output = android_camera::capture_photo(&app, &temporary).await?;
+        if output.path != temporary {
+            return Err("photo output completed at an unexpected path".into());
+        }
+        let probe_path = output.path;
+        let device_id = output.device_id;
+        let active_format = output.active_format;
+        let destination_for_asset = destination.clone();
+        let asset_id = id.clone();
+        let asset_result = tauri::async_runtime::spawn_blocking(move || {
+            let resource = probe_media_resource(&probe_path, CapturedMediaType::Photo)?;
+            let capture = capture_metadata_from_resource(&device_id, &resource, active_format);
+            CapturedAsset::from_probed_resource(
+                asset_id,
+                CapturedMediaType::Photo,
+                resource,
+                destination_for_asset,
+                capture,
+            )
+        })
+        .await
+        .map_err(|error| format!("photo validation task failed: {error}"))?;
+        let asset = match asset_result {
+            Ok(asset) => asset,
+            Err(error) => {
+                let message = error.to_string();
+                let _ = MediaIndex::new(&captures).record_failed(
+                    id,
+                    CapturedMediaType::Photo,
+                    &temporary,
+                    &message,
+                );
+                return Err(message);
+            }
+        };
+        finalize_captured_asset(&temporary, &destination, &asset)?;
+        return Ok(asset);
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         {
             let camera = state
@@ -596,11 +947,7 @@ async fn capture_photo(
                 runtime.session.active_format(),
             )
         };
-        let captures = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| format!("failed to resolve app data directory: {error}"))?
-            .join("captures");
+        let captures = captures_directory(&app)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|error| format!("system clock error: {error}"))?;
@@ -619,7 +966,8 @@ async fn capture_photo(
             selected_format: selected_capture_format(active_format),
         };
         let destination_for_asset = destination.clone();
-        let asset = tauri::async_runtime::spawn_blocking(move || {
+        let failure_id = id.clone();
+        let asset_result = tauri::async_runtime::spawn_blocking(move || {
             let resource = probe_media_resource(&path, CapturedMediaType::Photo)?;
             CapturedAsset::from_probed_resource(
                 id,
@@ -630,14 +978,25 @@ async fn capture_photo(
             )
         })
         .await
-        .map_err(|error| format!("photo validation task failed: {error}"))?
-        .map_err(|error| error.to_string())?;
-        std::fs::rename(&temporary, &destination)
-            .map_err(|error| format!("failed to finalize validated photo: {error}"))?;
+        .map_err(|error| format!("photo validation task failed: {error}"))?;
+        let asset = match asset_result {
+            Ok(asset) => asset,
+            Err(error) => {
+                let message = error.to_string();
+                let _ = MediaIndex::new(&captures).record_failed(
+                    failure_id,
+                    CapturedMediaType::Photo,
+                    &temporary,
+                    &message,
+                );
+                return Err(message);
+            }
+        };
+        finalize_captured_asset(&temporary, &destination, &asset)?;
         return Ok(asset);
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
     {
         let _ = (app, state);
         Err("photo capture is not implemented on this platform yet".into())
@@ -649,7 +1008,50 @@ async fn start_video_recording(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "android")]
+    {
+        {
+            let camera = state
+                .camera
+                .lock()
+                .map_err(|_| "camera state lock poisoned")?;
+            if camera.state() != CameraState::Previewing {
+                return Err("camera preview is not ready".into());
+            }
+            if camera.mode() != CameraMode::Video {
+                return Err("video recording requires video mode".into());
+            }
+        }
+        if android_camera::microphone_authorization(&app)? != CameraAuthorizationStatus::Authorized
+        {
+            return Err("microphone access is not authorized".into());
+        }
+        let captures = captures_directory(&app)?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("system clock error: {error}"))?;
+        let id = format!("UFC-{}-{:09}", now.as_secs(), now.subsec_nanos());
+        let filename = format!("{id}.mp4");
+        let temporary = captures.join(".incomplete").join(&filename);
+        let destination = captures.join(filename);
+        android_camera::start_video(&app, &temporary, true).await?;
+        state
+            .camera
+            .lock()
+            .map_err(|_| "camera state lock poisoned")?
+            .transition(CameraState::Recording)
+            .map_err(|error| error.to_string())?;
+        *state
+            .pending_movie
+            .lock()
+            .map_err(|_| "movie state lock poisoned")? = Some(PendingMovie {
+            id,
+            temporary,
+            destination,
+        });
+        return Ok(());
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         {
             let camera = state
@@ -680,11 +1082,7 @@ async fn start_video_recording(
                 runtime.session.active_format(),
             )
         };
-        let captures = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| format!("failed to resolve app data directory: {error}"))?
-            .join("captures");
+        let captures = captures_directory(&app)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|error| format!("system clock error: {error}"))?;
@@ -721,7 +1119,7 @@ async fn start_video_recording(
         });
         return Ok(());
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
     {
         let _ = (app, state);
         Err("video recording is not implemented on this platform yet".into())
@@ -729,9 +1127,90 @@ async fn start_video_recording(
 }
 
 #[tauri::command]
-async fn stop_video_recording(state: tauri::State<'_, AppState>) -> Result<CapturedAsset, String> {
-    #[cfg(target_os = "macos")]
+async fn stop_video_recording(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<CapturedAsset, String> {
+    #[cfg(target_os = "android")]
     {
+        {
+            let mut camera = state
+                .camera
+                .lock()
+                .map_err(|_| "camera state lock poisoned")?;
+            if camera.state() != CameraState::Recording {
+                return Err("video recording is not active".into());
+            }
+            camera
+                .transition(CameraState::Stopping)
+                .map_err(|error| error.to_string())?;
+        }
+        let result: Result<CapturedAsset, String> = async {
+            let pending = state
+                .pending_movie
+                .lock()
+                .map_err(|_| "movie state lock poisoned")?
+                .take()
+                .ok_or("movie destination is unavailable")?;
+            let output = android_camera::stop_video(&app).await?;
+            if output.path != pending.temporary {
+                return Err("movie output completed at an unexpected path".into());
+            }
+            let probe_path = pending.temporary.clone();
+            let destination_for_asset = pending.destination.clone();
+            let asset_id = pending.id.clone();
+            let device_id = output.device_id;
+            let active_format = output.active_format;
+            let asset_result = tauri::async_runtime::spawn_blocking(move || {
+                let resource = probe_media_resource(&probe_path, CapturedMediaType::Video)?;
+                let capture = capture_metadata_from_resource(&device_id, &resource, active_format);
+                CapturedAsset::from_probed_resource(
+                    asset_id,
+                    CapturedMediaType::Video,
+                    resource,
+                    destination_for_asset,
+                    capture,
+                )
+            })
+            .await
+            .map_err(|error| format!("movie validation task failed: {error}"))?;
+            let asset = match asset_result {
+                Ok(asset) => asset,
+                Err(error) => {
+                    let message = error.to_string();
+                    let captures = pending
+                        .destination
+                        .parent()
+                        .ok_or("movie destination has no captures directory")?;
+                    let _ = MediaIndex::new(captures).record_failed(
+                        pending.id,
+                        CapturedMediaType::Video,
+                        &pending.temporary,
+                        &message,
+                    );
+                    return Err(message);
+                }
+            };
+            finalize_captured_asset(&pending.temporary, &pending.destination, &asset)?;
+            state
+                .camera
+                .lock()
+                .map_err(|_| "camera state lock poisoned")?
+                .transition(CameraState::Previewing)
+                .map_err(|error| error.to_string())?;
+            Ok(asset)
+        }
+        .await;
+        if result.is_err() {
+            if let Ok(mut camera) = state.camera.lock() {
+                let _ = camera.transition(CameraState::Failed);
+            }
+        }
+        return result;
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let _ = app;
         {
             let mut camera = state
                 .camera
@@ -774,7 +1253,7 @@ async fn stop_video_recording(state: tauri::State<'_, AppState>) -> Result<Captu
             let destination_for_asset = pending.destination.clone();
             let asset_id = pending.id.clone();
             let capture = pending.capture.clone();
-            let asset = tauri::async_runtime::spawn_blocking(move || {
+            let asset_result = tauri::async_runtime::spawn_blocking(move || {
                 let resource = probe_media_resource(&probe_path, CapturedMediaType::Video)?;
                 CapturedAsset::from_probed_resource(
                     asset_id,
@@ -785,10 +1264,25 @@ async fn stop_video_recording(state: tauri::State<'_, AppState>) -> Result<Captu
                 )
             })
             .await
-            .map_err(|error| format!("movie validation task failed: {error}"))?
-            .map_err(|error| error.to_string())?;
-            std::fs::rename(&pending.temporary, &pending.destination)
-                .map_err(|error| format!("failed to finalize validated movie file: {error}"))?;
+            .map_err(|error| format!("movie validation task failed: {error}"))?;
+            let asset = match asset_result {
+                Ok(asset) => asset,
+                Err(error) => {
+                    let message = error.to_string();
+                    let captures = pending
+                        .destination
+                        .parent()
+                        .ok_or("movie destination has no captures directory")?;
+                    let _ = MediaIndex::new(captures).record_failed(
+                        pending.id,
+                        CapturedMediaType::Video,
+                        &pending.temporary,
+                        &message,
+                    );
+                    return Err(message);
+                }
+            };
+            finalize_captured_asset(&pending.temporary, &pending.destination, &asset)?;
             state
                 .camera
                 .lock()
@@ -805,9 +1299,9 @@ async fn stop_video_recording(state: tauri::State<'_, AppState>) -> Result<Captu
         }
         return result;
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
     {
-        let _ = state;
+        let _ = (app, state);
         Err("video recording is not implemented on this platform yet".into())
     }
 }
@@ -841,7 +1335,10 @@ fn get_imaging_pipeline_contract() -> ImagingPipelineContract {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(android_camera::init());
+    builder
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             get_camera_status,
@@ -859,7 +1356,10 @@ pub fn run() {
             start_video_recording,
             stop_video_recording,
             select_camera_mode,
-            get_imaging_pipeline_contract
+            get_imaging_pipeline_contract,
+            get_media_index,
+            reconcile_media_index,
+            cleanup_media_entry
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Universal Film Camera");

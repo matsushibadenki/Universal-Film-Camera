@@ -13,7 +13,7 @@
 - [Done] schema migration registryをdirectory loaderへ接続
 - [Later] 実在する旧major Profileの明示migration
 - [Done] CapturedAsset schema v2のderivative metadataへsnapshotとengine version／seedを保持
-- [Next] asset manifestとMedia indexへsnapshotをatomic永続化
+- [Done] asset manifestとMedia indexへsnapshotをatomic永続化
 - [Later] Profile package署名とtrust policy
 
 ## Directory loading contract

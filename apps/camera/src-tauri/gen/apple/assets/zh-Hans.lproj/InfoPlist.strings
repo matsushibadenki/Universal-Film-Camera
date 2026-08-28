@@ -1,0 +1,2 @@
+NSCameraUsageDescription = "专业照片和视频拍摄需要访问相机。";
+NSMicrophoneUsageDescription = "录制带声音的视频需要访问麦克风。";

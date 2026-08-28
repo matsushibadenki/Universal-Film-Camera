@@ -82,6 +82,18 @@ type CaptureAsset = {
   }[];
   validation: { status: "passed" | "warning" | "failed" };
 };
+type MediaState = CaptureAsset["state"];
+type MediaIndexEntry = {
+  schema_version: number;
+  id: string;
+  state: MediaState;
+  media_type: CaptureAsset["media_type"];
+  resource_path: string;
+  asset: CaptureAsset | null;
+  error: string | null;
+  updated_at_utc: string;
+};
+type MediaFilter = "all" | MediaState;
 
 type Copy = {
   photo: string;
@@ -123,6 +135,33 @@ type Copy = {
   formatPersistenceFailed: string;
   assetMetadataWarning: string;
   orientationFailed: string;
+  mediaTitle: string;
+  mediaSubtitle: string;
+  mediaAll: string;
+  mediaReady: string;
+  mediaIncomplete: string;
+  mediaFailed: string;
+  mediaEmpty: string;
+  mediaEmptyDetail: string;
+  mediaLoading: string;
+  mediaLoadFailed: string;
+  mediaBack: string;
+  mediaRefresh: string;
+  mediaPhoto: string;
+  mediaVideo: string;
+  mediaDuration: string;
+  mediaAwaiting: string;
+  mediaValidationFailed: string;
+  mediaDetails: string;
+  mediaPath: string;
+  mediaUpdated: string;
+  mediaState: string;
+  mediaCleanup: string;
+  mediaCleanupTitle: string;
+  mediaCleanupPrompt: string;
+  mediaCleanupConfirm: string;
+  mediaCleanupCancel: string;
+  mediaCleanupFailed: string;
 };
 
 const copy: Record<Locale, Copy> = {
@@ -140,7 +179,16 @@ const copy: Record<Locale, Copy> = {
     previewStarting: "Starting native preview…", previewFailed: "Native preview could not be started.",
     format: "Format", apply: "Apply", formatFailed: "Format change failed",
     formatPersistenceFailed: "Format applied, but the setting could not be saved",
-    assetMetadataWarning: "saved with a metadata warning", orientationFailed: "Camera orientation sync failed"
+    assetMetadataWarning: "saved with a metadata warning", orientationFailed: "Camera orientation sync failed",
+    mediaTitle: "Media", mediaSubtitle: "Captured assets and recovery states", mediaAll: "All", mediaReady: "Ready",
+    mediaIncomplete: "Incomplete", mediaFailed: "Failed", mediaEmpty: "No captured media",
+    mediaEmptyDetail: "Photos and videos appear here after their manifest is safely stored.", mediaLoading: "Loading media…",
+    mediaLoadFailed: "The media index could not be read.", mediaBack: "Back to camera", mediaRefresh: "Refresh media",
+    mediaPhoto: "Photo", mediaVideo: "Video", mediaDuration: "Duration", mediaAwaiting: "Awaiting validation",
+    mediaValidationFailed: "Validation failed", mediaDetails: "View details", mediaPath: "Resource path",
+    mediaUpdated: "Updated", mediaState: "State", mediaCleanup: "Clean up recoverable file",
+    mediaCleanupTitle: "Remove recoverable media?", mediaCleanupPrompt: "This permanently removes the incomplete or failed resource and its diagnostic manifest.",
+    mediaCleanupConfirm: "Remove file", mediaCleanupCancel: "Keep file", mediaCleanupFailed: "The recoverable media could not be removed."
   },
   ja: {
     photo: "写真", video: "動画", camera: "カメラ", noSignal: "カメラ信号なし",
@@ -156,7 +204,16 @@ const copy: Record<Locale, Copy> = {
     previewStarting: "ネイティブプレビューを開始しています…", previewFailed: "ネイティブプレビューを開始できませんでした。",
     format: "フォーマット", apply: "適用", formatFailed: "フォーマット変更に失敗しました",
     formatPersistenceFailed: "フォーマットは適用されましたが、設定を保存できませんでした",
-    assetMetadataWarning: "メタデータ警告付きで保存しました", orientationFailed: "カメラ姿勢の同期に失敗しました"
+    assetMetadataWarning: "メタデータ警告付きで保存しました", orientationFailed: "カメラ姿勢の同期に失敗しました",
+    mediaTitle: "メディア", mediaSubtitle: "撮影素材と復旧状態", mediaAll: "すべて", mediaReady: "完了",
+    mediaIncomplete: "未完了", mediaFailed: "失敗", mediaEmpty: "撮影素材はありません",
+    mediaEmptyDetail: "写真と動画は、安全にマニフェストを保存した後でここに表示されます。", mediaLoading: "メディアを読み込んでいます…",
+    mediaLoadFailed: "メディアインデックスを読み込めませんでした。", mediaBack: "カメラへ戻る", mediaRefresh: "メディアを更新",
+    mediaPhoto: "写真", mediaVideo: "動画", mediaDuration: "長さ", mediaAwaiting: "検証待ち",
+    mediaValidationFailed: "検証失敗", mediaDetails: "詳細を表示", mediaPath: "リソースパス",
+    mediaUpdated: "更新日時", mediaState: "状態", mediaCleanup: "復旧対象ファイルを削除",
+    mediaCleanupTitle: "復旧対象メディアを削除しますか？", mediaCleanupPrompt: "未完了または失敗したリソースと診断マニフェストを完全に削除します。",
+    mediaCleanupConfirm: "ファイルを削除", mediaCleanupCancel: "ファイルを残す", mediaCleanupFailed: "復旧対象メディアを削除できませんでした。"
   },
   "zh-CN": {
     photo: "照片", video: "视频", camera: "相机", noSignal: "无相机信号",
@@ -172,7 +229,16 @@ const copy: Record<Locale, Copy> = {
     previewStarting: "正在启动原生预览…", previewFailed: "无法启动原生预览。",
     format: "格式", apply: "应用", formatFailed: "格式更改失败",
     formatPersistenceFailed: "格式已应用，但无法保存设置",
-    assetMetadataWarning: "已保存，但存在元数据警告", orientationFailed: "相机方向同步失败"
+    assetMetadataWarning: "已保存，但存在元数据警告", orientationFailed: "相机方向同步失败",
+    mediaTitle: "媒体", mediaSubtitle: "拍摄素材和恢复状态", mediaAll: "全部", mediaReady: "完成",
+    mediaIncomplete: "未完成", mediaFailed: "失败", mediaEmpty: "暂无拍摄素材",
+    mediaEmptyDetail: "照片和视频会在清单安全保存后显示在这里。", mediaLoading: "正在加载媒体…",
+    mediaLoadFailed: "无法读取媒体索引。", mediaBack: "返回相机", mediaRefresh: "刷新媒体",
+    mediaPhoto: "照片", mediaVideo: "视频", mediaDuration: "时长", mediaAwaiting: "等待验证",
+    mediaValidationFailed: "验证失败", mediaDetails: "查看详情", mediaPath: "资源路径",
+    mediaUpdated: "更新时间", mediaState: "状态", mediaCleanup: "清理可恢复文件",
+    mediaCleanupTitle: "删除可恢复媒体？", mediaCleanupPrompt: "这将永久删除未完成或失败的资源及其诊断清单。",
+    mediaCleanupConfirm: "删除文件", mediaCleanupCancel: "保留文件", mediaCleanupFailed: "无法删除可恢复媒体。"
   }
 };
 
@@ -199,7 +265,8 @@ function icon(name: string): string {
   return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths[name]}</svg>`;
 }
 
-const t = copy[locale()];
+const activeLocale = locale();
+const t = copy[activeLocale];
 let mode: CameraMode = "still";
 let recording = false;
 let microphoneAuthorization: CameraAuthorization = "not_determined";
@@ -273,6 +340,56 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       </div>
     </section>
 
+    <section class="media-library" id="media-library" aria-labelledby="media-title" hidden>
+      <header class="media-header">
+        <div>
+          <h1 id="media-title">${t.mediaTitle}</h1>
+          <p>${t.mediaSubtitle}</p>
+        </div>
+        <div class="media-header-actions">
+          <button id="media-refresh" type="button" aria-label="${t.mediaRefresh}">${icon("media")}<span>${t.mediaRefresh}</span></button>
+          <button id="media-back" type="button" aria-label="${t.mediaBack}">${icon("close")}<span>${t.mediaBack}</span></button>
+        </div>
+      </header>
+
+      <nav class="media-filters" aria-label="${t.mediaTitle}">
+        <button class="is-active" data-media-filter="all" aria-pressed="true"><span>${t.mediaAll}</span><strong data-media-count="all">0</strong></button>
+        <button data-media-filter="finalized" aria-pressed="false"><span>${t.mediaReady}</span><strong data-media-count="finalized">0</strong></button>
+        <button data-media-filter="incomplete" aria-pressed="false"><span>${t.mediaIncomplete}</span><strong data-media-count="incomplete">0</strong></button>
+        <button data-media-filter="failed" aria-pressed="false"><span>${t.mediaFailed}</span><strong data-media-count="failed">0</strong></button>
+      </nav>
+
+      <div class="media-status" id="media-status" role="status" aria-live="polite"></div>
+      <div class="media-grid" id="media-grid"></div>
+      <div class="media-empty" id="media-empty" hidden>
+        ${icon("media")}
+        <strong>${t.mediaEmpty}</strong>
+        <p>${t.mediaEmptyDetail}</p>
+      </div>
+    </section>
+
+    <dialog class="media-dialog" id="media-detail-dialog" aria-labelledby="media-detail-title">
+      <header>
+        <h2 id="media-detail-title">${t.mediaDetails}</h2>
+        <button id="media-detail-close" type="button" aria-label="${t.close}">${icon("close")}</button>
+      </header>
+      <dl id="media-detail-content"></dl>
+      <p class="media-detail-diagnostic" id="media-detail-diagnostic" hidden></p>
+      <footer>
+        <button class="media-cleanup" id="media-cleanup" type="button" data-state="default" hidden>${t.mediaCleanup}</button>
+      </footer>
+    </dialog>
+
+    <dialog class="media-dialog media-confirm-dialog" id="media-cleanup-dialog" aria-labelledby="media-cleanup-title">
+      <h2 id="media-cleanup-title">${t.mediaCleanupTitle}</h2>
+      <p>${t.mediaCleanupPrompt}</p>
+      <strong id="media-cleanup-name"></strong>
+      <div>
+        <button id="media-cleanup-cancel" type="button">${t.mediaCleanupCancel}</button>
+        <button class="media-cleanup-confirm" id="media-cleanup-confirm" type="button" data-state="default">${t.mediaCleanupConfirm}</button>
+      </div>
+    </dialog>
+
     <aside class="tool-rail" aria-label="Camera tools">
       <div class="rail-leading">
         <div class="mode-switch" role="group" aria-label="Camera mode">
@@ -295,7 +412,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 
         <nav class="destination-tools" aria-label="Application sections">
           <button class="is-active" aria-label="${t.pipeline}">${icon("pipeline")}<span>${t.pipeline}</span></button>
-          <button aria-label="${t.media}">${icon("media")}<span>${t.media}</span></button>
+          <button id="open-media" aria-label="${t.media}" aria-controls="media-library" aria-pressed="false">${icon("media")}<span>${t.media}</span></button>
           <button aria-label="${t.settings}">${icon("settings")}<span>${t.settings}</span></button>
         </nav>
       </div>
@@ -319,11 +436,221 @@ const formatResolution = document.querySelector<HTMLSelectElement>("#format-reso
 const formatFps = document.querySelector<HTMLSelectElement>("#format-fps")!;
 const formatStatus = document.querySelector<HTMLElement>("#format-status")!;
 const formatApply = document.querySelector<HTMLButtonElement>("#format-apply")!;
+const monitor = document.querySelector<HTMLElement>(".monitor")!;
+const mediaLibrary = document.querySelector<HTMLElement>("#media-library")!;
+const mediaGrid = document.querySelector<HTMLElement>("#media-grid")!;
+const mediaEmpty = document.querySelector<HTMLElement>("#media-empty")!;
+const mediaStatus = document.querySelector<HTMLElement>("#media-status")!;
+const mediaButton = document.querySelector<HTMLButtonElement>("#open-media")!;
+const mediaRefresh = document.querySelector<HTMLButtonElement>("#media-refresh")!;
+const mediaDetailDialog = document.querySelector<HTMLDialogElement>("#media-detail-dialog")!;
+const mediaDetailContent = document.querySelector<HTMLDListElement>("#media-detail-content")!;
+const mediaDetailDiagnostic = document.querySelector<HTMLParagraphElement>("#media-detail-diagnostic")!;
+const mediaCleanup = document.querySelector<HTMLButtonElement>("#media-cleanup")!;
+const mediaCleanupDialog = document.querySelector<HTMLDialogElement>("#media-cleanup-dialog")!;
+const mediaCleanupConfirm = document.querySelector<HTMLButtonElement>("#media-cleanup-confirm")!;
 let nativePreviewRunning = false;
 let nativePreviewStarting = false;
 let activeDeviceId: string | undefined;
 let activeDevicePosition: CameraDevice["position"] | undefined;
 let lastOrientationKey: string | undefined;
+let mediaEntries: MediaIndexEntry[] = [];
+let mediaFilter: MediaFilter = "all";
+let selectedMediaEntry: MediaIndexEntry | undefined;
+
+function mediaStateLabel(state: MediaState): string {
+  if (state === "finalized") return t.mediaReady;
+  if (state === "incomplete") return t.mediaIncomplete;
+  return t.mediaFailed;
+}
+
+function mediaFileName(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
+}
+
+function mediaDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat(activeLocale, {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
+  }).format(parsed);
+}
+
+function mediaDuration(milliseconds: number | null | undefined): string {
+  if (!milliseconds) return "—";
+  const seconds = Math.floor(milliseconds / 1000);
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes.toString().padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
+}
+
+function appendMediaText(parent: HTMLElement, className: string, value: string): HTMLElement {
+  const element = document.createElement("span");
+  element.className = className;
+  element.textContent = value;
+  parent.append(element);
+  return element;
+}
+
+function renderMediaCard(entry: MediaIndexEntry): HTMLElement {
+  const card = document.createElement("article");
+  card.className = `media-card is-${entry.state}`;
+  card.dataset.mediaId = entry.id;
+
+  const visual = document.createElement("div");
+  visual.className = "media-card-visual";
+  visual.innerHTML = icon(entry.media_type === "photo" ? "photo" : "video");
+  appendMediaText(visual, "media-kind", entry.media_type === "photo" ? t.mediaPhoto : t.mediaVideo);
+  appendMediaText(visual, "media-state", mediaStateLabel(entry.state));
+
+  const body = document.createElement("div");
+  body.className = "media-card-body";
+  const title = document.createElement("h2");
+  title.textContent = mediaFileName(entry.resource_path);
+  const timestamp = document.createElement("time");
+  timestamp.dateTime = entry.updated_at_utc;
+  timestamp.textContent = mediaDate(entry.updated_at_utc);
+  body.append(title, timestamp);
+
+  const metadata = document.createElement("dl");
+  const resource = entry.asset?.original;
+  const pairs = [
+    [t.format, resource ? `${resource.pixel_width}×${resource.pixel_height}` : "—"],
+    [t.mediaDuration, mediaDuration(resource?.duration_ms)],
+    ["ID", entry.id]
+  ];
+  for (const [label, value] of pairs) {
+    const item = document.createElement("div");
+    const term = document.createElement("dt");
+    const detail = document.createElement("dd");
+    term.textContent = label;
+    detail.textContent = value;
+    item.append(term, detail);
+    metadata.append(item);
+  }
+  body.append(metadata);
+
+  if (entry.state !== "finalized") {
+    const diagnostic = document.createElement("p");
+    diagnostic.className = "media-diagnostic";
+    diagnostic.textContent = entry.error
+      ? `${t.mediaValidationFailed}: ${entry.error}`
+      : t.mediaAwaiting;
+    body.append(diagnostic);
+  }
+  const details = document.createElement("button");
+  details.className = "media-card-details";
+  details.type = "button";
+  details.textContent = t.mediaDetails;
+  details.addEventListener("click", () => openMediaDetail(entry));
+  body.append(details);
+  card.append(visual, body);
+  return card;
+}
+
+function openMediaDetail(entry: MediaIndexEntry): void {
+  selectedMediaEntry = entry;
+  document.querySelector<HTMLElement>("#media-detail-title")!.textContent = mediaFileName(entry.resource_path);
+  const resource = entry.asset?.original;
+  const pairs = [
+    [t.mediaState, mediaStateLabel(entry.state)],
+    [t.mediaUpdated, mediaDate(entry.updated_at_utc)],
+    [t.mediaPath, entry.resource_path],
+    [t.format, resource ? `${resource.pixel_width}×${resource.pixel_height}` : "—"],
+    [t.mediaDuration, mediaDuration(resource?.duration_ms)],
+    ["Asset ID", entry.id],
+    ["Schema", String(entry.schema_version)]
+  ];
+  mediaDetailContent.replaceChildren(...pairs.map(([label, value]) => {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const detail = document.createElement("dd");
+    term.textContent = label;
+    detail.textContent = value;
+    row.append(term, detail);
+    return row;
+  }));
+  mediaDetailDiagnostic.hidden = !entry.error;
+  mediaDetailDiagnostic.textContent = entry.error ?? "";
+  mediaCleanup.hidden = entry.state === "finalized";
+  mediaCleanup.dataset.state = "default";
+  mediaDetailDialog.showModal();
+}
+
+function renderMediaIndex(): void {
+  const filtered = mediaEntries.filter((entry) => mediaFilter === "all" || entry.state === mediaFilter);
+  mediaGrid.replaceChildren(...filtered.map(renderMediaCard));
+  mediaEmpty.hidden = filtered.length !== 0;
+  document.querySelectorAll<HTMLElement>("[data-media-count]").forEach((count) => {
+    const state = count.dataset.mediaCount as MediaFilter;
+    count.textContent = String(state === "all" ? mediaEntries.length : mediaEntries.filter((entry) => entry.state === state).length);
+  });
+}
+
+async function loadMediaIndex(): Promise<void> {
+  mediaLibrary.setAttribute("aria-busy", "true");
+  mediaRefresh.disabled = true;
+  mediaRefresh.dataset.state = "loading";
+  mediaStatus.removeAttribute("data-state");
+  mediaStatus.textContent = t.mediaLoading;
+  try {
+    mediaEntries = await invoke<MediaIndexEntry[]>("reconcile_media_index");
+    mediaEntries.sort((a, b) => b.updated_at_utc.localeCompare(a.updated_at_utc));
+    mediaStatus.textContent = "";
+    mediaRefresh.dataset.state = "success";
+    renderMediaIndex();
+  } catch (error) {
+    mediaEntries = [];
+    mediaGrid.replaceChildren();
+    mediaEmpty.hidden = true;
+    mediaStatus.textContent = `${t.mediaLoadFailed} ${String(error)}`;
+    mediaStatus.dataset.state = "error";
+    mediaRefresh.dataset.state = "error";
+  } finally {
+    mediaLibrary.removeAttribute("aria-busy");
+    mediaRefresh.disabled = false;
+  }
+}
+
+async function openMediaLibrary(): Promise<void> {
+  if (recording || !mediaLibrary.hidden) return;
+  mediaButton.disabled = true;
+  mediaButton.dataset.state = "loading";
+  if (nativePreviewRunning) {
+    try {
+      await invoke("stop_camera_preview");
+      nativePreviewRunning = false;
+      document.body.classList.remove("has-native-preview");
+    } catch (error) {
+      feedback.textContent = `${t.mediaLoadFailed} ${String(error)}`;
+      feedback.classList.add("is-visible");
+      mediaButton.disabled = false;
+      mediaButton.dataset.state = "error";
+      return;
+    }
+  }
+  monitor.hidden = true;
+  mediaLibrary.hidden = false;
+  document.body.classList.add("section-media");
+  document.querySelectorAll<HTMLButtonElement>(".destination-tools button").forEach((button) => button.classList.remove("is-active"));
+  mediaButton.classList.add("is-active");
+  mediaButton.setAttribute("aria-pressed", "true");
+  mediaButton.dataset.state = "default";
+  mediaButton.disabled = false;
+  await loadMediaIndex();
+}
+
+async function closeMediaLibrary(): Promise<void> {
+  if (mediaLibrary.hidden) return;
+  mediaLibrary.hidden = true;
+  monitor.hidden = false;
+  document.body.classList.remove("section-media");
+  mediaButton.classList.remove("is-active");
+  document.querySelector<HTMLButtonElement>(".destination-tools button:first-child")?.classList.add("is-active");
+  mediaButton.setAttribute("aria-pressed", "false");
+  mediaStatus.removeAttribute("data-state");
+  await refreshCameraDiscovery();
+  window.requestAnimationFrame(syncNativePreviewFrame);
+}
 
 function previewViewport(): PreviewViewport {
   const rect = previewSurface.getBoundingClientRect();
@@ -634,7 +961,59 @@ async function selectMode(nextMode: CameraMode): Promise<void> {
 }
 
 document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
-  button.addEventListener("click", () => void selectMode(button.dataset.mode as CameraMode));
+  button.addEventListener("click", async () => {
+    if (!mediaLibrary.hidden) await closeMediaLibrary();
+    await selectMode(button.dataset.mode as CameraMode);
+  });
+});
+
+mediaButton.addEventListener("click", () => void openMediaLibrary());
+document.querySelector<HTMLButtonElement>("#media-back")!.addEventListener("click", () => void closeMediaLibrary());
+mediaRefresh.addEventListener("click", () => void loadMediaIndex());
+document.querySelectorAll<HTMLButtonElement>("[data-media-filter]").forEach((button) => {
+  button.addEventListener("click", () => {
+    mediaFilter = button.dataset.mediaFilter as MediaFilter;
+    document.querySelectorAll<HTMLButtonElement>("[data-media-filter]").forEach((item) => {
+      const active = item === button;
+      item.classList.toggle("is-active", active);
+      item.setAttribute("aria-pressed", String(active));
+    });
+    renderMediaIndex();
+  });
+});
+
+document.querySelector<HTMLButtonElement>("#media-detail-close")!.addEventListener("click", () => mediaDetailDialog.close());
+mediaDetailDialog.addEventListener("click", (event) => {
+  if (event.target === mediaDetailDialog) mediaDetailDialog.close();
+});
+mediaCleanup.addEventListener("click", () => {
+  if (!selectedMediaEntry || selectedMediaEntry.state === "finalized") return;
+  document.querySelector<HTMLElement>("#media-cleanup-name")!.textContent = mediaFileName(selectedMediaEntry.resource_path);
+  mediaCleanupDialog.showModal();
+});
+document.querySelector<HTMLButtonElement>("#media-cleanup-cancel")!.addEventListener("click", () => mediaCleanupDialog.close());
+mediaCleanupDialog.addEventListener("click", (event) => {
+  if (event.target === mediaCleanupDialog) mediaCleanupDialog.close();
+});
+mediaCleanupConfirm.addEventListener("click", async () => {
+  if (!selectedMediaEntry || selectedMediaEntry.state === "finalized") return;
+  mediaCleanupConfirm.disabled = true;
+  mediaCleanupConfirm.dataset.state = "loading";
+  try {
+    mediaEntries = await invoke<MediaIndexEntry[]>("cleanup_media_entry", { id: selectedMediaEntry.id });
+    mediaCleanupConfirm.dataset.state = "success";
+    mediaCleanupDialog.close();
+    mediaDetailDialog.close();
+    selectedMediaEntry = undefined;
+    renderMediaIndex();
+  } catch (error) {
+    mediaCleanupConfirm.dataset.state = "error";
+    mediaCleanupDialog.close();
+    mediaDetailDiagnostic.hidden = false;
+    mediaDetailDiagnostic.textContent = `${t.mediaCleanupFailed} ${String(error)}`;
+  } finally {
+    mediaCleanupConfirm.disabled = false;
+  }
 });
 
 document.querySelectorAll<HTMLButtonElement>("[data-tool]").forEach((button) => {

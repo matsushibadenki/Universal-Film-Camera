@@ -9,6 +9,6 @@ license.workspace = true
 imaging-core.workspace = true
 media-core.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true

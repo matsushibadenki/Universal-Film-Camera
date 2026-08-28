@@ -1,0 +1,1 @@
+{"main":{"identifier":"main","description":"Minimum core access for the bundled camera control UI.","local":true,"windows":["main"],"permissions":["core:default"]}}

@@ -1,0 +1,2 @@
+NSCameraUsageDescription = "プロ向けの写真・動画撮影にカメラへのアクセスが必要です。";
+NSMicrophoneUsageDescription = "音声付き動画の収録にマイクへのアクセスが必要です。";

@@ -1,6 +1,6 @@
 # CapturedAsset Contract and Capture Validation
 
-更新日: 2026-08-26
+更新日: 2026-08-27
 実装: `crates/camera-core/src/asset.rs`、`apps/camera/src-tauri/src/lib.rs`
 
 ## 現在地
@@ -16,7 +16,9 @@
 - [Done] EXIF orientation 1–8とMOV quarter-turn／mirror行列の全組合せfixture
 - [Next] iPhone／iPadのportrait／upside-down／front-camera mirrorを実機検証
 - [Done] derivativeへparent resource、render snapshot、engine version、seedを保存する型・検証・JSON往復契約
-- [Next] asset manifest／sidecarとMedia indexを永続化
+- [Done] asset manifestをatomic永続化しFinalized／Incomplete／Failed Media indexへ接続
+- [Done] Media UI、確認付きrecovery cleanup、非破壊orphan reconciliation
+- [Next] Failed／Incompleteの再検査とcapture再試行導線
 
 ## 公開条件
 
@@ -116,4 +118,4 @@ cargo run -p camera-core --example probe_asset -- video /path/to/capture.mov
 - MOV probeはQuickTime／一般的なISO BMFF sample tableを対象とする。fragmented MP4、複数video track、edit listによるpresentation duration、VFR詳細判定は未対応。
 - `duration_ms`はmovie headerを優先し、なければvideo media headerへfallbackする。A/V start offsetとtimestamp単調性はまだ検証していない。
 - color codeが未知の場合は文字列`unknown`として保持し、BT.709などへ推測変換しない。
-- derivativeの再現情報はRust／IPC型とJSON round-tripまで実装済み。asset manifestのatomic file保存とMedia indexへの登録は次工程であり、現在はアプリ再起動後に復元されない。
+- derivativeの再現情報を含むasset全体はversioned JSON manifestへatomic保存され、アプリ再起動後にMedia indexから復元できる。cleanup、orphan reconciliation、Media UIは次工程である。詳細は[`MEDIA_INDEX_AND_MANIFEST.md`](MEDIA_INDEX_AND_MANIFEST.md)を参照する。

@@ -3,9 +3,10 @@
 //! AVFoundation session objects remain native and pixel data never crosses
 //! the Tauri IPC boundary.
 
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use camera_core::{CameraAuthorizationStatus, CameraFormatCapability, CaptureOrientation};
 use camera_core::{
-    CameraAuthorizationStatus, CameraBackend, CameraCapabilities, CameraConfig, CameraDevice,
-    CameraError, CameraFormatCapability, CameraSession, CaptureOrientation,
+    CameraBackend, CameraCapabilities, CameraConfig, CameraDevice, CameraError, CameraSession,
 };
 
 #[derive(Debug, Default)]
@@ -804,6 +805,67 @@ mod platform {
             self.preview_layer.setFrame(view.bounds());
             Ok(())
         }
+
+        #[cfg(target_os = "ios")]
+        pub fn attach_to_ui_view(
+            &self,
+            parent_view: *mut core::ffi::c_void,
+            rect: PreviewRect,
+        ) -> Result<IosPreviewHost, CameraError> {
+            use objc2::MainThreadMarker;
+            use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+            use objc2_ui_kit::UIView;
+
+            let mtm = MainThreadMarker::new().ok_or_else(|| {
+                CameraError("preview view must be attached on the main thread".into())
+            })?;
+            if parent_view.is_null() {
+                return Err(CameraError("Tauri returned a null WKWebView".into()));
+            }
+            // SAFETY: WKWebView inherits UIView. Tauri owns the parent for the
+            // window lifetime and invokes this closure on UIKit's main thread.
+            let parent = unsafe { &*(parent_view.cast::<UIView>()) };
+            let frame = CGRect::new(
+                CGPoint::new(rect.x, rect.y),
+                CGSize::new(rect.width, rect.height),
+            );
+            let host = UIView::initWithFrame(mtm.alloc(), frame);
+            host.setClipsToBounds(true);
+            self.preview_layer.setFrame(host.bounds());
+            self.preview_layer.setMasksToBounds(true);
+            host.layer().addSublayer(&self.preview_layer);
+            parent.addSubview(&host);
+            Ok(IosPreviewHost {
+                view: objc2::rc::Retained::into_raw(host) as usize,
+            })
+        }
+
+        #[cfg(target_os = "ios")]
+        pub fn resize_ui_view(
+            &self,
+            host: IosPreviewHost,
+            rect: PreviewRect,
+        ) -> Result<(), CameraError> {
+            use objc2::MainThreadMarker;
+            use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+            use objc2_ui_kit::UIView;
+
+            MainThreadMarker::new().ok_or_else(|| {
+                CameraError("preview view must be resized on the main thread".into())
+            })?;
+            // SAFETY: The retained UIView pointer remains valid until the
+            // consuming detach operation balances the retain.
+            let view = unsafe { &*(host.view as *mut UIView) };
+            if unsafe { view.superview() }.is_none() {
+                return Err(CameraError("preview host is detached".into()));
+            }
+            view.setFrame(CGRect::new(
+                CGPoint::new(rect.x, rect.y),
+                CGSize::new(rect.width, rect.height),
+            ));
+            self.preview_layer.setFrame(view.bounds());
+            Ok(())
+        }
     }
 
     fn apply_connection_orientation(
@@ -913,6 +975,29 @@ mod platform {
             // SAFETY: `view` comes from `Retained::into_raw` exactly once;
             // consuming this handle balances that retain after removal.
             let view = unsafe { objc2::rc::Retained::<NSView>::from_raw(self.view as *mut NSView) }
+                .ok_or_else(|| CameraError("preview host pointer was null".into()))?;
+            view.removeFromSuperview();
+            Ok(())
+        }
+    }
+
+    #[cfg(target_os = "ios")]
+    #[derive(Debug, Clone, Copy)]
+    pub struct IosPreviewHost {
+        view: usize,
+    }
+
+    #[cfg(target_os = "ios")]
+    impl IosPreviewHost {
+        pub fn detach(self) -> Result<(), CameraError> {
+            use objc2::MainThreadMarker;
+            use objc2_ui_kit::UIView;
+
+            MainThreadMarker::new().ok_or_else(|| {
+                CameraError("preview view must be detached on the main thread".into())
+            })?;
+            // SAFETY: `view` was created by `Retained::into_raw` exactly once.
+            let view = unsafe { objc2::rc::Retained::<UIView>::from_raw(self.view as *mut UIView) }
                 .ok_or_else(|| CameraError("preview host pointer was null".into()))?;
             view.removeFromSuperview();
             Ok(())
@@ -1166,6 +1251,9 @@ pub use platform::AppleCaptureSession;
 
 #[cfg(target_os = "macos")]
 pub use platform::MacPreviewHost;
+
+#[cfg(target_os = "ios")]
+pub use platform::IosPreviewHost;
 
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]
 impl CameraBackend for AppleCameraBackend {

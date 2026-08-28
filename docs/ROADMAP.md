@@ -1,6 +1,6 @@
 # Universal Imaging Camera Roadmap
 
-更新日: 2026-08-26
+更新日: 2026-08-28
 対象: macOS / iOS / Android / Windows / Linux  
 正本仕様: [`Universal Film & Color Imaging Engine.md`](Universal%20Film%20%26%20Color%20Imaging%20Engine.md)
 
@@ -18,14 +18,14 @@
 
 | 領域 | 現在の段階 | 最も近い完了条件 |
 |---|---|---|
-| macOS camera | [Done] validated native MVP | iOS姿勢実機検証とMedia管理 |
+| macOS camera | [Done] validated native MVP + Media recovery | lifecycle／device disconnect recovery |
 | Professional UI | [Done] capture-first shell | native／GPU monitoring overlayを接続 |
 | Imaging Pipeline model | [Done] schema v1 + render snapshot | CPU finishing縦切りを追加 |
-| Profile system | [Done] typed Profiles + loader + migration registry | manifestへsnapshotを永続化 |
+| Profile system | [Done] typed Profiles + loader + migration registry | profile署名／配布方針を確定 |
 | Film renderer | [Done] CPU synthetic finishing縦切り | measured Print／ColorCheckerを追加 |
 | GPU renderer | [Later] architecture only | wgpu texture pipelineとreference比較 |
-| Nearby sharing | [Later] transport方針確定 | CapturedAsset／Media管理後にpeer転送MVP |
-| iOS／Android | [Next] 未初期化 | Tauri mobile project、権限、native preview |
+| Nearby sharing | [Later] transport方針確定 | iOS／Android基盤後にpeer転送MVP |
+| iOS／Android | [Done] iOS capture code + Android CameraX preview | 実機検証、Android Still／Video |
 | Windows／Linux | [Later] 未実装 | platform camera backendの最初のpreview |
 
 プロジェクト全体の最終構想に対する単一の進捗率は使用しない。macOS Camera MVP、Imaging Pipeline、科学renderer、各OS backendは規模と完了条件が異なるため、上表とmilestone単位で判断する。
@@ -100,11 +100,27 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - [Done] 実機active formatとmanual control可否を表示
 - [Done] 対応組合せから生成するformat／FPS panel
 - [Next] Still／Video別output presetと残容量表示
-- [Next] 保存assetを確認できるMedia画面
+- [Done] Finalized／Incomplete／Failedを確認できる三言語Media画面
 - [Next] waveform、vectorscope、false color、focus peakingのnative／GPU renderer
 - [Later] button remapping、workspace customization、external monitor layout
 
 詳細: [`CAMERA_UI_LAYOUT.md`](CAMERA_UI_LAYOUT.md)
+
+## Milestone 2.1 — Media persistence and library
+
+- [Done] CapturedAsset schema v2のversioned JSON manifest
+- [Done] manifestのatomic writeとmedia finalize失敗時rollback
+- [Done] Finalized／Incomplete／Failedを区別するMedia index
+- [Done] corrupt／unknown manifestを黙って無視しないvalidation
+- [Done] Tauri `get_media_index` command
+- [Done] 英語、日本語、简体中文のMedia一覧とstate filter
+- [Done] Media表示中にnative preview layerを停止し、camera復帰時に再開
+- [Done] asset詳細dialogとFailed／Incompleteの確認付きcleanup
+- [Done] root直下のorphanを自動削除せずFailedへ記録するreconciliation
+- [Next] Failed／Incompleteの再検査とcapture再試行導線
+- [Later] thumbnail／proxy生成、pagination、検索とfilter
+
+詳細: [`MEDIA_INDEX_AND_MANIFEST.md`](MEDIA_INDEX_AND_MANIFEST.md)
 
 ## Milestone 3 — Profile system
 
@@ -196,13 +212,23 @@ Bluetooth LE / Bonjour / Nearby discovery
 
 ## Milestone 7 — Mobile
 
-- [Next] Tauri 2 iOS／Android projectを初期化
-- [Next] 英語、日本語、简体中文のcamera／microphone権限文言
-- [Next] iOS AVFoundation native preview／Still／Video縦切り
+- [Done] Tauri 2 iOS／Android projectを初期化しdebug artifactをbuild
+- [Done] 英語、日本語、简体中文のiOS camera／microphone権限文言
+- [Done] Android CAMERA／RECORD_AUDIO permission宣言
+- [Done] iOS AVFoundation native preview host／Still／Video command縦切りをcompile
+- [Next] iPhone実機のpermission／preview／Still／Video検証
 - [Next] narrow device、Safe Area、回転、background lifecycleの実機検証
-- [Later] Android CameraX Preview／ImageCapture／VideoCapture
+- [Done] Android CameraX permission／discovery／capability／PreviewView
+- [Done] Android CameraX ImageCapture／VideoCaptureと共通CapturedAsset finalize境界を実装しarm64 APKをbuild
+- [Next] Android実機のStill／音声付きVideo／回転／background中断／manifest受け入れ
+- [Done] Androidの選択解像度／FPSをCameraX use caseへ明示し、保存結果を要求値と照合するcodeをAPK build
+- [Next] Android実機でformat別use-case組合せとCamera2 FPS rangeの受け入れ表を作成
+- [Done] Android実機conformanceのinstall／snapshot harnessと必須試験matrixを作成
 - [Later] RAW、LOG、manual controlが必要な端末向けCamera2経路
 - [Later] CVPixelBuffer／AHardwareBufferのzero-copy GPU bridge
+
+詳細: [`MOBILE_PLATFORM_BOOTSTRAP.md`](MOBILE_PLATFORM_BOOTSTRAP.md)
+Android実機受け入れ: [`ANDROID_CAMERA_CONFORMANCE.md`](ANDROID_CAMERA_CONFORMANCE.md)
 
 ## Milestone 8 — Windows and Linux
 
@@ -231,15 +257,24 @@ Bluetooth LE / Bonjour / Nearby discovery
 - [Done] Preview／Photo／Movie orientation同期と全EXIF／MOV変換fixture
 - [Done] Tauri／Vite開発serverを127.0.0.1:1420へ統一
 - [Done] CapturedAsset derivativeの再現情報、非上書き、非循環parent contract
+- [Done] atomic asset manifestとFinalized／Incomplete／Failed Media index
+- [Done] 三言語Media Catalogue UIと320／375／414／768／1100px検証
+- [Done] 確認付きrecovery cleanup、orphan reconciliation、asset詳細dialog
 
 次の順序:
 
 1. [Done] UI姿勢をPreview／Photo／Movie connectionへ同期し、保存mirrorを分離する
 2. [Next] iOS実機でportrait／upside-down／front-camera mirrorを検証する
 3. [Done] CapturedAsset derivativeへrender snapshot／parent／engine version／seedを保存する
-4. [Next] Finalized／Incomplete／Failedを扱うMedia indexとcleanup UIを実装する
-5. [Next] iOS／Android Tauri projectを初期化する
-6. [Later] measured Print dataset確定後にresponse／ColorChecker fixtureを追加する
+4. [Done] Finalized／Incomplete／Failedを扱うMedia indexとatomic manifestを実装する
+5. [Done] Media一覧とFinalized／Incomplete／Failed filterを実装する
+6. [Done] 安全なcleanup／orphan reconciliationとasset詳細を実装する
+7. [Done] iOS／Android Tauri projectを初期化しdebug artifactをbuildする
+8. [Done] iOS native preview hostとStill／Video commandを実装しSimulator buildを通す
+9. [Done] Android CameraX permission／discovery／capability／native previewを実装する
+10. [Done] Android Still／VideoをCameraXから共通CapturedAsset lifecycleへ接続しAPKをbuildする
+11. [Next] iPhone／Android実機でpreview、Still、Video、orientation、lifecycleを検証する
+11. [Later] measured Print dataset確定後にresponse／ColorChecker fixtureを追加する
 
 Nearby Peer Transferは上記3–5で`CapturedAsset`とMedia管理が成立した後に着手するため、現時点では`[Later]`とする。
 
@@ -247,12 +282,12 @@ Nearby Peer Transferは上記3–5で`CapturedAsset`とMedia管理が成立し�
 
 ## Verification baseline
 
-2026-08-26時点:
+2026-08-28時点:
 
 ```text
 npm run check
   TypeScript / Vite production build: passed
-  Rust workspace tests: 53 passed, 0 failed
+  Rust workspace tests: 58 passed, 0 failed
 
 macOS native runtime
   camera preview: passed
@@ -265,11 +300,21 @@ macOS native runtime
   orientation IPC at macOS 0°: preview / JPEG / MOV passed, not mirrored
   save-before-publish asset probe: passed
   continuous full-frame WebView IPC: none
+
+mobile scaffold
+  iOS arm64 simulator debug bundle: passed
+  iOS native Preview / Still / Video code compile and link: passed
+  Android aarch64 debug APK with JDK 21: passed
+  Android CameraX native preview code compile: passed
+  Android CameraX Still / audio Video / CapturedAsset bridge compile: passed
+  Android strict ResolutionSelector / Camera2 FPS request compile: passed
+  iOS permission localization en / ja / zh-Hans: passed
+  Android CAMERA / RECORD_AUDIO declaration: passed
 ```
 
 未検証:
 
-- [Next] iOS、Android、Windows、Linux build／runtime
+- [Next] iOS／Android camera runtime、Windows／Linux build／runtime
 - [Next] 外部camera hot plugとdevice切断復旧
 - [Next] 英語／简体中文OSでのpermission prompt実表示
 - [Next] 4K60 performance budget
@@ -281,7 +326,7 @@ macOS native runtime
 
 - [Done] native preview、Still、Video、format選択
 - [Done] orientation connection同期、metadata probe、設定永続化
-- [Next] iOS orientation実機検証、Media一覧
+- [Next] iOS orientation実機検証、Media runtime検証
 - [Next] lifecycle／device disconnect recovery
 - [Next] 正式な署名、notarization、bundle identifier確定
 

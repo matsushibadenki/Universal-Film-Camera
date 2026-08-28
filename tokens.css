@@ -22,6 +22,7 @@
   --color-scope-green: oklch(72% 0.15 150);
   --color-scope-blue: oklch(67% 0.16 245);
   --color-transparent: transparent;
+  --color-backdrop: oklch(8% 0.008 250 / 0.78);
 
   --font-display: "Avenir Next", "Segoe UI Variable Display", "Segoe UI", sans-serif;
   --font-body: "Avenir Next", "Segoe UI Variable Text", "Segoe UI", sans-serif;

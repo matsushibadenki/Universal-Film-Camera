@@ -220,4 +220,60 @@ Status: Accepted (2026-08-26)
 
 `CapturedAsset` schema version 2ではoriginalにも明示的なresource IDを付け、各derivativeは既存originalまたは先に追加済みderivativeをparentとして参照する。未来のresourceをparentにできない追加順制約により循環を防ぎ、resource IDとpathの重複を拒否してoriginalを上書きしない。
 
-各derivativeはPipeline IDだけでなく、Pipelineと必要Profile closureのSHA-256を含む完全な`RenderProfileSnapshot`、engine version、seedを保持する。これらは再現条件の識別契約であり、Profile packageの真正性を証明する署名ではない。型・validation・JSON round-tripは実装済みだが、atomic manifestとMedia indexへの永続化は別milestoneとする。
+各derivativeはPipeline IDだけでなく、Pipelineと必要Profile closureのSHA-256を含む完全な`RenderProfileSnapshot`、engine version、seedを保持する。これらは再現条件の識別契約であり、Profile packageの真正性を証明する署名ではない。型・validation・JSON round-tripに加え、atomic manifestとMedia indexへの永続化まで実装済みである。
+
+## ADR-031: A capture succeeds only after its media manifest is durable
+
+Status: Accepted (2026-08-27)
+
+Finalized mediaはresourceだけでなく、CapturedAsset schema v2全体を含むversioned manifestと一組で公開する。mediaを完成pathへrenameした後、manifestを`.partial`へflush／syncしてrenameする。manifest保存が失敗した場合はmediaを`.incomplete`へ戻し、capture commandを失敗させる。
+
+Media indexはmanifestのFinalized／Failed recordと`.incomplete`のresourceを統合する。壊れたmanifestを黙って除外するとlibraryが正常に見えてしまうため、parse、schema、record整合性errorはindex全体の診断として返す。cleanupとcrash orphan reconciliationは自動削除せず、別の確認可能なUI milestoneで実装する。
+
+## ADR-032: Recovery cleanup is explicit and orphan reconciliation is non-destructive
+
+Status: Accepted (2026-08-27)
+
+Media読込み時にcaptures root直下をreconcileし、対応manifestのない既知拡張子の通常ファイルを`Failed` recordへ変換する。crash orphanは完成品か破損物かを自動判定できないため、reconciliationではresourceを削除しない。
+
+cleanupは`Failed`／`Incomplete`に限定し、詳細表示とは別の確認dialogを要求する。Rust commandも`Finalized`を拒否し、安全なrecord ID、canonical path containment、通常ファイルであることを再検証する。UIの非表示だけを安全境界にせず、外部path、directory、完成assetを削除できない契約とする。
+
+## ADR-033: Mobile scaffolds are versioned and native camera frames stay outside WebView IPC
+
+Status: Accepted (2026-08-28)
+
+Tauriが生成するiOS／Android projectはpermission、framework link、native adapterを所有するsource artifactなので`src-tauri/gen`をrepository管理対象とする。build output、local SDK path、generated JNI symlinkは各platformの`.gitignore`で除外する。
+
+iOSはAVFoundation preview layer、AndroidはCameraX Surfaceをnative viewとしてWebViewと合成する。連続frameをTauri IPCへ渡さず、共有Rust層へはcamera control、capability、metadata、完成resourceだけを渡す。scaffoldとdebug artifactのbuild成功はnative camera runtimeの完成を意味しない。
+
+## ADR-034: iOS preview is a retained UIView host attached on the Tauri main thread
+
+Status: Accepted (2026-08-28)
+
+iOSではTauriのWKWebViewを`UIView`として扱い、撮影viewportと同じframeを持つ専用host viewへ`AVCaptureVideoPreviewLayer`を追加する。host pointerはRust側でretainし、resizeとdetachもTauriのmain-thread closure内だけで実行する。WebViewへ連続pixelを転送せず、macOSと同じcontrol IPCとCapturedAsset保存境界を維持する。
+
+Simulator buildはUIKit／AVFoundationの型・link検証に使うが、camera device、permission、orientation、mirror、音声付きVideoの受け入れ判定には使わない。これらは署名済みiPhone実機で判定する。
+
+## ADR-035: Android CameraX is owned by a Tauri mobile plugin and PreviewView
+
+Status: Accepted (2026-08-28)
+
+Android camera runtimeはKotlinのTauri mobile pluginが所有する。Camera permission、CameraManager discovery／capability、ProcessCameraProvider、PreviewViewをplugin内に閉じ、Rust commandはJSON control contractだけを中継する。PreviewViewはCSS viewportをdisplay densityでnative pixelへ変換した位置へ重ね、pause／destroy／Media遷移で必ずunbindして除去する。
+
+複数のlogical cameraを最初のfront／back endpointへ正規化する初期契約とする。物理camera切替、concurrent camera、extension modeは実機capability方針確定後に拡張する。Still／VideoはPreview完成と混同せず、CameraX ImageCapture／VideoCaptureのfinalize callbackを共通CapturedAsset境界へ接続してから`[Done]`とする。
+
+## ADR-036: CameraX completion and CapturedAsset finalization are separate boundaries
+
+Status: Accepted (2026-08-28)
+
+Android native pluginはPreview、ImageCapture、VideoCaptureを同じProcessCameraProvider lifecycleへbindする。Stillは`OnImageSavedCallback`、Videoは`VideoRecordEvent.Finalize`が成功するまでRustへ完成通知を返さない。preview停止やActivity pauseで録画が中断された場合は成功として扱わない。
+
+CameraX callbackはcontainer writer完了の境界であり、製品asset完成の境界ではない。出力はまず`.incomplete`へ置き、Rustのin-process JPEG／ISO BMFF probe、CapturedAsset validation、rename、atomic manifest保存がすべて成功した時だけFinalizedとする。format未選択時はCameraXが交渉した実出力からcapture metadataを確定する。明示選択時の扱いはADR-037で追加規定する。
+
+## ADR-037: Android format requests fail explicitly instead of silently falling back
+
+Status: Accepted (2026-08-28)
+
+UIで選択した解像度はCameraX `ResolutionSelector`の`FALLBACK_RULE_NONE`としてPreview、ImageCapture、VideoCaptureへ同時指定し、FPSはCamera2 interopのAE target rangeとして指定する。use-case再bindに失敗した場合は以前の構成へrollbackし、近い解像度へ暗黙に置換しない。
+
+native撮影完了結果は要求formatもRustへ返す。CapturedAsset validationはprobeした保存寸法・FPSを要求値と照合し、不一致をFinalizedにしない。Camera2 capabilityのsizeとFPS rangeから作る候補が三use-case同時bind可能とは限らないため、code build成功と端末別format conformanceを分離し、実機で確認した組合せだけを将来のcapability一覧へ残す。

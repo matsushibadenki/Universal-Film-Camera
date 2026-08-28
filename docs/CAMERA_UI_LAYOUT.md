@@ -1,6 +1,6 @@
 # Professional Camera UI Layout
 
-更新日: 2026-08-20  
+更新日: 2026-08-27
 対象: プロ向けスチル／動画カメラ  
 トーン: 技術的・暗色・撮影画面優先
 
@@ -25,6 +25,19 @@
 - Video recording: 赤い角丸四角
 
 Imaging PipelineはCamera、Lens、Capture Medium、Development、Print/Output、Displayを扱うため、右railの主要destinationとしてCamera画面から直接移動できる位置に置く。
+
+## Media Catalogue
+
+- [Done] 撮影画面と同じright／bottom railからMediaを開閉
+- [Done] Finalized／Incomplete／Failedを明示する三言語state filter
+- [Done] native preview layerがMedia文字を覆わないsession停止／復帰境界
+- [Done] 320／375／414／768／1100pxで横overflow、見出し、操作labelを検証
+- [Done] asset詳細dialog、確認付きcleanup、orphan reconciliation
+- [Next] Failed／Incompleteの再検査とcapture再試行導線
+
+Mediaは写真作品を演出するgalleryではなく、撮影素材の状態を判別するtechnical Catalogueとする。thumbnailが生成されるまでは架空画像を使わず、media種別、状態、filename、時刻、解像度、duration、asset ID、診断理由を表示する。
+
+`AVCaptureVideoPreviewLayer`はWebViewより前面に配置されるため、Mediaへ遷移する前にnative previewを停止する。録画中または停止失敗時は遷移しない。撮影画面へ戻るとdevice discoveryからpreviewを再開する。
 
 ## Responsive layout
 

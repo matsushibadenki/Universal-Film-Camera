@@ -18,3 +18,7 @@ objc2-quartz-core = { version = "0.3.2", features = ["CALayer"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", features = ["NSResponder", "NSView", "NSWindow", "objc2-quartz-core"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-core-foundation = "0.3.2"
+objc2-ui-kit = { version = "0.3.2", features = ["UIResponder", "UIView", "objc2-core-foundation", "objc2-quartz-core"] }

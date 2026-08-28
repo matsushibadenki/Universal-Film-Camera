@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::{error::Error, fmt, path::PathBuf};
 
 mod asset;
+mod media_index;
 pub use asset::*;
+pub use media_index::*;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

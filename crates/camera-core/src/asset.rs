@@ -937,10 +937,12 @@ fn read_u32(bytes: &[u8], offset: usize, little: bool) -> Option<u32> {
     })
 }
 
-fn rfc3339_now() -> String {
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
+pub(crate) fn rfc3339_now() -> String {
+    rfc3339_from_system_time(SystemTime::now())
+}
+
+pub(crate) fn rfc3339_from_system_time(time: SystemTime) -> String {
+    let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
     let seconds = duration.as_secs() as i64;
     let days = seconds.div_euclid(86_400);
     let seconds_of_day = seconds.rem_euclid(86_400);

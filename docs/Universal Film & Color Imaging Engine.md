@@ -2087,8 +2087,9 @@ Phase 3 — Camera vertical slice：
 [Done] macOS AVFoundation native preview
 [Done] JPEG still capture and H.264/AAC MOV recording
 [Done] supported resolution/FPS enumeration and active format selection
-[Next] still/video orientation, metadata, selected-format persistence
-[Next] iOS/Android Tauri mobile initialization
+[Done] still/video orientation, metadata, selected-format persistence
+[Done] iOS/Android Tauri mobile initialization and debug builds
+[Next] iOS AVFoundation and Android CameraX native capture adapters
 [Later] Windows Media Foundation and Linux camera backend
 ```
 
@@ -2423,5 +2424,14 @@ Still acceptanceではdecode可能、寸法、orientation、embedded color descr
 - [Done] UI姿勢からPreview／Photo／Movie connectionへのrotation同期とpreview／capture mirror分離
 - [Next] iOS実機でportrait／upside-down／front-camera mirror caseを検証
 - [Done] CapturedAsset schema v2 derivativeへrender snapshot、parent、engine version、seedを保存
+- [Done] CapturedAssetのatomic manifestとFinalized／Incomplete／Failed Media indexを実装
+- [Done] 非破壊orphan reconciliation、確認付きrecovery cleanup、asset詳細表示を実装
+- [Done] iOS／Android Tauri 2 scaffoldとdebug buildを成立
+- [Done] iOS AVFoundation native preview hostとStill／Video commandをSimulator build
+- [Done] Android CameraX permission／discovery／capability／native PreviewView adapter
+- [Done] Android CameraX Still／音声付きVideoを共通CapturedAsset finalize境界へ接続しAPK build
+- [Done] Android CameraXのfallback禁止resolution／FPS negotiationと保存結果照合をAPK build
+- [Next] mobile実機検証とAndroid端末別format conformance
+- [Done] Android端末別conformanceのADB採取harnessと判定matrixを作成
 - [Later] wgpu renderer、OCIO adapter、LUT compiler、GPU conformance runner
 - [Later] Spectral Engine、profile measurement、Film Profile Editor

@@ -1,6 +1,6 @@
 # Camera App Implementation Handoff
 
-更新日: 2026-08-26
+更新日: 2026-08-28
 対象: macOS / Windows / Linux / iOS / Android  
 UIシェル: Tauri 2 + TypeScript  
 共有コア: Rust
@@ -8,6 +8,24 @@ UIシェル: Tauri 2 + TypeScript
 プロジェクト全体の現在地と優先順位は [`ROADMAP.md`](ROADMAP.md) を正本とする。
 
 2026-08-26、`CapturedAsset`をschema version 2へ更新した。originalとderivativeへ安定resource IDを与え、derivativeはparent、完全なrender snapshot、engine version、seedを保持する。追加時にFinalized状態、既存parent、一意ID、一意path、snapshot hash／順序を検証し、JSON往復testで再現情報を固定した。次工程はこの構造をatomic manifestへ保存し、Finalized／Incomplete／Failedを扱うMedia indexから復元することである。
+
+2026-08-27、上記manifestとMedia indexを実装した。Still／Videoはmedia renameだけでは成功せず、CapturedAsset manifestのatomic保存後に返る。manifest失敗時はmediaを`.incomplete`へrollbackする。`get_media_index`はFinalized／Failed manifestとmanifest未作成のIncomplete fileを統合し、壊れたmanifestをerrorとして可視化する。次工程は三言語Media UI、安全なcleanup、起動時orphan reconciliationである。正本は[`MEDIA_INDEX_AND_MANIFEST.md`](MEDIA_INDEX_AND_MANIFEST.md)。
+
+同日、三言語Media Catalogue UIを追加した。Media遷移前にnative previewを停止するため、AVCaptureVideoPreviewLayerが一覧文字を覆わない。All／完了／未完了／失敗filter、technical metadata、診断理由を表示し、カメラへ戻るとpreviewを再開する。320／375／414／768／1100pxで横overflowなし、44px以上の操作領域、filter labelの非折返しを確認した。
+
+続いてasset詳細dialog、Failed／Incompleteだけを対象とする確認付きcleanup、root直下のorphan reconciliationを実装した。reconciliationは素材を消さずFailed診断として登録する。cleanupはFinalizedを拒否し、canonical pathがcaptures配下の通常ファイルであることをcommand側で検証する。次工程はFailed／Incompleteの再検査・capture再試行導線、または優先キューどおりiOS／Android Tauri project初期化である。
+
+2026-08-28、iOS／AndroidのTauri 2 mobile projectを初期化してrepository管理対象にした。iOSはAVFoundation／CoreMedia link、英語・日本語・简体中文のpermission resourceを含むarm64 simulator bundle、AndroidはCAMERA／RECORD_AUDIO宣言を含むarm64 debug APKまでbuild済みである。Android buildはGradle互換性のためJDK 21を使用する。詳細と再現commandは[`MOBILE_PLATFORM_BOOTSTRAP.md`](MOBILE_PLATFORM_BOOTSTRAP.md)を正本とする。次工程はiOS native preview hostとAndroid CameraX adapterであり、mobile scaffoldのbuild成功をcamera runtime完成と扱ってはいけない。
+
+同日、iOSの`UIView` preview hostを追加した。TauriのWKWebView main-thread closure内でAVCaptureVideoPreviewLayerをattachし、DOM viewport更新に合わせてresize、Media遷移時にdetachする。Preview／Still／Video commandをiOSでも有効にし、保存はmacOSと同じatomic CapturedAsset契約を通る。arm64 Simulator bundleはcompile／link済みだが、Simulatorをcamera runtime検証には使わない。次工程は開発Teamを利用者が明示したiPhone実機検証とAndroid CameraX adapterである。
+
+続いてAndroidのCameraX Tauri mobile pluginを実装した。CAMERA permission、front／back discovery、Camera2から取得するstream size／AE FPS capability、native PreviewViewのattach／resize／stopを既存Tauri commandへ接続した。Activity pause／destroyでunbindし、連続frameはWebView IPCへ渡さない。JDK 21によるarm64 debug APK buildは成功している。次工程はAndroid実機preview検証とImageCapture／VideoCaptureのatomic CapturedAsset接続である。
+
+同日、CameraX `ImageCapture`と`VideoCapture<Recorder>`を同じnative lifecycleへ追加した。JPEGと音声付きMP4は`.incomplete`へ書き、Still callbackまたはVideo `Finalize`後にだけRustへ返す。Rustは保存物を直接probeし、CapturedAsset validation、完成pathへのrename、atomic manifest保存まで成功してからUIへ返す。失敗時はFailed recordへ診断を残す。arm64 debug APKはbuild済みだが、実機撮影は未検証である。format未選択時のAndroid capture metadataはprobeした実出力から固定する。
+
+続いてAndroidの`apply_camera_format`を実装した。選択解像度はfallback禁止のCameraX `ResolutionSelector`、FPSはCamera2 interopの`CONTROL_AE_TARGET_FPS_RANGE`としてPreview／ImageCapture／VideoCaptureへ同時適用する。再bind失敗時は以前の構成へrollbackし、要求値を黙って置換しない。撮影callbackにも要求formatを含め、Rust probeが保存寸法・FPSとの一致を検証する。codeとarm64 APK buildは完了したが、端末ごとの同時use-case組合せは実機受け入れ表が必要である。
+
+ADB接続端末を確認したが、2026-08-28時点ではauthorized deviceが0台だった。runtimeを推測で完了扱いにせず、`scripts/android_camera_conformance.sh`と[`ANDROID_CAMERA_CONFORMANCE.md`](ANDROID_CAMERA_CONFORMANCE.md)を追加した。scriptは端末を1台に限定してAPK導入／起動を行い、getprop、Camera service、package permission、app-private files一覧、logcatを端末serial別に採取する。試験matrixはpermission、Preview、Still、Video、rotation、background、recovery、format rejectionを必須とする。
 
 ## 現在地
 
@@ -48,7 +66,14 @@ UIシェル: Tauri 2 + TypeScript
 - [Done] ACEScg `scene_linear → virtual exposure` adapter、Film emulation Pipeline例、数式fixtureを追加
 - [Done] Development／Print／Display／Output Transform typed Profile、Schema、synthetic例を追加
 - [Done] recursive directory loader、Profile closure解決、SHA-256付きrender snapshotを追加
-- [Next] Tauri mobileのiOS/Androidプロジェクトを初期化し、カメラ／マイク権限文言を追加
+- [Done] Tauri mobileのiOS／Android project、権限宣言、debug build
+- [Done] iOS native preview hostとStill／Video commandのSimulator build
+- [Done] Android CameraX permission／discovery／capability／native preview
+- [Done] Android CameraX Still／音声付きVideoと共通CapturedAsset保存境界のcompile／APK build
+- [Next] mobile実機preview／Still／Video／orientation／background lifecycle検証
+- [Done] Android CameraXの明示的format negotiationと保存結果照合codeのAPK build
+- [Next] Android実機のformat別同時use-case受け入れ表
+- [Done] Android実機conformance harness／判定matrix
 - [Later] Android CameraX、Windows Media Foundation、Linux V4L2/GStreamerバックエンド
 - [Later] wgpu処理、native texture相互運用、ハードウェアエンコード、OCIO/ACESの完全実装
 - [Later] Grain、Halation、MTF、Print Film、Spectral reference model

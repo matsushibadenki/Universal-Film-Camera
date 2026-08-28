@@ -1,0 +1,527 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		139F5458876966DA2FEA531E /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 9E1338C2877592A2972C5780 /* InfoPlist.strings */; };
+		3090CBCC13BECBFBF1AA632D /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9932E120877D958B4BBE3349 /* libapp.a */; };
+		311586824E8364DE1D90DE22 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 9A934DED25EF37B6D7CF8E85 /* libapp.a */; };
+		315EE3F8C1A7D6F155CEB6A3 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = F6E3FECB51162DEDCCF7A105 /* main.mm */; };
+		3A3DEC689978F51069FE1345 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 5ABE1159232B1AE713508123 /* assets */; };
+		44A4E98AC21F83E2CBAE6669 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E1AF5F2731A8DCC8C3AD7039 /* Metal.framework */; };
+		525E7DD1C803DC86DC80C656 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DF00C8B3E2DF854F90D8CAB4 /* QuartzCore.framework */; };
+		569868743BFD8794C7787727 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE46D7B4B6CF201CBCD36B2B /* MetalKit.framework */; };
+		5C035C5F0DA0541BA4212DBD /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 66227A3BED1224BED6FD78D2 /* CoreGraphics.framework */; };
+		762DEC2F36ADAB8AEF4F3ADB /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3F0745354EC13C66CE3F76E9 /* CoreMedia.framework */; };
+		810AF55A368E891102B85C66 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3B98FA1D5EE88F4723A56049 /* AVFoundation.framework */; };
+		8730C4BF88BDB9A181E990C6 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5629C407787F5616C7A6A2B8 /* Security.framework */; };
+		92D7ECF8DF5F56FD37042B18 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 02A728AB760E398F2AE077D3 /* Assets.xcassets */; };
+		9C1B69A63C1D536DFD4E88FD /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 76223BF7B551313548BA5F79 /* WebKit.framework */; };
+		F264CDCA4B85B856A59C4D02 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 549C5DFBBFE9BEADD1894E4A /* UIKit.framework */; };
+		F39C8CD3827189D13167EA3B /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 84F0D2E0AC8F33A6DB07D68A /* LaunchScreen.storyboard */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		02A728AB760E398F2AE077D3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		143367CDA27043E7EC40C2D7 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		1D861DF44692CA1EA2C1012E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		3B98FA1D5EE88F4723A56049 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		3F0745354EC13C66CE3F76E9 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
+		48CAC6B396AD03A9BEE546EE /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		549C5DFBBFE9BEADD1894E4A /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		5629C407787F5616C7A6A2B8 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		5ABE1159232B1AE713508123 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		66227A3BED1224BED6FD78D2 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		6B151B35AE3337A494EAB79D /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		76223BF7B551313548BA5F79 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		84F0D2E0AC8F33A6DB07D68A /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		9347B9CA22B234A0BE31DCBD /* universal-film-camera_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "universal-film-camera_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9932E120877D958B4BBE3349 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		9A934DED25EF37B6D7CF8E85 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		A293199DE802939B3558CEFB /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		A4E5B607312CC66B93E3B18B /* camera_settings.rs */ = {isa = PBXFileReference; path = camera_settings.rs; sourceTree = "<group>"; };
+		AC184FB4A142772E9747E701 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		C6233E1F788912239DD6E3B4 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		CE46D7B4B6CF201CBCD36B2B /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		DF00C8B3E2DF854F90D8CAB4 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		E1AF5F2731A8DCC8C3AD7039 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		EA0B33BA820E75B2577EF53F /* universal-film-camera_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "universal-film-camera_iOS.entitlements"; sourceTree = "<group>"; };
+		F6E3FECB51162DEDCCF7A105 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		198FA178B7ECF2B80CAA3807 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3090CBCC13BECBFBF1AA632D /* libapp.a in Frameworks */,
+				810AF55A368E891102B85C66 /* AVFoundation.framework in Frameworks */,
+				762DEC2F36ADAB8AEF4F3ADB /* CoreMedia.framework in Frameworks */,
+				5C035C5F0DA0541BA4212DBD /* CoreGraphics.framework in Frameworks */,
+				44A4E98AC21F83E2CBAE6669 /* Metal.framework in Frameworks */,
+				569868743BFD8794C7787727 /* MetalKit.framework in Frameworks */,
+				525E7DD1C803DC86DC80C656 /* QuartzCore.framework in Frameworks */,
+				8730C4BF88BDB9A181E990C6 /* Security.framework in Frameworks */,
+				F264CDCA4B85B856A59C4D02 /* UIKit.framework in Frameworks */,
+				9C1B69A63C1D536DFD4E88FD /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		110E6996B1C06D1448AADEC4 /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+				C30F8DFCD5C20F2EBE2571C0 /* arm64 */,
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		158DED1D5092B4B4B80BBEC5 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3B98FA1D5EE88F4723A56049 /* AVFoundation.framework */,
+				66227A3BED1224BED6FD78D2 /* CoreGraphics.framework */,
+				3F0745354EC13C66CE3F76E9 /* CoreMedia.framework */,
+				9932E120877D958B4BBE3349 /* libapp.a */,
+				E1AF5F2731A8DCC8C3AD7039 /* Metal.framework */,
+				CE46D7B4B6CF201CBCD36B2B /* MetalKit.framework */,
+				DF00C8B3E2DF854F90D8CAB4 /* QuartzCore.framework */,
+				5629C407787F5616C7A6A2B8 /* Security.framework */,
+				549C5DFBBFE9BEADD1894E4A /* UIKit.framework */,
+				76223BF7B551313548BA5F79 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		25C03E54F02F112A4E1DF592 /* universal-film-camera_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				1D861DF44692CA1EA2C1012E /* Info.plist */,
+				EA0B33BA820E75B2577EF53F /* universal-film-camera_iOS.entitlements */,
+			);
+			path = "universal-film-camera_iOS";
+			sourceTree = "<group>";
+		};
+		4B15144765F32CE9BC332D9A /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				9347B9CA22B234A0BE31DCBD /* universal-film-camera_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		721EE05022CA7E63731D4615 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				A4E5B607312CC66B93E3B18B /* camera_settings.rs */,
+				AC184FB4A142772E9747E701 /* lib.rs */,
+				A293199DE802939B3558CEFB /* main.rs */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		795A10E1C3DC5A7A096DC029 /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				48CAC6B396AD03A9BEE546EE /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+		9600269F126346C53F25229A /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				C322DDE897B002C701F35154 /* universal-film-camera */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		A9D730B146D94FBFFCC95EDA /* debug */ = {
+			isa = PBXGroup;
+			children = (
+				9A934DED25EF37B6D7CF8E85 /* libapp.a */,
+			);
+			path = debug;
+			sourceTree = "<group>";
+		};
+		ABBF3562042851B0641ECE3F = {
+			isa = PBXGroup;
+			children = (
+				5ABE1159232B1AE713508123 /* assets */,
+				02A728AB760E398F2AE077D3 /* Assets.xcassets */,
+				84F0D2E0AC8F33A6DB07D68A /* LaunchScreen.storyboard */,
+				110E6996B1C06D1448AADEC4 /* Externals */,
+				CDBAFC4BD8EACFA5245F84BA /* infoplist */,
+				9600269F126346C53F25229A /* Sources */,
+				721EE05022CA7E63731D4615 /* src */,
+				25C03E54F02F112A4E1DF592 /* universal-film-camera_iOS */,
+				158DED1D5092B4B4B80BBEC5 /* Frameworks */,
+				4B15144765F32CE9BC332D9A /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C30F8DFCD5C20F2EBE2571C0 /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+				A9D730B146D94FBFFCC95EDA /* debug */,
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
+		C322DDE897B002C701F35154 /* universal-film-camera */ = {
+			isa = PBXGroup;
+			children = (
+				F6E3FECB51162DEDCCF7A105 /* main.mm */,
+				795A10E1C3DC5A7A096DC029 /* bindings */,
+			);
+			path = "universal-film-camera";
+			sourceTree = "<group>";
+		};
+		CDBAFC4BD8EACFA5245F84BA /* infoplist */ = {
+			isa = PBXGroup;
+			children = (
+				9E1338C2877592A2972C5780 /* InfoPlist.strings */,
+			);
+			name = infoplist;
+			path = ../../infoplist;
+			sourceTree = "<group>";
+		};
+		"TEMP_D4456A23-4152-4181-A902-2EDED6C1B5C5" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3756F363F3D6CAA792BCC051 /* universal-film-camera_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ADE165A905D7AD59895321ED /* Build configuration list for PBXNativeTarget "universal-film-camera_iOS" */;
+			buildPhases = (
+				6EADC1714CD979E3F100E470 /* Build Rust Code */,
+				298B3561F7A3701F64E13027 /* Sources */,
+				BF2F5209C96C6BAC286174CC /* Resources */,
+				198FA178B7ECF2B80CAA3807 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "universal-film-camera_iOS";
+			packageProductDependencies = (
+			);
+			productName = "universal-film-camera_iOS";
+			productReference = 9347B9CA22B234A0BE31DCBD /* universal-film-camera_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		999CD6B081D2E3A84D1F3688 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 57259208F4E553A7161F4036 /* Build configuration list for PBXProject "universal-film-camera" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				ja,
+				"zh-Hans",
+			);
+			mainGroup = ABBF3562042851B0641ECE3F;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 4B15144765F32CE9BC332D9A /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3756F363F3D6CAA792BCC051 /* universal-film-camera_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BF2F5209C96C6BAC286174CC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				92D7ECF8DF5F56FD37042B18 /* Assets.xcassets in Resources */,
+				139F5458876966DA2FEA531E /* InfoPlist.strings in Resources */,
+				F39C8CD3827189D13167EA3B /* LaunchScreen.storyboard in Resources */,
+				3A3DEC689978F51069FE1345 /* assets in Resources */,
+				311586824E8364DE1D90DE22 /* libapp.a in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		6EADC1714CD979E3F100E470 /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		298B3561F7A3701F64E13027 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				315EE3F8C1A7D6F155CEB6A3 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		9E1338C2877592A2972C5780 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				143367CDA27043E7EC40C2D7 /* en */,
+				C6233E1F788912239DD6E3B4 /* ja */,
+				6B151B35AE3337A494EAB79D /* zh-Hans */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		0C06E4B8A1B6A91B0FCFE732 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "universal-film-camera_iOS/universal-film-camera_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "universal-film-camera_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = app.universalfilm.camera;
+				PRODUCT_NAME = "Universal Film Camera";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		443006C378784EE3E1BFDFB4 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "universal-film-camera_iOS/universal-film-camera_iOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "universal-film-camera_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = app.universalfilm.camera;
+				PRODUCT_NAME = "Universal Film Camera";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+		4B210BCF028E7FA7981EC9BB /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+		EF49042B14216326FE6DC9FC /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		57259208F4E553A7161F4036 /* Build configuration list for PBXProject "universal-film-camera" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4B210BCF028E7FA7981EC9BB /* debug */,
+				EF49042B14216326FE6DC9FC /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		ADE165A905D7AD59895321ED /* Build configuration list for PBXNativeTarget "universal-film-camera_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0C06E4B8A1B6A91B0FCFE732 /* debug */,
+				443006C378784EE3E1BFDFB4 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 999CD6B081D2E3A84D1F3688 /* Project object */;
+}
