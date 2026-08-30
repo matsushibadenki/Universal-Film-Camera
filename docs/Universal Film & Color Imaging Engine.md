@@ -2426,6 +2426,13 @@ Still acceptanceではdecode可能、寸法、orientation、embedded color descr
 - [Done] CapturedAsset schema v2 derivativeへrender snapshot、parent、engine version、seedを保存
 - [Done] CapturedAssetのatomic manifestとFinalized／Incomplete／Failed Media indexを実装
 - [Done] 非破壊orphan reconciliation、確認付きrecovery cleanup、asset詳細表示を実装
+- [Done] Failed／Incompleteの非破壊再検査とStill／Video再撮影導線を実装
+- [Done] Still／Video別output preset、filesystem残容量、nominal撮影可能量を表示
+- [Done] Still／Video別の保存前容量preflightと256 MiB安全予約をapplication layerへ実装
+- [Done] foreground録画中の残容量監視と共通停止経路による自動停止／Finalize
+- [Done] Android CameraX native lifecycleで容量低下／pause時のstop→Finalize結果保持を実装
+- [Done] Apple AVFoundation sessionへWebView非依存の容量monitorと単発停止要求を実装
+- [Next] iOS実機でOS suspension／session interruption時のasset保全を検証
 - [Done] iOS／Android Tauri 2 scaffoldとdebug buildを成立
 - [Done] iOS AVFoundation native preview hostとStill／Video commandをSimulator build
 - [Done] Android CameraX permission／discovery／capability／native PreviewView adapter
@@ -2435,3 +2442,5 @@ Still acceptanceではdecode可能、寸法、orientation、embedded color descr
 - [Done] Android端末別conformanceのADB採取harnessと判定matrixを作成
 - [Later] wgpu renderer、OCIO adapter、LUT compiler、GPU conformance runner
 - [Later] Spectral Engine、profile measurement、Film Profile Editor
+- [Done] Nearby共有のephemeral identity、招待、能力交渉、manifest、転送状態機械を`peer-transfer-core`へ実装
+- [Next] CapturedAsset選択とIncomplete受信writer、resume、実file hash、atomic finalizeを接続

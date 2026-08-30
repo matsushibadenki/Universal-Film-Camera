@@ -231,12 +231,14 @@ find "target/debug/bundle/macos/Universal Film Camera.app/Contents/Resources" -n
 - [Done] 録画中のStill／Video切替を無効化し、停止後にPreviewingへ復帰
 - [Done] 完成MOVがH.264 1920 × 1080 + AAC 48 kHz monoであることを検証
 - [Done] 停止後に`.incomplete`の残存ファイルが0件であることを検証
+- [Done] WebView非依存の2秒間隔容量monitorと重複しないAVFoundation停止要求を実装
 - [Done] 内蔵cameraのactive formatを1920 × 1080／30 FPSとしてUIへ反映
 - [Done] manual shutter／ISO非対応を`AUTO`かつdisabledとしてUIへ反映
 - [Done] 対応組合せから1280 × 720／24 FPSを選び、native previewと上部表示へ適用
 - [Next] 外部cameraのhot plug／切替
 - [Next] OS再起動後を含む拒否→System Settings→復帰
 - [Next] 英語／简体中文OSでpermission promptの実表示
+- [Next] iPhone実機で容量低下、Home遷移、session interruption、復帰後Finalizeを検証
 
 継続する実機／実アプリ検証項目:
 

@@ -17,6 +17,7 @@ camera-core.workspace = true
 camera-apple.workspace = true
 film-core.workspace = true
 imaging-core.workspace = true
+libc = "0.2"
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }

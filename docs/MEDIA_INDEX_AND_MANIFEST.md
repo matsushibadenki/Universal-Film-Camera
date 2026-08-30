@@ -1,6 +1,6 @@
 # Media Index and Atomic Asset Manifest
 
-更新日: 2026-08-27
+更新日: 2026-08-30
 実装: `crates/camera-core/src/media_index.rs`、`apps/camera/src-tauri/src/lib.rs`
 
 ## Status
@@ -19,7 +19,7 @@
 - [Done] 320／375／414／768／1100pxでoverflow／折返しを検証
 - [Done] Failed／Incompleteの確認付きcleanupとasset詳細dialog
 - [Done] root直下のorphanをFailedとして記録するreconciliation
-- [Next] Failed／Incompleteの再検査とcapture再試行操作
+- [Done] Failed／Incompleteの非破壊再検査とStill／Video再撮影操作
 - [Later] thumbnail／proxy生成とindex pagination
 
 ## Directory contract
@@ -58,11 +58,15 @@ cleanupは`Failed`と`Incomplete`だけを対象とし、`Finalized`はcommand�
 
 resource削除後にmanifest削除が失敗した場合は診断recordが残る順序を採る。逆順でmanifestだけを消してresourceを孤立させるより復旧可能性を優先する。cleanupもreconciliationもderivative graphの完成素材を自動削除しない。
 
+再検査はrecoverable resourceを削除・rename・Finalized昇格せず、同じin-process JPEG／ISO BMFF probeを再実行して診断manifestだけをatomic更新する。構造probeに成功しても元の要求formatや撮影意図を復元できないため、Failed状態を維持して再撮影を推奨する。UIの再撮影操作は元entryのmedia typeに対応するStill／Video modeへ戻り、既存recoverable resourceを残す。
+
 ## Media UI contract
 
 Media画面は装飾的なgalleryではなく、撮影現場で状態を判別するCatalogueとする。thumbnail／proxyが未実装の間は偽の画像を表示せず、Photo／Video種別、状態、filename、更新時刻、解像度、duration、asset ID、失敗理由を表示する。
 
 各cardの詳細操作はnative dialogを開き、state、更新時刻、path、format、duration、asset ID、schema、diagnosticを表示する。cleanup actionは`Failed`／`Incomplete`だけに出し、英語、日本語、简体中文の明示確認を必須とする。
+
+復旧対象の詳細には再検査、再撮影、cleanupを表示する。320px幅ではfooterを折返し、dialog内の縦scrollで全操作へ到達可能にする。Failed動画fixtureは`import.meta.env.DEV`が真かつ`?recovery-fixture=1`の場合だけ到達可能で、productionでは条件が定数`false`になる。
 
 native `AVCaptureVideoPreviewLayer`はWebViewより前面に出るため、Mediaを開く前にpreview sessionを停止する。停止に失敗した場合はMediaへ遷移せずerrorを表示する。カメラへ戻るとdevice discoveryからpreviewを再開する。録画中はMedia遷移を受理しない。
 

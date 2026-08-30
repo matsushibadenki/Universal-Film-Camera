@@ -1,6 +1,6 @@
 # Universal Imaging Camera Roadmap
 
-更新日: 2026-08-28
+更新日: 2026-08-30
 対象: macOS / iOS / Android / Windows / Linux  
 正本仕様: [`Universal Film & Color Imaging Engine.md`](Universal%20Film%20%26%20Color%20Imaging%20Engine.md)
 
@@ -99,9 +99,14 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - [Done] 英語、日本語、简体中文の主要UI
 - [Done] 実機active formatとmanual control可否を表示
 - [Done] 対応組合せから生成するformat／FPS panel
-- [Next] Still／Video別output presetと残容量表示
+- [Done] Still／Video別output preset、実filesystem残容量、概算撮影可能量表示
+- [Done] Still／Video別の撮影開始前容量検査、256 MiB安全予約、容量不足時の中央capture control無効化
 - [Done] Finalized／Incomplete／Failedを確認できる三言語Media画面
 - [Next] waveform、vectorscope、false color、focus peakingのnative／GPU renderer
+- [Done] foreground録画中の2秒間隔残容量監視と共通停止経路による安全な自動停止／Finalize
+- [Done] Android CameraX native容量monitor、onPause停止、Finalize結果保持
+- [Done] Apple AVFoundation sessionのWebView非依存容量monitorと単発stop要求
+- [Next] iOS実機でOS suspension／AVCaptureSession interruption時の停止・復帰・asset回収を検証
 - [Later] button remapping、workspace customization、external monitor layout
 
 詳細: [`CAMERA_UI_LAYOUT.md`](CAMERA_UI_LAYOUT.md)
@@ -117,7 +122,7 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - [Done] Media表示中にnative preview layerを停止し、camera復帰時に再開
 - [Done] asset詳細dialogとFailed／Incompleteの確認付きcleanup
 - [Done] root直下のorphanを自動削除せずFailedへ記録するreconciliation
-- [Next] Failed／Incompleteの再検査とcapture再試行導線
+- [Done] Failed／Incompleteを非破壊probeする再検査とStill／Video再撮影導線
 - [Later] thumbnail／proxy生成、pagination、検索とfilter
 
 詳細: [`MEDIA_INDEX_AND_MANIFEST.md`](MEDIA_INDEX_AND_MANIFEST.md)
@@ -188,9 +193,11 @@ Bluetooth LE / Bonjour / Nearby discovery
 
 - [Done] BLEを発見・接続確認、高速networkをasset転送に使う基本方針を確定
 - [Done] Apple／Android／Windows／Linuxをplatform adapterで分離し、共通protocolをRustへ置く方針を確定
-- [Later] `peer-transfer-core`のpeer identity、invitation、capability、transfer state machine
-- [Later] versioned Asset Manifestとoriginal／processed／両方の選択
-- [Later] chunk分割、ack、cancel、resume、content hash、atomic finalize
+- [Done] `peer-transfer-core`のephemeral peer identity、invitation、capability、transfer state machine
+- [Done] version 1 Transfer Manifest、basename／容量／chunk／SHA-256 validation
+- [Done] contiguous ack、cancel、content verification前のFinalized禁止
+- [Next] CapturedAsset original／processed／両方の選択と受信Incomplete lifecycle adapter
+- [Next] chunk payload、resume ledger、実file SHA-256、atomic receive finalize
 - [Later] ephemeral key、end-to-end encryption、双方の短い確認コード
 - [Later] 一定時間だけ受信可能にするvisibilityと自動停止
 - [Later] EXIF位置情報／device metadataの共有範囲を送信前に選択
@@ -209,6 +216,8 @@ Bluetooth LE / Bonjour / Nearby discovery
 4. `.partial`／incomplete assetを完成品として公開しない
 
 バックグラウンド転送はOSごとの実行制限に従う。発見・advertiseを常時有効にせず、ユーザーが開始した共有sessionだけを対象とする。本名、Bluetooth address、永続device IDを周囲へ公開しない。
+
+詳細: [`PEER_TRANSFER_PROTOCOL.md`](PEER_TRANSFER_PROTOCOL.md)
 
 ## Milestone 7 — Mobile
 

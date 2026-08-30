@@ -27,6 +27,20 @@ UIシェル: Tauri 2 + TypeScript
 
 ADB接続端末を確認したが、2026-08-28時点ではauthorized deviceが0台だった。runtimeを推測で完了扱いにせず、`scripts/android_camera_conformance.sh`と[`ANDROID_CAMERA_CONFORMANCE.md`](ANDROID_CAMERA_CONFORMANCE.md)を追加した。scriptは端末を1台に限定してAPK導入／起動を行い、getprop、Camera service、package permission、app-private files一覧、logcatを端末serial別に採取する。試験matrixはpermission、Preview、Still、Video、rotation、background、recovery、format rejectionを必須とする。
 
+2026-08-30、Media recoveryへ非破壊再検査と再撮影導線を追加した。`reinspect_media_entry`はFailed／Incompleteだけを再probeし、resourceを変更せず診断manifestを更新する。probe成功でも元のcapture intentがないためFinalizedへ昇格しない。再撮影は既存resourceを残して対応するStill／Video modeへ復帰する。三言語UI、Rustの昇格防止test、desktop／320px browser QAを通過した。開発fixtureは`import.meta.env.DEV`かつ`?recovery-fixture=1`に限定する。
+
+同日、Still／Video別output statusと保存先残容量を実装した。Rust commandは現行writerが保証するJPEGとH.264／AAC presetだけを返し、Unix系platformではcapture directoryの`statvfs`からavailable／total bytesを取得する。UIはJPEG 8 MiB／枚、Video 120 MiB／分のnominal estimateを三言語で表示し、撮影完了後に更新する。320px QAで出力button 44px、capture button 56px正円・水平中央、横overflowなしを確認した。将来の複数presetはnative writerが設定を実適用・probe検証できる場合だけ追加する。
+
+同日、保存前容量preflightを追加した。Stillは8 MiB、Videoは開始時120 MiBの概算出力に加えて256 MiBを安全予約し、満たさない場合はUIの中央capture controlを無効化する。Rust側もApple／Androidの各撮影command直前に同条件を再検査し、競合やUI迂回時は明示的に拒否する。録画中に別processが容量を消費する場合への連続監視と安全な自動停止は未実装である。
+
+続いてforeground録画中の容量監視を追加した。UIは2秒ごとにRustのfilesystem statusを取得し、Video閾値を下回ると手動停止と共通の単発停止処理を実行する。停止後はnative finalize、in-process probe、atomic rename、manifest保存を経たassetだけを成功表示し、自動停止理由を三言語で通知する。重複poll／重複停止はguardする。WebViewがpauseされるbackground録画を守るにはApple／Android native lifecycle側のmonitorが別途必要である。
+
+続いてAndroid CameraX pluginへWebView非依存の2秒間隔容量monitorを追加した。Rustから渡す376 MiB閾値を保存先`usableSpace`が下回るとnative `Recording.stop()`を一度だけ呼び、Finalize結果をplugin内に保持する。`onPause`／`onDestroy`でも`close()`による即時破棄ではなくstop→Finalizeを優先し、復帰時のvisibility handlerがRust `stop_video_recording`から保持結果を受け取ってprobe／manifest確定し、native previewを再取得する。Rust／Web buildは成功。Android APK buildはRust cross compileまで成功したが、ローカルAndroid Studio JBR 25.0.2とGradle buildSrcの非互換でKotlin compile前に停止したため、JDK 21環境でのAPK再検証と実機容量低下試験が必要である。
+
+続いてApple AVFoundation sessionへWebView非依存の容量monitorを追加した。録画ごとのPendingMovie IDとcamera stateを2秒間隔で照合し、保存先が376 MiB閾値を下回ると`request_recording_stop`を発行する。MovieRecordingはatomic stop flagを所有し、容量monitorと手動停止が競合しても`AVCaptureMovieFileOutput.stopRecording()`は一度だけ呼ばれる。delegate receiver、保存先、CapturedAsset finalize経路は従来のまま保持する。macOS compileとworkspace testは成功した。iOSでOSがprocessをsuspendする条件、AVCaptureSession interruption、復帰後asset回収は署名済み実機で検証するまで完了扱いにしない。
+
+続いて`peer-transfer-core`をworkspaceへ追加した。platform discovery／transportから独立して、sessionごとのephemeral peer identity、6桁確認付き期限付き招待、protocol／transport／chunk能力交渉、version 1 Transfer Manifest、ACK、cancel、verify、Finalizedの状態遷移を所有する。BLEだけのpeer間ではasset転送を開始せず、高速transportの共通項を必須にした。basename、100 GiB上限、16 KiB〜4 MiB chunk、64桁SHA-256を受信前に検証し、byte数とhash一致前はFinalizedへ進めない。5件の境界testを含めworkspace全67 testが成功した。次工程はCapturedAsset selectionと`.incomplete`受信writerへの接続である。
+
 ## 現在地
 
 - [Done] 元仕様 `Universal Film & Color Imaging Engine.md` の責務分離、色処理、ゼロコピー、カメラ抽象、エンコード要件を初期設計へ反映

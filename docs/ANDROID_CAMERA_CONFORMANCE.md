@@ -1,6 +1,6 @@
 # Android Camera Conformance
 
-更新日: 2026-08-28  
+更新日: 2026-08-30
 対象: Tauri 2 / CameraX 1.4.2 / Android API 24+
 
 ## 現在の状態
@@ -10,6 +10,7 @@
 - [Done] fallback禁止の解像度指定とCamera2 AE FPS request
 - [Done] CapturedAsset probe／validation／atomic manifest境界
 - [Done] 接続確認、APK導入、端末診断採取script
+- [Done] native容量monitorとpause時のstop→Finalize結果保持
 - [Next] 物理Android端末で以下のmatrixを実行
 
 2026-08-28時点でADBにauthorized deviceは接続されていない。したがって、この文書のruntime欄は未判定であり、build成功を実機合格として扱わない。
@@ -48,6 +49,7 @@ authorized deviceを1台だけ接続し、debug APKを導入して起動する:
 | Video | 各formatで5秒以上録画 | Finalize後にFinalized、MP4 video/audio、正duration、FPS一致、manifest作成 | [Next] |
 | Rotation | 0／90／180／270度でStillとVideo | preview方向、保存orientation／rotation、front mirror契約が一致 | [Next] |
 | Background | 録画中にHome、復帰 | 中断を成功扱いせず、破損assetをFinalizedとして公開しない | [Next] |
+| Storage auto-stop | 録画中に空き容量を376 MiB未満へ低下 | WebView停止中でもCameraXがstop／Finalizeし、復帰後にRustがprobe・manifest確定 | [Next] |
 | Recovery | capture中にprocess終了、再起動 | orphanを自動削除せずFailed／Incompleteとして診断可能 | [Next] |
 | Format rejection | 非対応または同時bind不能formatを適用 | 近似formatへ黙ってfallbackせず、以前のpreview設定へrollback | [Next] |
 

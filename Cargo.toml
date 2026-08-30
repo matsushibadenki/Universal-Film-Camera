@@ -6,6 +6,7 @@ members = [
   "crates/film-core",
   "crates/imaging-core",
   "crates/media-core",
+  "crates/peer-transfer-core",
 ]
 resolver = "2"
 
@@ -21,6 +22,7 @@ camera-apple = { path = "crates/camera-apple" }
 film-core = { path = "crates/film-core" }
 imaging-core = { path = "crates/imaging-core" }
 media-core = { path = "crates/media-core" }
+peer-transfer-core = { path = "crates/peer-transfer-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10.9"

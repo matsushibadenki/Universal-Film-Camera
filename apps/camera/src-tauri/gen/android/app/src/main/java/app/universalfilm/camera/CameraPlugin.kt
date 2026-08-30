@@ -5,6 +5,8 @@ import android.app.Activity
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.os.Handler
+import android.os.Looper
 import android.util.Range
 import android.util.Size
 import android.view.ViewGroup
@@ -73,6 +75,7 @@ class OutputArgs {
 class VideoOutputArgs {
   var path: String = ""
   var audioEnabled: Boolean = true
+  var minimumAvailableBytes: Long = 0
 }
 
 @InvokeArg
@@ -97,6 +100,12 @@ class CameraPlugin(private val activity: Activity) : Plugin(activity) {
   private var recording: Recording? = null
   private var recordingPath: String? = null
   private var stopRecordingInvoke: Invoke? = null
+  private var finalizedRecording: JSObject? = null
+  private var finalizedRecordingError: String? = null
+  private val storageHandler = Handler(Looper.getMainLooper())
+  private var storageMonitor: Runnable? = null
+  private var storageStopRequested = false
+  private var lifecycleStopPending = false
   private var activeDeviceId: String = "back"
   private var requestedFormat: FormatArgs? = null
 
@@ -438,6 +447,9 @@ class CameraPlugin(private val activity: Activity) : Plugin(activity) {
     }
     val file = java.io.File(args.path)
     file.parentFile?.mkdirs()
+    finalizedRecording = null
+    finalizedRecordingError = null
+    storageStopRequested = false
     var pending = capture.output.prepareRecording(
       activity,
       FileOutputOptions.Builder(file).build()
@@ -446,23 +458,34 @@ class CameraPlugin(private val activity: Activity) : Plugin(activity) {
     recordingPath = file.absolutePath
     recording = pending.start(ContextCompat.getMainExecutor(activity)) { event ->
       when (event) {
-        is VideoRecordEvent.Start -> invoke.resolve()
+        is VideoRecordEvent.Start -> {
+          invoke.resolve()
+          startStorageMonitor(file, args.minimumAvailableBytes)
+        }
         is VideoRecordEvent.Finalize -> {
+          stopStorageMonitor()
           val path = recordingPath
           recording = null
           recordingPath = null
           val stopInvoke = stopRecordingInvoke
           stopRecordingInvoke = null
           if (event.hasError()) {
-            stopInvoke?.reject("CameraX video finalize failed (${event.error})")
+            val message = "CameraX video finalize failed (${event.error})"
+            if (stopInvoke != null) stopInvoke.reject(message) else finalizedRecordingError = message
           } else if (path == null) {
-            stopInvoke?.reject("CameraX video output path is unavailable")
+            val message = "CameraX video output path is unavailable"
+            if (stopInvoke != null) stopInvoke.reject(message) else finalizedRecordingError = message
           } else {
-            stopInvoke?.resolve(JSObject().apply {
+            val result = JSObject().apply {
               put("path", path)
               put("device_id", activeDeviceId)
               put("active_format", requestedFormat?.let(::formatResponse))
-            })
+            }
+            if (stopInvoke != null) stopInvoke.resolve(result) else finalizedRecording = result
+          }
+          if (lifecycleStopPending) {
+            lifecycleStopPending = false
+            teardownPreview(preserveFinalizedRecording = true)
           }
         }
       }
@@ -472,6 +495,16 @@ class CameraPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun stopVideo(invoke: Invoke) {
     val active = recording ?: run {
+      finalizedRecording?.let {
+        finalizedRecording = null
+        invoke.resolve(it)
+        return
+      }
+      finalizedRecordingError?.let {
+        finalizedRecordingError = null
+        invoke.reject(it)
+        return
+      }
       invoke.reject("video recording is not active")
       return
     }
@@ -481,6 +514,29 @@ class CameraPlugin(private val activity: Activity) : Plugin(activity) {
     }
     stopRecordingInvoke = invoke
     active.stop()
+  }
+
+  private fun startStorageMonitor(file: java.io.File, minimumAvailableBytes: Long) {
+    stopStorageMonitor()
+    if (minimumAvailableBytes <= 0) return
+    val monitor = object : Runnable {
+      override fun run() {
+        val parent = file.parentFile
+        if (!storageStopRequested && recording != null && parent != null && parent.usableSpace < minimumAvailableBytes) {
+          storageStopRequested = true
+          recording?.stop()
+          return
+        }
+        if (recording != null) storageHandler.postDelayed(this, 2000)
+      }
+    }
+    storageMonitor = monitor
+    storageHandler.postDelayed(monitor, 2000)
+  }
+
+  private fun stopStorageMonitor() {
+    storageMonitor?.let(storageHandler::removeCallbacks)
+    storageMonitor = null
   }
 
   @Command
@@ -505,10 +561,16 @@ class CameraPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
-  private fun stopPreviewInternal() {
+  private fun teardownPreview(preserveFinalizedRecording: Boolean = false) {
+    stopStorageMonitor()
     recording?.close()
     recording = null
     recordingPath = null
+    if (!preserveFinalizedRecording) {
+      finalizedRecording = null
+      finalizedRecordingError = null
+    }
+    storageStopRequested = false
     stopRecordingInvoke?.reject("video recording was interrupted while closing preview")
     stopRecordingInvoke = null
     cameraProvider?.unbindAll()
@@ -517,6 +579,21 @@ class CameraPlugin(private val activity: Activity) : Plugin(activity) {
     videoCapture = null
     previewView?.let { (it.parent as? ViewGroup)?.removeView(it) }
     previewView = null
+  }
+
+  private fun stopPreviewInternal() {
+    teardownPreview()
+  }
+
+  private fun stopForLifecyclePause() {
+    if (recording == null) {
+      teardownPreview(preserveFinalizedRecording = true)
+      return
+    }
+    stopStorageMonitor()
+    lifecycleStopPending = true
+    storageStopRequested = true
+    recording?.stop()
   }
 
   @Command
@@ -528,10 +605,10 @@ class CameraPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   override fun onPause() {
-    stopPreviewInternal()
+    stopForLifecyclePause()
   }
 
   override fun onDestroy(activity: AppCompatActivity) {
-    stopPreviewInternal()
+    stopForLifecyclePause()
   }
 }

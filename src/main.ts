@@ -94,6 +94,22 @@ type MediaIndexEntry = {
   updated_at_utc: string;
 };
 type MediaFilter = "all" | MediaState;
+type CaptureOutputPreset = {
+  id: string;
+  media_type: "photo" | "video";
+  container: string;
+  video_codec: string | null;
+  audio_codec: string | null;
+  estimated_bytes_per_unit: number;
+};
+type CaptureOutputPresets = { still: CaptureOutputPreset[]; video: CaptureOutputPreset[] };
+type CaptureStorageStatus = {
+  path: string;
+  available_bytes: number;
+  total_bytes: number;
+  photo_ready: boolean;
+  video_ready: boolean;
+};
 
 type Copy = {
   photo: string;
@@ -162,6 +178,19 @@ type Copy = {
   mediaCleanupConfirm: string;
   mediaCleanupCancel: string;
   mediaCleanupFailed: string;
+  mediaReinspect: string;
+  mediaReinspecting: string;
+  mediaReinspectFailed: string;
+  mediaRecapture: string;
+  output: string;
+  outputPreset: string;
+  storageRemaining: string;
+  estimatedCapacity: string;
+  photosRemaining: string;
+  minutesRemaining: string;
+  storageUnavailable: string;
+  storageLow: string;
+  storageAutoStop: string;
 };
 
 const copy: Record<Locale, Copy> = {
@@ -188,7 +217,11 @@ const copy: Record<Locale, Copy> = {
     mediaValidationFailed: "Validation failed", mediaDetails: "View details", mediaPath: "Resource path",
     mediaUpdated: "Updated", mediaState: "State", mediaCleanup: "Clean up recoverable file",
     mediaCleanupTitle: "Remove recoverable media?", mediaCleanupPrompt: "This permanently removes the incomplete or failed resource and its diagnostic manifest.",
-    mediaCleanupConfirm: "Remove file", mediaCleanupCancel: "Keep file", mediaCleanupFailed: "The recoverable media could not be removed."
+    mediaCleanupConfirm: "Remove file", mediaCleanupCancel: "Keep file", mediaCleanupFailed: "The recoverable media could not be removed.",
+    mediaReinspect: "Reinspect file", mediaReinspecting: "Reinspecting media…", mediaReinspectFailed: "The media could not be reinspected.",
+    mediaRecapture: "Recapture"
+    , output: "Output", outputPreset: "Output preset", storageRemaining: "Storage remaining",
+    estimatedCapacity: "Estimated capacity", photosRemaining: "photos", minutesRemaining: "minutes", storageUnavailable: "Storage information unavailable", storageLow: "Not enough free space", storageAutoStop: "Recording stopped safely because storage is low"
   },
   ja: {
     photo: "写真", video: "動画", camera: "カメラ", noSignal: "カメラ信号なし",
@@ -213,7 +246,11 @@ const copy: Record<Locale, Copy> = {
     mediaValidationFailed: "検証失敗", mediaDetails: "詳細を表示", mediaPath: "リソースパス",
     mediaUpdated: "更新日時", mediaState: "状態", mediaCleanup: "復旧対象ファイルを削除",
     mediaCleanupTitle: "復旧対象メディアを削除しますか？", mediaCleanupPrompt: "未完了または失敗したリソースと診断マニフェストを完全に削除します。",
-    mediaCleanupConfirm: "ファイルを削除", mediaCleanupCancel: "ファイルを残す", mediaCleanupFailed: "復旧対象メディアを削除できませんでした。"
+    mediaCleanupConfirm: "ファイルを削除", mediaCleanupCancel: "ファイルを残す", mediaCleanupFailed: "復旧対象メディアを削除できませんでした。",
+    mediaReinspect: "ファイルを再検査", mediaReinspecting: "メディアを再検査しています…", mediaReinspectFailed: "メディアを再検査できませんでした。",
+    mediaRecapture: "再撮影"
+    , output: "出力", outputPreset: "出力プリセット", storageRemaining: "残容量",
+    estimatedCapacity: "推定撮影可能量", photosRemaining: "枚", minutesRemaining: "分", storageUnavailable: "残容量を取得できません", storageLow: "空き容量が不足しています", storageAutoStop: "空き容量が少ないため安全に録画を停止しました"
   },
   "zh-CN": {
     photo: "照片", video: "视频", camera: "相机", noSignal: "无相机信号",
@@ -238,7 +275,11 @@ const copy: Record<Locale, Copy> = {
     mediaValidationFailed: "验证失败", mediaDetails: "查看详情", mediaPath: "资源路径",
     mediaUpdated: "更新时间", mediaState: "状态", mediaCleanup: "清理可恢复文件",
     mediaCleanupTitle: "删除可恢复媒体？", mediaCleanupPrompt: "这将永久删除未完成或失败的资源及其诊断清单。",
-    mediaCleanupConfirm: "删除文件", mediaCleanupCancel: "保留文件", mediaCleanupFailed: "无法删除可恢复媒体。"
+    mediaCleanupConfirm: "删除文件", mediaCleanupCancel: "保留文件", mediaCleanupFailed: "无法删除可恢复媒体。",
+    mediaReinspect: "重新检查文件", mediaReinspecting: "正在重新检查媒体…", mediaReinspectFailed: "无法重新检查媒体。",
+    mediaRecapture: "重新拍摄"
+    , output: "输出", outputPreset: "输出预设", storageRemaining: "剩余容量",
+    estimatedCapacity: "预计可拍摄量", photosRemaining: "张照片", minutesRemaining: "分钟", storageUnavailable: "无法获取存储信息", storageLow: "可用存储空间不足", storageAutoStop: "存储空间不足，已安全停止录制"
   }
 };
 
@@ -273,7 +314,13 @@ let microphoneAuthorization: CameraAuthorization = "not_determined";
 let recordingStartedAt = 0;
 let timerId: number | undefined;
 let recordingFrameRate = 24;
+let storageMonitorId: number | undefined;
+let storageCheckPending = false;
+let recordingStopPending = false;
+let recordingPausedByLifecycle = false;
 let currentCapabilities: CameraCapabilities | undefined;
+let outputPresets: CaptureOutputPresets | undefined;
+let storageStatus: CaptureStorageStatus | undefined;
 
 const parameters: { key: string; label: string; value: string; active?: boolean }[] = [
   { key: "lens", label: "LENS", value: "35mm" },
@@ -376,6 +423,8 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <dl id="media-detail-content"></dl>
       <p class="media-detail-diagnostic" id="media-detail-diagnostic" hidden></p>
       <footer>
+        <button class="media-reinspect" id="media-reinspect" type="button" data-state="default" hidden>${t.mediaReinspect}</button>
+        <button class="media-recapture" id="media-recapture" type="button" data-state="default" hidden>${t.mediaRecapture}</button>
         <button class="media-cleanup" id="media-cleanup" type="button" data-state="default" hidden>${t.mediaCleanup}</button>
       </footer>
     </dialog>
@@ -388,6 +437,18 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <button id="media-cleanup-cancel" type="button">${t.mediaCleanupCancel}</button>
         <button class="media-cleanup-confirm" id="media-cleanup-confirm" type="button" data-state="default">${t.mediaCleanupConfirm}</button>
       </div>
+    </dialog>
+
+    <dialog class="media-dialog output-dialog" id="output-dialog" aria-labelledby="output-title">
+      <header>
+        <h2 id="output-title">${t.output}</h2>
+        <button id="output-close" type="button" aria-label="${t.close}">${icon("close")}</button>
+      </header>
+      <dl>
+        <div><dt>${t.outputPreset}</dt><dd id="output-preset">—</dd></div>
+        <div><dt>${t.storageRemaining}</dt><dd id="storage-remaining">—</dd></div>
+        <div><dt>${t.estimatedCapacity}</dt><dd id="storage-estimate">—</dd></div>
+      </dl>
     </dialog>
 
     <aside class="tool-rail" aria-label="Camera tools">
@@ -408,6 +469,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <button id="capture" class="shutter" aria-label="${t.capture}" data-state="default"><span></span></button>
 
       <div class="rail-trailing">
+        <button class="output-status" id="output-status" type="button" aria-label="${t.output}"><span>${t.output} · —</span></button>
         <button class="monitor-tools-toggle" id="monitor-tools-toggle" aria-expanded="false" aria-controls="monitor-tools-panel" aria-label="${t.scopes}">${icon("scope")}<span>${t.scopes}</span></button>
 
         <nav class="destination-tools" aria-label="Application sections">
@@ -447,8 +509,12 @@ const mediaDetailDialog = document.querySelector<HTMLDialogElement>("#media-deta
 const mediaDetailContent = document.querySelector<HTMLDListElement>("#media-detail-content")!;
 const mediaDetailDiagnostic = document.querySelector<HTMLParagraphElement>("#media-detail-diagnostic")!;
 const mediaCleanup = document.querySelector<HTMLButtonElement>("#media-cleanup")!;
+const mediaReinspect = document.querySelector<HTMLButtonElement>("#media-reinspect")!;
+const mediaRecapture = document.querySelector<HTMLButtonElement>("#media-recapture")!;
 const mediaCleanupDialog = document.querySelector<HTMLDialogElement>("#media-cleanup-dialog")!;
 const mediaCleanupConfirm = document.querySelector<HTMLButtonElement>("#media-cleanup-confirm")!;
+const outputStatus = document.querySelector<HTMLButtonElement>("#output-status")!;
+const outputDialog = document.querySelector<HTMLDialogElement>("#output-dialog")!;
 let nativePreviewRunning = false;
 let nativePreviewStarting = false;
 let activeDeviceId: string | undefined;
@@ -457,11 +523,102 @@ let lastOrientationKey: string | undefined;
 let mediaEntries: MediaIndexEntry[] = [];
 let mediaFilter: MediaFilter = "all";
 let selectedMediaEntry: MediaIndexEntry | undefined;
+const devQuery = new URLSearchParams(window.location.search);
+const recoveryFixtureEnabled = import.meta.env.DEV && devQuery.get("recovery-fixture") === "1";
+const storageLowFixtureEnabled = import.meta.env.DEV && devQuery.get("storage-low") === "1";
+
+function recoveryFixtureEntries(): MediaIndexEntry[] {
+  return [{
+    schema_version: 1,
+    id: "UFC-recovery-fixture",
+    state: "failed",
+    media_type: "video",
+    resource_path: "/captures/.incomplete/UFC-recovery-fixture.mp4",
+    asset: null,
+    error: "video container did not contain a complete movie track",
+    updated_at_utc: "2026-08-30T00:00:00Z"
+  }];
+}
 
 function mediaStateLabel(state: MediaState): string {
   if (state === "finalized") return t.mediaReady;
   if (state === "incomplete") return t.mediaIncomplete;
   return t.mediaFailed;
+}
+
+function activeOutputPreset(): CaptureOutputPreset | undefined {
+  return mode === "video" ? outputPresets?.video[0] : outputPresets?.still[0];
+}
+
+function storageAllowsCapture(): boolean {
+  return mode === "video" ? storageStatus?.video_ready !== false : storageStatus?.photo_ready !== false;
+}
+
+function bytesLabel(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
+}
+
+function presetLabel(preset: CaptureOutputPreset | undefined): string {
+  if (!preset) return "—";
+  if (preset.media_type === "photo") return preset.container.toUpperCase();
+  return [preset.video_codec?.toUpperCase(), preset.audio_codec?.toUpperCase(), preset.container.toUpperCase()]
+    .filter(Boolean).join(" / ");
+}
+
+function renderOutputStatus(): void {
+  const preset = activeOutputPreset();
+  const available = storageStatus?.available_bytes ?? 0;
+  const storageReady = storageAllowsCapture();
+  const label = presetLabel(preset);
+  outputStatus.dataset.state = storageReady ? "default" : "error";
+  outputStatus.querySelector("span")!.textContent = `${t.output} · ${label}`;
+  document.querySelector<HTMLElement>("#output-preset")!.textContent = label;
+  document.querySelector<HTMLElement>("#storage-remaining")!.textContent = storageStatus
+    ? `${bytesLabel(available)} / ${bytesLabel(storageStatus.total_bytes)}`
+    : t.storageUnavailable;
+  const units = preset && available > 0
+    ? Math.floor(available / preset.estimated_bytes_per_unit)
+    : 0;
+  document.querySelector<HTMLElement>("#storage-estimate")!.textContent = preset && storageStatus
+    ? storageReady
+      ? `${units.toLocaleString(activeLocale)} ${preset.media_type === "photo" ? t.photosRemaining : t.minutesRemaining}`
+      : t.storageLow
+    : "—";
+}
+
+async function refreshOutputStatus(): Promise<void> {
+  try {
+    if (recoveryFixtureEnabled || !("__TAURI_INTERNALS__" in window)) {
+      outputPresets = {
+        still: [{ id: "jpeg_high", media_type: "photo", container: "jpeg", video_codec: null, audio_codec: null, estimated_bytes_per_unit: 8 * 1024 * 1024 }],
+        video: [{ id: "h264_aac_balanced", media_type: "video", container: "mp4", video_codec: "h264", audio_codec: "aac", estimated_bytes_per_unit: 120 * 1024 * 1024 }]
+      };
+      storageStatus = storageLowFixtureEnabled
+        ? { path: "/captures", available_bytes: 128 * 1024 ** 2, total_bytes: 256 * 1024 ** 3, photo_ready: false, video_ready: false }
+        : { path: "/captures", available_bytes: 128 * 1024 ** 3, total_bytes: 256 * 1024 ** 3, photo_ready: true, video_ready: true };
+    } else {
+      [outputPresets, storageStatus] = await Promise.all([
+        invoke<CaptureOutputPresets>("get_capture_output_presets"),
+        invoke<CaptureStorageStatus>("get_capture_storage_status")
+      ]);
+    }
+  } catch {
+    storageStatus = undefined;
+  }
+  renderOutputStatus();
+  if (!recording) {
+    captureButton.disabled = !nativePreviewRunning
+      || (mode === "video" && microphoneAuthorization !== "authorized")
+      || !storageAllowsCapture();
+  }
 }
 
 function mediaFileName(path: string): string {
@@ -572,7 +729,11 @@ function openMediaDetail(entry: MediaIndexEntry): void {
   mediaDetailDiagnostic.hidden = !entry.error;
   mediaDetailDiagnostic.textContent = entry.error ?? "";
   mediaCleanup.hidden = entry.state === "finalized";
+  mediaReinspect.hidden = entry.state === "finalized";
+  mediaRecapture.hidden = entry.state === "finalized";
   mediaCleanup.dataset.state = "default";
+  mediaReinspect.dataset.state = "default";
+  mediaRecapture.dataset.state = "default";
   mediaDetailDialog.showModal();
 }
 
@@ -593,7 +754,9 @@ async function loadMediaIndex(): Promise<void> {
   mediaStatus.removeAttribute("data-state");
   mediaStatus.textContent = t.mediaLoading;
   try {
-    mediaEntries = await invoke<MediaIndexEntry[]>("reconcile_media_index");
+    mediaEntries = recoveryFixtureEnabled
+      ? recoveryFixtureEntries()
+      : await invoke<MediaIndexEntry[]>("reconcile_media_index");
     mediaEntries.sort((a, b) => b.updated_at_utc.localeCompare(a.updated_at_utc));
     mediaStatus.textContent = "";
     mediaRefresh.dataset.state = "success";
@@ -793,7 +956,7 @@ async function startNativePreview(result: CameraDiscovery): Promise<void> {
       window.setTimeout(() => feedback.classList.remove("is-visible"), 5000);
     }
     document.body.classList.toggle("has-native-preview", status.running);
-    captureButton.disabled = !status.running || mode === "video";
+    captureButton.disabled = !status.running || mode === "video" || !storageAllowsCapture();
   } catch (error) {
     signalTitle.textContent = t.previewFailed;
     signalMessage.textContent = String(error);
@@ -921,9 +1084,71 @@ function stopRecording(): void {
   recording = false;
   if (timerId !== undefined) window.clearInterval(timerId);
   timerId = undefined;
+  if (storageMonitorId !== undefined) window.clearInterval(storageMonitorId);
+  storageMonitorId = undefined;
+  recordingStopPending = false;
   updateRecordingUI();
   void syncNativeOrientation();
 }
+
+async function finishVideoRecording(storageTriggered = false): Promise<void> {
+  if (!recording || recordingStopPending) return;
+  recordingStopPending = true;
+  captureButton.disabled = true;
+  captureButton.dataset.state = "loading";
+  try {
+    const asset = await invoke<CaptureAsset>("stop_video_recording");
+    stopRecording();
+    captureButton.dataset.state = "success";
+    const path = asset.original.path;
+    const warning = asset.validation.status === "warning" ? ` · ${t.assetMetadataWarning}` : "";
+    feedback.textContent = storageTriggered
+      ? `${t.storageAutoStop} · ${path.split("/").pop() ?? path}${warning}`
+      : `${t.videoSaved} · ${path.split("/").pop() ?? path}${warning}`;
+    await refreshOutputStatus();
+  } catch (error) {
+    stopRecording();
+    captureButton.dataset.state = "error";
+    feedback.textContent = `${t.recordingFailed}: ${String(error)}`;
+    captureButton.setAttribute("aria-label", feedback.textContent);
+  }
+  feedback.classList.add("is-visible");
+  window.setTimeout(() => {
+    captureButton.dataset.state = "default";
+    captureButton.disabled = !nativePreviewRunning
+      || microphoneAuthorization !== "authorized"
+      || !storageAllowsCapture();
+    feedback.classList.remove("is-visible");
+  }, storageTriggered ? 5000 : 1800);
+}
+
+async function monitorRecordingStorage(): Promise<void> {
+  if (!recording || recordingStopPending || storageCheckPending) return;
+  storageCheckPending = true;
+  try {
+    storageStatus = await invoke<CaptureStorageStatus>("get_capture_storage_status");
+    renderOutputStatus();
+    if (!storageStatus.video_ready) await finishVideoRecording(true);
+  } catch {
+    // A transient capacity query failure must not discard an active recording.
+  } finally {
+    storageCheckPending = false;
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (recording) recordingPausedByLifecycle = true;
+    return;
+  }
+  if (!recordingPausedByLifecycle || !recording) return;
+  recordingPausedByLifecycle = false;
+  void finishVideoRecording().finally(() => {
+    nativePreviewRunning = false;
+    activeDeviceId = undefined;
+    void refreshCameraDiscovery();
+  });
+});
 
 async function selectMode(nextMode: CameraMode): Promise<void> {
   if (recording) return;
@@ -936,6 +1161,7 @@ async function selectMode(nextMode: CameraMode): Promise<void> {
   });
   captureButton.classList.toggle("is-video", mode === "video");
   captureButton.setAttribute("aria-label", mode === "video" ? t.record : t.capture);
+  renderOutputStatus();
   try { await invoke("select_camera_mode", { mode }); } catch { /* Browser preview has no Tauri IPC. */ }
   if (mode === "video") {
     try {
@@ -957,7 +1183,9 @@ async function selectMode(nextMode: CameraMode): Promise<void> {
       window.setTimeout(() => feedback.classList.remove("is-visible"), 5000);
     }
   }
-  captureButton.disabled = !nativePreviewRunning || (mode === "video" && microphoneAuthorization !== "authorized");
+  captureButton.disabled = !nativePreviewRunning
+    || (mode === "video" && microphoneAuthorization !== "authorized")
+    || !storageAllowsCapture();
 }
 
 document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
@@ -968,6 +1196,14 @@ document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => 
 });
 
 mediaButton.addEventListener("click", () => void openMediaLibrary());
+outputStatus.addEventListener("click", () => {
+  renderOutputStatus();
+  outputDialog.showModal();
+});
+document.querySelector<HTMLButtonElement>("#output-close")!.addEventListener("click", () => outputDialog.close());
+outputDialog.addEventListener("click", (event) => {
+  if (event.target === outputDialog) outputDialog.close();
+});
 document.querySelector<HTMLButtonElement>("#media-back")!.addEventListener("click", () => void closeMediaLibrary());
 mediaRefresh.addEventListener("click", () => void loadMediaIndex());
 document.querySelectorAll<HTMLButtonElement>("[data-media-filter]").forEach((button) => {
@@ -990,6 +1226,45 @@ mediaCleanup.addEventListener("click", () => {
   if (!selectedMediaEntry || selectedMediaEntry.state === "finalized") return;
   document.querySelector<HTMLElement>("#media-cleanup-name")!.textContent = mediaFileName(selectedMediaEntry.resource_path);
   mediaCleanupDialog.showModal();
+});
+mediaReinspect.addEventListener("click", async () => {
+  if (!selectedMediaEntry || selectedMediaEntry.state === "finalized") return;
+  const id = selectedMediaEntry.id;
+  mediaReinspect.disabled = true;
+  mediaReinspect.dataset.state = "loading";
+  mediaDetailDiagnostic.hidden = false;
+  mediaDetailDiagnostic.textContent = t.mediaReinspecting;
+  try {
+    if (recoveryFixtureEnabled) {
+      mediaEntries = recoveryFixtureEntries().map((entry) => ({
+        ...entry,
+        error: "reinspection failed structural media probe: movie container is incomplete",
+        updated_at_utc: new Date().toISOString()
+      }));
+    } else {
+      mediaEntries = await invoke<MediaIndexEntry[]>("reinspect_media_entry", { id });
+    }
+    mediaEntries.sort((a, b) => b.updated_at_utc.localeCompare(a.updated_at_utc));
+    renderMediaIndex();
+    const updated = mediaEntries.find((entry) => entry.id === id);
+    if (!updated) throw new Error(`media record disappeared after reinspection: ${id}`);
+    selectedMediaEntry = updated;
+    mediaDetailDiagnostic.textContent = updated.error ?? t.mediaAwaiting;
+    mediaReinspect.dataset.state = "success";
+  } catch (error) {
+    mediaReinspect.dataset.state = "error";
+    mediaDetailDiagnostic.textContent = `${t.mediaReinspectFailed} ${String(error)}`;
+  } finally {
+    mediaReinspect.disabled = false;
+  }
+});
+mediaRecapture.addEventListener("click", async () => {
+  if (!selectedMediaEntry || selectedMediaEntry.state === "finalized") return;
+  const nextMode: CameraMode = selectedMediaEntry.media_type === "video" ? "video" : "still";
+  mediaDetailDialog.close();
+  selectedMediaEntry = undefined;
+  await closeMediaLibrary();
+  await selectMode(nextMode);
 });
 document.querySelector<HTMLButtonElement>("#media-cleanup-cancel")!.addEventListener("click", () => mediaCleanupDialog.close());
 mediaCleanupDialog.addEventListener("click", (event) => {
@@ -1099,7 +1374,7 @@ document.querySelector<HTMLButtonElement>("#adjust-close")!.addEventListener("cl
 });
 
 captureButton.addEventListener("click", async () => {
-  if (!nativePreviewRunning) return;
+  if (!nativePreviewRunning || !storageAllowsCapture()) return;
   if (mode === "video") {
     captureButton.disabled = true;
     captureButton.dataset.state = "loading";
@@ -1109,17 +1384,14 @@ captureButton.addEventListener("click", async () => {
         recording = true;
         recordingStartedAt = performance.now();
         timerId = window.setInterval(updateRecordingUI, 1000 / recordingFrameRate);
+        storageMonitorId = window.setInterval(() => void monitorRecordingStorage(), 2000);
         captureButton.dataset.state = "default";
         updateRecordingUI();
         captureButton.disabled = false;
         return;
       }
-      const asset = await invoke<CaptureAsset>("stop_video_recording");
-      stopRecording();
-      captureButton.dataset.state = "success";
-      const path = asset.original.path;
-      const warning = asset.validation.status === "warning" ? ` · ${t.assetMetadataWarning}` : "";
-      feedback.textContent = `${t.videoSaved} · ${path.split("/").pop() ?? path}${warning}`;
+      await finishVideoRecording();
+      return;
     } catch (error) {
       if (recording) stopRecording();
       captureButton.dataset.state = "error";
@@ -1129,7 +1401,9 @@ captureButton.addEventListener("click", async () => {
     feedback.classList.add("is-visible");
     window.setTimeout(() => {
       captureButton.dataset.state = "default";
-      captureButton.disabled = !nativePreviewRunning || microphoneAuthorization !== "authorized";
+      captureButton.disabled = !nativePreviewRunning
+        || microphoneAuthorization !== "authorized"
+        || !storageAllowsCapture();
       feedback.classList.remove("is-visible");
     }, 1800);
     return;
@@ -1142,6 +1416,7 @@ captureButton.addEventListener("click", async () => {
     const path = asset.original.path;
     const warning = asset.validation.status === "warning" ? ` · ${t.assetMetadataWarning}` : "";
     feedback.textContent = `${t.captured} · ${path.split("/").pop() ?? path}${warning}`;
+    void refreshOutputStatus();
   } catch (error) {
     captureButton.dataset.state = "error";
     feedback.textContent = `${t.captureFailed}: ${String(error)}`;
@@ -1150,7 +1425,9 @@ captureButton.addEventListener("click", async () => {
   feedback.classList.add("is-visible");
   window.setTimeout(() => {
     captureButton.dataset.state = "default";
-    captureButton.disabled = !nativePreviewRunning || mode === "video";
+    captureButton.disabled = !nativePreviewRunning || mode === "video" || !storageAllowsCapture();
     feedback.classList.remove("is-visible");
   }, 1600);
 });
+
+void refreshOutputStatus();

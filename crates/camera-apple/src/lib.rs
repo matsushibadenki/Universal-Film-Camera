@@ -54,7 +54,11 @@ mod platform {
         fs,
         io::Write,
         path::{Path, PathBuf},
-        sync::{Mutex, mpsc},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        },
         time::Duration,
     };
 
@@ -206,6 +210,7 @@ mod platform {
         _delegate: Retained<MovieRecordingDelegate>,
         receiver: mpsc::Receiver<MovieRecordingEvent>,
         destination: PathBuf,
+        stop_requested: Arc<AtomicBool>,
     }
 
     pub struct AppleCaptureSession {
@@ -640,6 +645,7 @@ mod platform {
                         _delegate: delegate,
                         receiver,
                         destination,
+                        stop_requested: Arc::new(AtomicBool::new(false)),
                     });
                     Ok(())
                 }
@@ -712,7 +718,9 @@ mod platform {
                 .map_err(|_| CameraError("recording state lock poisoned".into()))?
                 .take()
                 .ok_or_else(|| CameraError("video recording is not active".into()))?;
-            unsafe { self.movie_output.stopRecording() };
+            if !runtime.stop_requested.swap(true, Ordering::AcqRel) {
+                unsafe { self.movie_output.stopRecording() };
+            }
             loop {
                 match runtime.receiver.recv_timeout(Duration::from_secs(30)) {
                     Ok(MovieRecordingEvent::Started) => continue,
@@ -731,6 +739,20 @@ mod platform {
                     Err(_) => return Err(CameraError("video recording stop timed out".into())),
                 }
             }
+        }
+
+        pub fn request_recording_stop(&self) -> Result<bool, CameraError> {
+            let recording = self
+                .recording
+                .lock()
+                .map_err(|_| CameraError("recording state lock poisoned".into()))?;
+            let Some(runtime) = recording.as_ref() else {
+                return Ok(false);
+            };
+            if !runtime.stop_requested.swap(true, Ordering::AcqRel) {
+                unsafe { self.movie_output.stopRecording() };
+            }
+            Ok(true)
         }
 
         #[cfg(target_os = "macos")]

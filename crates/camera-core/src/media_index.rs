@@ -1,6 +1,7 @@
 use crate::{
     AssetState, CameraError, CapturedAsset, CapturedMediaType,
     asset::{rfc3339_from_system_time, rfc3339_now},
+    probe_media_resource,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -218,6 +219,35 @@ impl MediaIndex {
         Ok(())
     }
 
+    pub fn reinspect_recoverable(&self, id: &str) -> Result<Vec<MediaIndexEntry>, CameraError> {
+        if !is_safe_record_id(id) {
+            return Err(CameraError("invalid media record ID".into()));
+        }
+        let entry = self
+            .list()?
+            .into_iter()
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| CameraError(format!("media record was not found: {id}")))?;
+        if entry.state == AssetState::Finalized {
+            return Err(CameraError(
+                "finalized media does not require recovery reinspection".into(),
+            ));
+        }
+        ensure_contained_regular_file(&self.captures_directory, &entry.resource_path)?;
+        let diagnostic = match probe_media_resource(&entry.resource_path, entry.media_type) {
+            Ok(resource) => format!(
+                "reinspection passed structural media probe ({}; {}x{}; {} bytes), but the original capture intent is unavailable; recapture is recommended",
+                resource.container,
+                resource.pixel_width,
+                resource.pixel_height,
+                resource.byte_length
+            ),
+            Err(error) => format!("reinspection failed structural media probe: {error}"),
+        };
+        self.record_failed(entry.id, entry.media_type, entry.resource_path, diagnostic)?;
+        self.list()
+    }
+
     fn write_record(&self, record: &MediaIndexEntry) -> Result<(), CameraError> {
         validate_record(record)?;
         let directory = self.manifests_directory();
@@ -433,6 +463,38 @@ mod tests {
             .unwrap_err();
         assert!(error.to_string().contains("invalid media record envelope"));
         assert!(!root.parent().unwrap().join("outside.json").exists());
+    }
+
+    #[test]
+    fn reinspection_updates_diagnostic_without_promoting_recoverable_media() {
+        let root = fixture_directory("reinspect");
+        let path = root.join(".incomplete/damaged.jpg");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"not a jpeg").unwrap();
+        let index = MediaIndex::new(&root);
+
+        let entries = index.reinspect_recoverable("damaged").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].state, AssetState::Failed);
+        assert!(
+            entries[0]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("reinspection failed structural media probe")
+        );
+        assert!(path.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn finalized_media_cannot_enter_reinspection_recovery() {
+        let root = fixture_directory("reinspect-finalized");
+        let index = MediaIndex::new(&root);
+        index.persist_finalized(&finalized_asset(&root)).unwrap();
+        let error = index.reinspect_recoverable("asset-photo").unwrap_err();
+        assert!(error.to_string().contains("does not require recovery"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

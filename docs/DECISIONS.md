@@ -277,3 +277,59 @@ Status: Accepted (2026-08-28)
 UIで選択した解像度はCameraX `ResolutionSelector`の`FALLBACK_RULE_NONE`としてPreview、ImageCapture、VideoCaptureへ同時指定し、FPSはCamera2 interopのAE target rangeとして指定する。use-case再bindに失敗した場合は以前の構成へrollbackし、近い解像度へ暗黙に置換しない。
 
 native撮影完了結果は要求formatもRustへ返す。CapturedAsset validationはprobeした保存寸法・FPSを要求値と照合し、不一致をFinalizedにしない。Camera2 capabilityのsizeとFPS rangeから作る候補が三use-case同時bind可能とは限らないため、code build成功と端末別format conformanceを分離し、実機で確認した組合せだけを将来のcapability一覧へ残す。
+
+## ADR-038: Recovery reinspection never invents missing capture intent
+
+Status: Accepted (2026-08-30)
+
+Failed／Incomplete resourceの再検査は、既存のJPEG／ISO BMFF probeを再実行して診断を更新する非破壊操作とする。元のselected format、device、orientation intentが完全には残っていないresourceについて、現在の画素寸法やFPSを期待値として捏造しFinalizedへ昇格してはいけない。
+
+probe成功時もFailed状態を維持し、構造的に読めることとcapture contractを満たすことを区別する。利用者はresourceを残したままStill／Videoを再撮影でき、削除は従来どおり別の確認付きcleanupだけが行う。
+
+## ADR-039: Output presets advertise only enforced native writer configurations
+
+Status: Accepted (2026-08-30)
+
+出力presetは将来候補の一覧ではなく、現在のnative writerと保存後probeが実際に保証する構成だけを返す。初期値はStillのJPEGとVideoのH.264／AACであり、AppleはQuickTime、AndroidはMP4 containerとする。RAW、HEVC、LOG、bitrate選択はnative設定と保存後検証が接続されるまで表示しない。
+
+残容量はcapture directoryと同じfilesystemのavailable blocksを`statvfs`で取得し、total capacityと区別する。概算撮影可能量はJPEG 8 MiB／枚、Video 120 MiB／分のnominal planning値であり、保証値ではない。実測bitrateがCapturedAssetへ記録される段階で、端末／format別rolling estimateへ置換する。
+
+## ADR-040: Capture storage preflight is enforced by the backend
+
+Status: Accepted (2026-08-30)
+
+Still撮影は8 MiB、Video録画開始は120 MiBのnominal出力量に加え、256 MiBのfilesystem安全予約を残せる場合だけ許可する。UIは同じ判定を表示して中央capture controlを無効化するが、権威はApple／Android共通のRust command直前検査に置く。これにより表示後の容量変化やUI迂回でも開始を拒否できる。
+
+この値は完成ファイル容量の保証ではなく開始前guardである。録画中の容量減少は別の連続監視で検出し、containerを壊さず停止・Finalizeできる実装が成立するまで完了扱いにしない。容量APIを未実装のplatformでは誤って常時停止しないようpreflightを許可し、platform固有実装を追加する。
+
+## ADR-041: Foreground storage auto-stop reuses the manual finalize path
+
+Status: Accepted (2026-08-30)
+
+foreground録画中はWebViewから2秒間隔で同じstorage status commandを呼び、Videoの安全閾値を下回った時点で手動停止と同じ`stop_video_recording`を一度だけ実行する。容量監視専用の強制終了経路は作らず、native writer停止、probe、CapturedAsset validation、rename、manifest保存を共通化する。容量取得の一時的失敗は録画破棄の理由にせず、次回pollで再試行する。
+
+このmonitorはforeground UXの防御であり、OSがWebView timerをpauseするbackground状態の安全保証ではない。次工程ではApple／Android native lifecycleがfilesystem閾値を監視し、同じ停止・Finalize契約へ通知する。native側が完成するまでbackground録画の容量保護を`[Done]`と表現しない。
+
+## ADR-042: Android native storage stop retains CameraX Finalize for Rust recovery
+
+Status: Accepted (2026-08-30)
+
+AndroidはCameraX pluginのmain looperで2秒間隔に保存先`usableSpace`を確認し、Rustが渡すVideo概算120 MiB＋安全予約256 MiBを下回ると`Recording.stop()`を一度だけ呼ぶ。WebView timerやIPC応答待ちには依存しない。Activity `onPause`／`onDestroy`も録画中は即時`close()`せず、同じstop→Finalizeを優先する。
+
+native側で先にFinalizeした場合、その成功結果または診断をplugin内へ保持する。復帰後の`stopVideo`は保持結果を返し、RustのPendingMovie、probe、CapturedAsset validation、atomic rename、manifest保存を従来どおり完了する。native container保全とapplication asset確定を別境界として扱い、途中状態をFinalized Mediaとして公開しない。
+
+## ADR-043: Apple storage monitor issues an idempotent AVFoundation stop request
+
+Status: Accepted (2026-08-30)
+
+Apple録画中はRust native runtimeがPendingMovie ID、CameraState、capture filesystemを2秒間隔で確認する。Videoの安全閾値を下回るとAVFoundation sessionへ停止要求を送る。各MovieRecordingはatomic stop flagを持ち、容量monitorと利用者の手動停止が競合しても`AVCaptureMovieFileOutput.stopRecording()`を一度だけ呼ぶ。
+
+停止要求だけでCapturedAssetを完成扱いにしない。既存delegateのFinished通知をreceiverが保持し、Rustのstop commandが非空確認、probe、validation、rename、manifest保存を完了する。これはWebView timer停止から独立したprocess-resident保護であり、iOSがapp process全体をsuspendする条件やAVCaptureSession interruptionの保証ではない。それらは実機lifecycle試験と明示的interruption observerが必要である。
+
+## ADR-044: Peer transfer protocol cannot publish before contiguous byte and hash verification
+
+Status: Accepted (2026-08-30)
+
+`peer-transfer-core`はOS固有の発見／transportから独立した状態機械とする。peer identityはvisibility sessionごとのephemeral IDとし、Bluetooth address、端末名、永続device IDをprotocol identityにしない。招待は期限と双方で比較する6桁確認codeを持つ。BLEはcontrol／discovery用途に限定し、共通のlocal network、peer-to-peer Wi-Fi、Wi-Fi Directがない場合はasset転送へ進めない。
+
+受信前にmanifest version、basename、byte上限、chunk範囲、SHA-256表現を拒否可能にする。ACKは連続受信byteだけを単調増加で表し、宣言長を越えられない。全byte受信後もVerifyingを経由し、宣言byte数とSHA-256が一致した場合だけFinalizedへ遷移する。実file writerとMedia Incomplete lifecycleへの接続は別工程だが、この不変条件をplatform adapterで迂回してはいけない。

@@ -101,7 +101,8 @@ monitor tools menuもnative preview上へ重ねない。bottom railではmenuを
 - [Done] format／FPS選択panelを対応組合せから生成し、sessionへ適用
 - [Done] format panelを英語・日本語・简体中文へ翻訳し、44px以上の選択controlを確保
 - [Done] format選択のdevice別永続化
-- [Next] still／video別の出力preset表示
+- [Done] still／video別output preset、実filesystem残容量、概算枚数／録画分数表示
+- [Done] 容量不足の三言語表示と中央capture controlの開始前無効化
 - [Next] waveform、vectorscope、false color、peakingのGPU rendererを接続
 - [Later] UI customization、button remapping、external monitor layout
 
@@ -122,6 +123,16 @@ monitor tools menuもnative preview上へ重ねない。bottom railではmenuを
 2026-08-16に署名済みdebug appと内蔵cameraでnative previewを確認した。1100 × 760ではright rail、880 × 650ではbottom railとなり、どちらもparameter strip、preview、操作railの重なりはない。カメラ映像は引き継ぎ資料へ保存しない。
 
 2026-08-17に録画ボタンの中央配置を実機UIで再確認した。right railでは垂直中央、bottom railでは水平中央を維持し、Video modeでは赤い正円として表示される。右レールのmonitor toolsは中央領域を侵食しない展開式へ変更した。
+
+2026-08-30、tool railへ出力statusを追加した。StillはJPEG、Videoは現行native writerが保証するH.264／AACとcontainerだけを表示し、未実装のRAW／HEVC／LOGをpresetとして提示しない。Rustの`statvfs`結果から保存先filesystemのavailable／total bytesを取得し、JPEGは8 MiB／枚、Videoは120 MiB／分のnominal estimateとして概算量を表示する。これは保証時間ではないため、実際のbitrate／scene complexity／filesystem reservationで変動する。
+
+同日、空き容量が256 MiBの安全予約と次の出力概算量を同時に確保できない場合、output statusをerror表示にし、Still／Videoの中央capture controlを無効化するpreflightを追加した。Rustも各capture commandの直前に同じ条件を再検査するため、UI状態だけには依存しない。録画開始後の連続監視と容量低下時の安全な自動停止は次工程である。
+
+続いてforeground録画中は2秒間隔で保存先容量を再取得し、Videoの安全閾値を下回った場合は手動停止と同じ`stop_video_recording`へ一度だけ遷移するようにした。成功時はprobe、rename、manifest保存まで完了したasset名と自動停止理由を英語／日本語／简体中文で表示する。一時的な容量取得失敗では録画を破棄しない。WebView timerが停止し得るbackground状態はnative lifecycle監視を追加するまで保証外である。
+
+desktopと320 × 568でdialogを操作し、320pxでは出力buttonが44 × 44px、中央capture buttonが56px正円かつviewport中心x=160px、root horizontal overflow=0であることを確認した。
+
+容量不足fixtureでも320 × 568を再検証し、output statusがerror状態、中央capture buttonがdisabled、56 × 56px正円、中心x=160px、horizontal overflow=0であることを確認した。console error／warningは0件だった。
 
 2026-08-24、monitor toolsを固定popupとしてpreviewへ重ねる実装では、前面にあるnative `NSView`がmenu文字を隠す問題を確認した。menuをtool rail内へ戻し、320 × 700ではpreview下の独立行、880 × 650でもbottom rail内、1100 × 760ではright rail内へ配置した。1100 × 760では4つのtool buttonとcapture controlの矩形が非重複、capture中心とrail中心が一致、320 × 700ではmenu上端がpreview下端より12px下、horizontal overflowなしを実画面で確認した。
 

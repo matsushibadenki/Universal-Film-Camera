@@ -90,6 +90,35 @@ struct ImagingPipelineContract {
     domains: Vec<SignalDomain>,
 }
 
+#[derive(Serialize)]
+struct CaptureOutputPreset {
+    id: &'static str,
+    media_type: &'static str,
+    container: &'static str,
+    video_codec: Option<&'static str>,
+    audio_codec: Option<&'static str>,
+    estimated_bytes_per_unit: u64,
+}
+
+#[derive(Serialize)]
+struct CaptureOutputPresets {
+    still: Vec<CaptureOutputPreset>,
+    video: Vec<CaptureOutputPreset>,
+}
+
+#[derive(Serialize)]
+struct CaptureStorageStatus {
+    path: std::path::PathBuf,
+    available_bytes: u64,
+    total_bytes: u64,
+    photo_ready: bool,
+    video_ready: bool,
+}
+
+const PHOTO_ESTIMATED_BYTES: u64 = 8 * 1024 * 1024;
+const VIDEO_MINIMUM_ESTIMATED_BYTES: u64 = 120 * 1024 * 1024;
+const CAPTURE_STORAGE_RESERVE_BYTES: u64 = 256 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 struct PreviewViewport {
@@ -174,6 +203,137 @@ fn captures_directory(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Stri
         .join("captures"))
 }
 
+#[tauri::command]
+fn get_capture_output_presets() -> CaptureOutputPresets {
+    CaptureOutputPresets {
+        still: vec![CaptureOutputPreset {
+            id: "jpeg_high",
+            media_type: "photo",
+            container: "jpeg",
+            video_codec: None,
+            audio_codec: None,
+            estimated_bytes_per_unit: PHOTO_ESTIMATED_BYTES,
+        }],
+        video: vec![CaptureOutputPreset {
+            id: "h264_aac_balanced",
+            media_type: "video",
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            container: "quicktime",
+            #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+            container: "mp4",
+            video_codec: Some("h264"),
+            audio_codec: Some("aac"),
+            estimated_bytes_per_unit: VIDEO_MINIMUM_ESTIMATED_BYTES,
+        }],
+    }
+}
+
+#[cfg(unix)]
+fn filesystem_capacity(path: &std::path::Path) -> Result<(u64, u64), String> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let encoded = CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| "capture storage path contains an interior NUL byte".to_string())?;
+    let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: `encoded` is NUL-terminated and `stats` points to writable storage.
+    let result = unsafe { libc::statvfs(encoded.as_ptr(), stats.as_mut_ptr()) };
+    if result != 0 {
+        return Err(format!(
+            "failed to inspect capture storage: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    // SAFETY: statvfs returned success and initialized the output structure.
+    let stats = unsafe { stats.assume_init() };
+    let block_size = stats.f_frsize as u64;
+    Ok((
+        (stats.f_bavail as u64).saturating_mul(block_size),
+        (stats.f_blocks as u64).saturating_mul(block_size),
+    ))
+}
+
+#[tauri::command]
+fn get_capture_storage_status(app: tauri::AppHandle) -> Result<CaptureStorageStatus, String> {
+    let path = captures_directory(&app)?;
+    std::fs::create_dir_all(&path)
+        .map_err(|error| format!("failed to create capture storage: {error}"))?;
+    #[cfg(unix)]
+    let (available_bytes, total_bytes) = filesystem_capacity(&path)?;
+    #[cfg(not(unix))]
+    let (available_bytes, total_bytes) = (0, 0);
+    #[cfg(unix)]
+    let (photo_ready, video_ready) = (
+        capture_capacity_ready(available_bytes, PHOTO_ESTIMATED_BYTES),
+        capture_capacity_ready(available_bytes, VIDEO_MINIMUM_ESTIMATED_BYTES),
+    );
+    #[cfg(not(unix))]
+    let (photo_ready, video_ready) = (true, true);
+    Ok(CaptureStorageStatus {
+        path,
+        available_bytes,
+        total_bytes,
+        photo_ready,
+        video_ready,
+    })
+}
+
+fn capture_capacity_ready(available_bytes: u64, estimated_output_bytes: u64) -> bool {
+    available_bytes >= CAPTURE_STORAGE_RESERVE_BYTES.saturating_add(estimated_output_bytes)
+}
+
+fn ensure_capture_capacity(
+    path: &std::path::Path,
+    estimated_output_bytes: u64,
+) -> Result<(), String> {
+    #[cfg(unix)]
+    let (available_bytes, _) = filesystem_capacity(path)?;
+    #[cfg(not(unix))]
+    let available_bytes = u64::MAX;
+    if !capture_capacity_ready(available_bytes, estimated_output_bytes) {
+        return Err(format!(
+            "capture storage is too low: {} bytes available; {} bytes required including safety reserve",
+            available_bytes,
+            CAPTURE_STORAGE_RESERVE_BYTES.saturating_add(estimated_output_bytes)
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn start_apple_storage_monitor(
+    app: tauri::AppHandle,
+    session: Arc<AppleCaptureSession>,
+    pending_id: String,
+    captures: std::path::PathBuf,
+) {
+    tauri::async_runtime::spawn_blocking(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let state = app.state::<AppState>();
+            let is_current_recording = state
+                .pending_movie
+                .lock()
+                .map(|pending| pending.as_ref().is_some_and(|movie| movie.id == pending_id))
+                .unwrap_or(false)
+                && state
+                    .camera
+                    .lock()
+                    .map(|camera| camera.state() == CameraState::Recording)
+                    .unwrap_or(false);
+            if !is_current_recording {
+                break;
+            }
+            let Ok((available_bytes, _)) = filesystem_capacity(&captures) else {
+                continue;
+            };
+            if !capture_capacity_ready(available_bytes, VIDEO_MINIMUM_ESTIMATED_BYTES) {
+                let _ = session.request_recording_stop();
+                break;
+            }
+        }
+    });
+}
+
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
 fn finalize_captured_asset(
     temporary: &std::path::Path,
@@ -220,6 +380,16 @@ fn cleanup_media_entry(app: tauri::AppHandle, id: String) -> Result<Vec<MediaInd
         .cleanup_recoverable(&id)
         .map_err(|error| error.to_string())?;
     index.list().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn reinspect_media_entry(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Vec<MediaIndexEntry>, String> {
+    MediaIndex::new(captures_directory(&app)?)
+        .reinspect_recoverable(&id)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -876,6 +1046,7 @@ async fn capture_photo(
             }
         }
         let captures = captures_directory(&app)?;
+        ensure_capture_capacity(&captures, PHOTO_ESTIMATED_BYTES)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|error| format!("system clock error: {error}"))?;
@@ -948,6 +1119,7 @@ async fn capture_photo(
             )
         };
         let captures = captures_directory(&app)?;
+        ensure_capture_capacity(&captures, PHOTO_ESTIMATED_BYTES)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|error| format!("system clock error: {error}"))?;
@@ -1027,6 +1199,7 @@ async fn start_video_recording(
             return Err("microphone access is not authorized".into());
         }
         let captures = captures_directory(&app)?;
+        ensure_capture_capacity(&captures, VIDEO_MINIMUM_ESTIMATED_BYTES)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|error| format!("system clock error: {error}"))?;
@@ -1034,7 +1207,13 @@ async fn start_video_recording(
         let filename = format!("{id}.mp4");
         let temporary = captures.join(".incomplete").join(&filename);
         let destination = captures.join(filename);
-        android_camera::start_video(&app, &temporary, true).await?;
+        android_camera::start_video(
+            &app,
+            &temporary,
+            true,
+            CAPTURE_STORAGE_RESERVE_BYTES.saturating_add(VIDEO_MINIMUM_ESTIMATED_BYTES),
+        )
+        .await?;
         state
             .camera
             .lock()
@@ -1083,10 +1262,12 @@ async fn start_video_recording(
             )
         };
         let captures = captures_directory(&app)?;
+        ensure_capture_capacity(&captures, VIDEO_MINIMUM_ESTIMATED_BYTES)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|error| format!("system clock error: {error}"))?;
         let id = format!("UFC-{}-{:09}", now.as_secs(), now.subsec_nanos());
+        let monitor_id = id.clone();
         let filename = format!("{id}.mov");
         let temporary = captures.join(".incomplete").join(&filename);
         let destination = captures.join(filename);
@@ -1117,6 +1298,7 @@ async fn start_video_recording(
                 selected_format: selected_capture_format(active_format),
             },
         });
+        start_apple_storage_monitor(app, session, monitor_id, captures);
         return Ok(());
     }
     #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
@@ -1357,10 +1539,42 @@ pub fn run() {
             stop_video_recording,
             select_camera_mode,
             get_imaging_pipeline_contract,
+            get_capture_output_presets,
+            get_capture_storage_status,
             get_media_index,
             reconcile_media_index,
-            cleanup_media_entry
+            cleanup_media_entry,
+            reinspect_media_entry
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Universal Film Camera");
+}
+
+#[cfg(all(test, unix))]
+mod storage_tests {
+    use super::*;
+
+    #[test]
+    fn capture_capacity_preserves_reserve_at_the_exact_boundary() {
+        let required = CAPTURE_STORAGE_RESERVE_BYTES + PHOTO_ESTIMATED_BYTES;
+        assert!(!capture_capacity_ready(required - 1, PHOTO_ESTIMATED_BYTES));
+        assert!(capture_capacity_ready(required, PHOTO_ESTIMATED_BYTES));
+    }
+
+    #[test]
+    fn filesystem_capacity_reports_available_space_for_capture_directory() {
+        let path = std::env::temp_dir().join(format!(
+            "ufc-storage-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        let (available, total) = filesystem_capacity(&path).unwrap();
+        assert!(available > 0);
+        assert!(total >= available);
+        std::fs::remove_dir(path).unwrap();
+    }
 }

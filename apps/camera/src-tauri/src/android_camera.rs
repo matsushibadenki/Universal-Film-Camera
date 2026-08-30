@@ -34,6 +34,7 @@ struct OutputRequest<'a> {
 struct VideoOutputRequest<'a> {
     path: &'a str,
     audio_enabled: bool,
+    minimum_available_bytes: u64,
 }
 
 #[derive(Serialize)]
@@ -210,7 +211,12 @@ pub async fn capture_photo(app: &AppHandle, path: &Path) -> Result<CapturedOutpu
         .map_err(|error| error.to_string())
 }
 
-pub async fn start_video(app: &AppHandle, path: &Path, audio_enabled: bool) -> Result<(), String> {
+pub async fn start_video(
+    app: &AppHandle,
+    path: &Path,
+    audio_enabled: bool,
+    minimum_available_bytes: u64,
+) -> Result<(), String> {
     let path = path
         .to_str()
         .ok_or_else(|| "video output path is not valid UTF-8".to_string())?;
@@ -221,6 +227,7 @@ pub async fn start_video(app: &AppHandle, path: &Path, audio_enabled: bool) -> R
             VideoOutputRequest {
                 path,
                 audio_enabled,
+                minimum_available_bytes,
             },
         )
         .await
