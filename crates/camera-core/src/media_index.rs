@@ -61,6 +61,26 @@ impl MediaIndex {
         })
     }
 
+    pub fn record_incomplete(
+        &self,
+        id: impl Into<String>,
+        media_type: CapturedMediaType,
+        resource_path: impl Into<PathBuf>,
+    ) -> Result<(), CameraError> {
+        let resource_path = resource_path.into();
+        ensure_contained_regular_file(&self.captures_directory, &resource_path)?;
+        self.write_record(&MediaIndexEntry {
+            schema_version: MEDIA_RECORD_SCHEMA_VERSION,
+            id: id.into(),
+            state: AssetState::Incomplete,
+            media_type,
+            resource_path,
+            asset: None,
+            error: None,
+            updated_at_utc: rfc3339_now(),
+        })
+    }
+
     pub fn record_failed(
         &self,
         id: impl Into<String>,
@@ -437,6 +457,24 @@ mod tests {
         assert_eq!(entries[1].state, AssetState::Finalized);
         assert_eq!(entries[2].state, AssetState::Failed);
         assert_eq!(entries[1].asset.as_ref(), Some(&asset));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn explicit_nested_incomplete_resource_is_indexed_without_publishing() {
+        let root = fixture_directory("nested-incomplete");
+        let path = root.join(".incomplete/peer-transfer/incoming.part");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"partial").unwrap();
+        let index = MediaIndex::new(&root);
+        index
+            .record_incomplete("incoming", CapturedMediaType::Photo, &path)
+            .unwrap();
+        let entries = index.list().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].state, AssetState::Incomplete);
+        assert_eq!(entries[0].resource_path, path);
+        assert!(entries[0].asset.is_none());
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -333,3 +333,107 @@ Status: Accepted (2026-08-30)
 `peer-transfer-core`はOS固有の発見／transportから独立した状態機械とする。peer identityはvisibility sessionごとのephemeral IDとし、Bluetooth address、端末名、永続device IDをprotocol identityにしない。招待は期限と双方で比較する6桁確認codeを持つ。BLEはcontrol／discovery用途に限定し、共通のlocal network、peer-to-peer Wi-Fi、Wi-Fi Directがない場合はasset転送へ進めない。
 
 受信前にmanifest version、basename、byte上限、chunk範囲、SHA-256表現を拒否可能にする。ACKは連続受信byteだけを単調増加で表し、宣言長を越えられない。全byte受信後もVerifyingを経由し、宣言byte数とSHA-256が一致した場合だけFinalizedへ遷移する。実file writerとMedia Incomplete lifecycleへの接続は別工程だが、この不変条件をplatform adapterで迂回してはいけない。
+
+## ADR-045: Receive ACK means bytes and resume ledger are durable
+
+Status: Accepted (2026-08-30)
+
+受信writerは送信側のpathを使用せず、検証済みtransfer IDからapp管理下の`.incomplete/peer-transfer`へpartとresume ledgerを作る。chunkは現在の永続offsetと完全一致する連続dataだけを受理し、partへ`sync_data`した後でledgerを一時fileからrenameする。ACKはこの両方が成功した位置だけを返す。
+
+再開時はmanifest、ledger offset、part file長が一致しなければ推測修復せず拒否し、保存済みbyteを再読込してSHA-256状態を復元する。全byte受信後に`sync_all`、実file hash、宣言hashを比較し、一致した場合だけ完成basenameへrenameする。hash不一致はpartを保持してFailedとし、完成先を作らない。Media manifestとのatomic公開境界は次工程で接続する。
+
+## ADR-046: Received originals preserve capture intent; derivatives are not disguised as originals
+
+Status: Accepted (2026-08-30)
+
+Asset Transfer ManifestはOriginal、指定Derivative、Original＋指定Derivativeを明示的に区別する。Original受信は送信元CaptureMetadataを保持し、実file probe結果を元の選択寸法／FPSと照合してからローカルCapturedAssetへする。開始時はMedia Incomplete、hash／probe／validation失敗はFailed、Media manifest保存成功後だけFinalizedとする。
+
+Derivativeだけを受信した場合に、来歴を捨ててCapturedAsset Originalへ見せかけてはいけない。Derivative bundleはparent resource ID、render snapshot、engine version、seedを保持できる確定処理が完成するまでOriginal adapterへ通さない。また`StripLocation`／`StripDeviceAndLocation`は実byteを変換して再hashするsanitizerが必要であり、現行source builderは未実装の除去を宣言せず明示的に拒否する。
+
+## ADR-047: JPEG privacy policy is proven by a byte rewrite, not a manifest claim
+
+Status: Accepted (2026-08-30)
+
+`StripDeviceAndLocation`は元fileのmanifest fieldだけを変更せず、別のJPEGへ実byteを書き直す。EXIF／XMP／IPTC／comment／未知APP segmentを除去し、ICC profile、Adobe color interpretation、標準JFIF／JFXXは保持する。scan開始後のpixel entropyは変更せず、出力をflushしてSHA-256を再計算する。転送manifestはこの新しいbyte列の長さとhashを参照しなければならない。
+
+sanitizer出力はprivate pathを持つ不透明な`SanitizedJpeg`として渡す。Strip policy用builderはこの型を要求し、JPEGを再probeして元Originalと画素寸法を照合したうえで、現在のbyte長とSHA-256をsanitizer reportと再照合する。通常のCapturedAsset builderはStrip指定を拒否し続けるため、未変換の任意fileを除去済みとして生成する公開経路を設けない。
+
+`StripLocation`はEXIF GPS IFDだけを消す選択的TIFF再構築が必要である。pointerやoffsetを部分的に壊す危険があるため、実装完了までは明示的に拒否する。MOV／MP4 metadataもcontainer固有の再構築を別工程とし、JPEG sanitizerで対応済みと扱わない。
+
+## ADR-048: A received derivative may only extend an existing verified parent
+
+Status: Accepted (2026-08-30)
+
+Derivative用`TransferResource`はpurposeに加えて`DerivativeProvenance`全体を運ぶ。受信側はprovenanceが欠落しているresource、親resource IDがFinalized asset内に存在しないresource、親とmedia typeが異なるresourceをIncomplete writer開始前に拒否する。content hash確定後も実fileをprobeし、既存`CapturedAsset::add_derivative`によるsnapshot hash、engine version、親子関係の検証を通してから親asset manifestを更新する。
+
+Derivativeだけを新規CapturedAsset Originalとして作らない。Original＋Derivative bundleでsource側resource IDと受信側local resource IDが異なる場合は暗黙に書き換えず、bundle coordinatorが明示的な対応表と依存順序を管理するまで未対応とする。
+
+## ADR-049: Bundle resource identity is mapped only after each dependency is finalized
+
+Status: Accepted (2026-08-30)
+
+Original＋Derivative bundleはOriginalを先に受信・検証・Media確定し、その完成結果からsource Original resource IDとlocal Original resource IDの対応を登録する。Derivativeのprovenance parentはこの確定済みmapだけを使ってlocal IDへ変換する。受信予定、Incomplete、Failed resourceをmapへ追加してはならない。
+
+coordinatorはresource IDとtransfer IDの重複、selectionとの不一致、media type不一致、存在しない親、循環依存を開始前に拒否する。各resourceは個別のInvitation承認済み`TransferSession`を通り、coordinator自体は本人確認、transport交渉、content hash検証を省略する権限を持たない。
+
+## ADR-050: Chunk confidentiality and resume continuity are authenticated separately
+
+Status: Accepted (2026-08-30)
+
+asset chunkはChaCha20-Poly1305で暗号化し、protocol version、transfer ID、offset、平文長、asset総長をAADへ含める。これによりciphertextの改ざんだけでなく、正しいchunkを別offset、別transfer、別manifestへ移す操作も認証失敗にする。nonceはsession固有prefixとkeyに加え、transfer ID、offset、平文hashから導出し、同一offsetを異なる内容で再暗号化した場合のnonce再利用を避ける。session keyはmemory上でzeroize対象にする。
+
+resumeはAEAD frameの認証だけでは保存済みprefixの同一性を証明できない。受信側はdurable ACK位置とprefix SHA-256をcheckpointとして提示し、送信側が元fileの同じprefixを再hashして一致した場合だけ再開する。sessionがresume対応を交渉していない場合はcheckpointを拒否する。
+
+この決定はkey agreementを定義しない。ephemeral public keyと6桁確認codeをsession key導出へbindingし、実transportへframeを接続するまではE2E暗号化の完成条件を満たさない。
+
+## ADR-051: The six-digit comparison authenticates the ephemeral handshake transcript
+
+Status: Accepted (2026-08-31)
+
+双方はplatform CSPRNG由来のsession限定X25519 key pairを交換する。6桁確認codeはInvitationで任意生成せず、X25519 shared secret、双方のpublic key、Invitation identity、transfer ID、asset hash、byte長から導出する。利用者が二画面のcode一致を確認することで、public keyまたはManifestを差し替える中間者を検知する。
+
+確認済みcodeとInvitation identityをsalt、X25519 shared secretをinput key material、sort済みpublic keyとManifest identityをcontextとしてHKDF-SHA256からchunk keyとnonce prefixを導出する。all-zero secret、自己public key、不一致codeを拒否する。Rust共通層へ汎用乱数generatorは置かず、各platformのCSPRNG adapterを次工程で接続する。
+
+## ADR-052: Local-network framing is bounded before allocation and independent of discovery
+
+Status: Accepted (2026-08-31)
+
+session secretの通常生成は`getrandom`を通じてOS CSPRNGへ委譲する。共通層は乱数algorithmやseedを自作せず、取得したsecretをX25519 key pair生成後もzeroize対象として扱う。
+
+実data transportはdiscovery APIから独立したbounded binary stream protocolとする。EncryptedChunk、ResumeCheckpoint、DurableAckを明示的なmessage kindで表し、共通headerのpayload長を最大chunk＋固定overhead以下と確認してからallocationする。transfer ID、宣言平文長、ciphertext長、hash文字列、payload完全消費を検査し、未知kindや余剰dataを許容しない。
+
+最初のadapterは`TcpStream`を使用するが、接続先発見やlisten policyをcoreへ含めない。Bonjour、Nearby Connections、Wi-Fi Directなどは検証済みstreamを渡す責務を持ち、暗号化・framing・ACK意味論を独自実装しない。
+
+## ADR-053: One encrypted chunk may be in flight until its durable ACK
+
+Status: Accepted (2026-08-31)
+
+最初のtransport lifecycleはstop-and-waitとし、senderは1 chunkを送った後、その正確なend offsetのDurableAckを受けるまで次chunkへ進まない。throughputよりもresume位置、nonce context、filesystem durabilityの対応が明確であることを優先する。windowed transferはACK rangeと再送nonce規則を別versionで定義してから導入する。
+
+disconnectは成功や通常cancelとして扱わず、senderを`PeerDisconnected`へ移す。resume対応を交渉済みで、receiver checkpointとsender source prefix hashが一致した場合だけTransferringへ戻す。Cancelled／Completeからの送信再開とComplete後のcancelは禁止する。receiverがCompleteになってもMedia完成ではなく、従来の全file SHA-256、atomic rename、Media manifest確定を通過するまで公開しない。
+
+## ADR-054: Apple discovery advertises a bound endpoint and ephemeral public identity only
+
+Status: Accepted (2026-08-31)
+
+Appleの最初の近距離発見はBonjour互換DNS-SD service `_ufcamera._tcp.local.`とする。advertise前にTCP listenerをbindし、OSが確保した実portだけをSRV recordへ載せる。Apple P2P interfaceを有効にするが、到達経路の選択はresolved addressへ接続するtransport adapterに任せる。
+
+TXT recordへ載せるのはprotocol version、session限定X25519 public key、そのpublic key由来ephemeral ID、任意の利用者labelだけである。端末名、Bluetooth address、永続device ID、secret、確認code、asset情報を公開しない。発見したTXTはuntrusted inputとして形式とversionを検証し、最終的なpeer認証は引き続きtranscript由来6桁codeの二画面比較で行う。
+
+discovery stateはTauri commandからstart／snapshot／stopするpoll modelとする。native daemon callbackからWebViewへ無制限eventをpushせず、resolved peerをID順snapshotとして返す。application終了時はadvertise、browse、listener、ephemeral keyを同じstate ownerが破棄する。
+
+## ADR-055: Nearby visibility is scoped to its dedicated foreground screen
+
+Status: Accepted (2026-08-31)
+
+最初のNearby UXでは専用画面を開いた明示操作でだけadvertise／browseを開始し、撮影画面へ戻る操作で停止する。Nearby表示中はnative camera previewも停止し、camera hardware、local network permission、発見状態を同時に隠れて動かさない。application unloadでも停止を要求し、native state ownerのDropを最終防衛線とする。
+
+発見結果は1.5秒pollのsnapshotで表示し、peerの存在を接続・本人確認・転送承認と同義にしない。UIはephemeral IDと到達候補だけを示し、asset選択、Invitation、6桁code一致、双方の承認が実装されるまでpeer cardへ転送開始操作を設けない。
+
+## ADR-056: Local code approval remains Negotiating until authenticated remote approval
+
+Status: Accepted (2026-08-31)
+
+送信準備はMedia indexのFinalized entryをIDで再解決し、実fileからTransfer Manifestを生成する。UIが渡したpath、byte長、hash、完成状態を信頼しない。Invitation IDはOS CSPRNG由来とし、2分で失効する。6桁codeは既存ADR-051のhandshake transcriptから導出し、独立したUI乱数を使わない。
+
+利用者が「コード一致・承認」を押した時点ではlocal `TransferSession`をAwaitingApprovalからNegotiatingへ進めるだけとする。発見広告だけでは相手が同じManifestを見たことも承認したことも証明できない。remote approvalを認証済みcontrol channelから受け取り、双方のtranscript一致を確認する前にAgreedSessionSecrets、EncryptedChunkCodec、Transferring stateを作らない。

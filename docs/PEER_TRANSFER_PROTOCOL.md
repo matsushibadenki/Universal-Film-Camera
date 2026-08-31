@@ -1,6 +1,6 @@
 # Nearby Peer Transfer Protocol
 
-更新日: 2026-08-30
+更新日: 2026-08-31
 
 ## 実装済み境界
 
@@ -14,10 +14,26 @@
 - [Done] basename、100 GiB上限、16 KiB〜4 MiB chunk、SHA-256形式の検証
 - [Done] AwaitingApproval → Negotiating → Transferring → Verifying → Finalized状態機械
 - [Done] ACKの単調増加、宣言長超過拒否、cancel、hash不一致時Failed
-- [Next] CapturedAsset original／processed／両方のmanifest表現
-- [Next] `.incomplete`受信writer、chunk payload、resume ledger、実file SHA-256
-- [Next] fsync／rename／Media manifestを一つのatomic finalize境界へ接続
-- [Later] ephemeral key agreementとend-to-end authenticated encryption
+- [Done] CapturedAsset original／derivative／両方のAsset Transfer Manifest表現
+- [Done] `.incomplete`受信writer、durable ACK、resume ledger、既存byte再hash
+- [Done] 容量予約、managed path／symlink検査、実file SHA-256、atomic rename
+- [Done] Original受信をMedia Incomplete／Failed／Finalizedへ接続
+- [Done] JPEG `StripDeviceAndLocation` sanitizer。EXIF／XMP／IPTC／comment／未知APP segmentを除去して再hash
+- [Done] sanitizerだけが生成できる`SanitizedJpeg`からOriginal transfer manifestを構築し、改変時は再照合で拒否
+- [Done] Derivative resourceにparent resource ID／render snapshot／engine version／seedを含め、同じ親を持つ既存assetへ確定
+- [Done] Original＋Derivative bundleのOriginal先行確定、source→local ID map、依存順序、重複／欠落／循環検査
+- [Done] ChaCha20-Poly1305 encrypted chunk。transfer ID／offset／長さをAADへbinding
+- [Done] durable受信prefix SHA-256を送信元fileと照合するresume checkpoint
+- [Done] X25519 ephemeral DH、公開鍵とManifestを認証する6桁code、HKDF-SHA256 session secrets
+- [Done] OS CSPRNG key生成、bounded binary framing、TCP stream adapter
+- [Done] encrypted chunk／resume checkpoint／durable ACK wire message
+- [Done] sender／receiver lifecycle、単一in-flight chunk、cancel、disconnect-resume、finalize接続
+- [Done] Apple mDNS advertise／browse、P2P interface、実TCP listener、Tauri start／snapshot／stop commands
+- [Done] Finalized Media再解決、Original実file hash、2分Invitation、peer選択、6桁code表示、local approval UI
+- [Later] 選択的`StripLocation`とMOV／MP4 metadata sanitizer。未実装policy指定は拒否
+- [Next] listener accept後のInvitation／handshake／transfer session接続
+- [Next] remote offer／approval交換とtransfer progress UI（英語／日本語／简体中文）
+- [Next] iOS／Android background、network切替、timeoutの実機試験
 - [Later] Apple／Android／Windows／Linux platform adapter
 
 ## セキュリティ不変条件
@@ -29,7 +45,19 @@
 5. ACKは連続して永続化済みのbyte位置だけを表す。
 6. 受信完了通知だけでは公開せず、実fileの長さとSHA-256を検証する。
 7. flush、hash、rename、Media manifest保存前のassetをFinalizedとして表示しない。
+8. metadata除去はmanifest上の自己申告にせず、実byteを書き換えた出力を再hashする。
+9. Derivativeは来歴がなくてもOriginalとして公開せず、宣言された親resourceが存在する場合だけ追加する。
+10. bundle内の親参照は推測で書き換えず、確定済みresourceだけをsource→local ID mapへ登録する。
+11. chunkはtransfer ID、offset、平文長、asset総長をauthenticated dataへ含め、別位置・別transferへ再利用できなくする。
+12. resume offsetは受信側の自己申告だけで採用せず、送信元fileの同じprefix SHA-256と一致させる。
+13. 6桁確認codeは任意のPINにせず、X25519共有秘密、双方の公開鍵、Invitation、Manifestから導出して画面間で比較する。
+14. wire payload長はallocation前に上限検査し、未知message、末尾data、長さ不一致を拒否する。
+15. senderはdurable ACK前に次chunkへ進まず、disconnect後は検証済みcheckpoint位置からだけ再開する。
+16. Complete／Cancelled状態から送信を再開せず、Complete後のcancelも状態を書き換えない。
+17. discovery TXT recordは公開情報だけを持ち、端末名、永続device ID、secret key、確認codeを広告しない。
+18. 広告portは先にbind済みのlistenerから取得し、接続不能な推測portを公開しない。
+19. local code承認だけではTransferringへ進めず、認証済みremote approvalまではNegotiatingに留める。
 
 ## Platform adapterの責務
 
-Bluetooth LE、Bonjour、Nearby Connectionsなどはpeer discovery、invite delivery、transport候補通知を担当する。写真・動画本体は交渉済み高速transportで転送し、platform adapterが独自の成功状態を作ってはならない。最終状態は必ず`peer-transfer-core`とMedia lifecycleを通す。
+Bluetooth LE、Bonjour、Nearby Connectionsなどはpeer discovery、invite delivery、transport候補通知を担当する。Appleの最初のadapterは`_ufcamera._tcp.local.`をadvertise／browseし、TXTのprotocol version、ephemeral ID、X25519 public key、任意labelだけを受理する。写真・動画本体は交渉済み高速transportで転送し、platform adapterが独自の成功状態を作ってはならない。最終状態は必ず`peer-transfer-core`とMedia lifecycleを通す。

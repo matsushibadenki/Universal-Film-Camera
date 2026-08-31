@@ -1,6 +1,6 @@
 # Camera App Implementation Handoff
 
-更新日: 2026-08-28
+更新日: 2026-08-31
 対象: macOS / Windows / Linux / iOS / Android  
 UIシェル: Tauri 2 + TypeScript  
 共有コア: Rust
@@ -39,7 +39,11 @@ ADB接続端末を確認したが、2026-08-28時点ではauthorized deviceが0�
 
 続いてApple AVFoundation sessionへWebView非依存の容量monitorを追加した。録画ごとのPendingMovie IDとcamera stateを2秒間隔で照合し、保存先が376 MiB閾値を下回ると`request_recording_stop`を発行する。MovieRecordingはatomic stop flagを所有し、容量monitorと手動停止が競合しても`AVCaptureMovieFileOutput.stopRecording()`は一度だけ呼ばれる。delegate receiver、保存先、CapturedAsset finalize経路は従来のまま保持する。macOS compileとworkspace testは成功した。iOSでOSがprocessをsuspendする条件、AVCaptureSession interruption、復帰後asset回収は署名済み実機で検証するまで完了扱いにしない。
 
-続いて`peer-transfer-core`をworkspaceへ追加した。platform discovery／transportから独立して、sessionごとのephemeral peer identity、6桁確認付き期限付き招待、protocol／transport／chunk能力交渉、version 1 Transfer Manifest、ACK、cancel、verify、Finalizedの状態遷移を所有する。BLEだけのpeer間ではasset転送を開始せず、高速transportの共通項を必須にした。basename、100 GiB上限、16 KiB〜4 MiB chunk、64桁SHA-256を受信前に検証し、byte数とhash一致前はFinalizedへ進めない。5件の境界testを含めworkspace全67 testが成功した。次工程はCapturedAsset selectionと`.incomplete`受信writerへの接続である。
+続いて`peer-transfer-core`をworkspaceへ追加した。platform discovery／transportから独立して、sessionごとのephemeral peer identity、6桁確認付き期限付き招待、protocol／transport／chunk能力交渉、version 1 Transfer Manifest、ACK、cancel、verify、Finalizedの状態遷移を所有する。BLEだけのpeer間ではasset転送を開始せず、高速transportの共通項を必須にした。basename、100 GiB上限、16 KiB〜4 MiB chunk、64桁SHA-256を受信前に検証し、byte数とhash一致前はFinalizedへ進めない。
+
+同crateへ`ReceiveWriter`を追加した。受信前に残りbyte＋256 MiB予約を検査し、`.incomplete/peer-transfer`へ連続chunkだけを書き、`sync_data`後にledgerをatomic更新してdurable ACKを返す。再開時はledger、manifest、part長を一致確認し、保存済みbyteをSHA-256へ再投入する。全byteの`sync_all`とhash一致後だけ完成basenameへrenameし、hash不一致はpartを残したままFailedにする。managed directory外canonical pathと既存symlinkを拒否する。peer transfer testは8件、workspace全70 testが成功した。次工程はCapturedAsset selectionとMedia Incomplete manifestへの接続である。
+
+続いてAsset Transfer ManifestへOriginal、指定Derivative、Original＋指定Derivativeの選択modelを追加した。source CapturedAssetから各実fileの長さとSHA-256を読み、未知／重複resource IDを拒否する。Original／Derivativeのroleは型で分離し、DerivativeをOriginal adapterへ渡すとfile作成前に拒否する。Original受信は`IndexedOriginalReceive`でMedia Indexへ開始時Incompleteを記録し、全byte検証後に既存JPEG／ISO BMFF probe、送信元CaptureMetadataとの寸法／FPS validation、CapturedAsset作成、atomic Media manifest保存を通してFinalizedへ遷移する。probe／validation／manifest失敗はFailedとして診断を残し、manifest失敗時は完成resourceをIncompleteへrollbackする。未実装のmetadata除去を宣言だけで装わないため、builderは現在`Preserve`だけを許可し、Strip指定を拒否する。workspace全74 testが成功した。
 
 ## 現在地
 
@@ -254,6 +258,80 @@ Screen Orientation + camera position
 front cameraはpreviewだけmirror、保存Still／Videoは既定で非mirrorとする。PhotoOutput切離し／再接続やactive format再適用後にも保持したorientationを再設定する。録画中のorientation変更は拒否し、停止後にUIが再同期する。EXIF orientation 1–8とMOVの4回転×mirror有無はfixture test済み。macOSの0度・非mirror保存は既存実機assetで確認済みだが、portrait／upside-down／front cameraはiOS実機受け入れが必要であり完了扱いにしない。判断根拠は[`DECISIONS.md`](DECISIONS.md) ADR-029を参照する。
 
 同日の実機再検証ではorientation IPCを含むpreview start、1280×720 JPEG、H.264＋AAC MOVが成功し、両resourceのprobeでrotation 0度／非mirrorを確認した。`npm run tauri dev`はTauri `devUrl`が1420、Vite既定が5173だったため待機し続ける既存不具合があり、rootの`vite.config.ts`で127.0.0.1:1420へ固定した。開発起動設定を変更するときは`tauri.conf.json`と必ず同時に更新する。
+
+### 2026-08-30: Nearby JPEG privacy sanitizer
+
+`peer-transfer-core::sanitize_jpeg_for_transfer`を追加した。`StripDeviceAndLocation`ではJPEGを一時fileへ再構築し、EXIF APP1、XMP、IPTC APP13、COM、未知のAPP segmentを除去する。色再現に必要なICC APP2、Adobe APP14と標準JFIF／JFXX APP0は保持し、SOS以後のpixel entropyはbyte-for-byteでコピーする。`sync_all`後に完成先へrenameし、出力byte数とSHA-256を返す。
+
+選択的`StripLocation`はTIFF IFD pointerを安全に再構築できるまで拒否し、MOV／MP4も未対応とする。sanitizerはpathをprivateにした不透明な`SanitizedJpeg`を返し、`AssetTransferManifest::from_sanitized_jpeg_original`だけがこの証明から`StripDeviceAndLocation` manifestを作る。builderは再probeで元Originalと画素寸法を照合し、現在のbyte長とSHA-256がsanitizer直後のreportから変化していれば拒否する。通常のbuilderは引き続きStrip policyを受け付けず、元fileを除去済みと偽装できない。peer-transfer-coreは13 testが成功した。
+
+### 2026-08-30: Nearby Derivative provenance finalize
+
+`TransferResource`へoptionalな`derivative_provenance`を追加し、source builderはDerivativeごとにparent resource ID、完全なrender snapshot、engine version、seedを格納する。`IndexedDerivativeReceive`はこの来歴が存在し、受信先のFinalized `CapturedAsset`に同じparent resource IDがあり、media typeが一致するときだけIncomplete writerを開始する。hash確定後にprobeし、`CapturedAsset::add_derivative`の来歴検証を通して親asset manifestを更新する。成功後は一時的なrecovery recordを除去し、Derivativeを独立OriginalとしてMediaへ公開しない。
+
+この縦切りは、受信側に同じresource IDを持つ親assetがすでに存在する場合を完成させた。Original＋Derivativeを同時受信して新しいlocal IDへ割り当てる処理には、bundle coordinatorとsource→local resource ID mapが必要であり次工程とする。peer-transfer-coreは14 test、workspace全77 testを期待値とする。
+
+### 2026-08-30: Original＋Derivative bundle coordinator
+
+`BundleReceiveCoordinator`を追加した。`OriginalAndDerivatives` manifestについてOriginalが1件、Derivativeが1件以上であること、selectionのID集合とresource集合、transfer ID／resource IDの一意性、全resourceのmedia type、全親参照の存在、依存graphの非循環性を受信開始前に検証する。
+
+Originalは利用者が選んだ安全なlocal asset IDで先に確定する。確定結果を明示的に`mark_original_finalized`へ渡した時点だけsource Original IDからlocal Original IDをmapへ登録する。Derivativeは親source IDがmapにある場合だけ準備でき、local親IDへprovenanceを変換して確定する。各Derivativeも確定結果を確認後にだけmapへ追加するため、受信予定や失敗resourceを完了済みとして扱わない。各resourceの`TransferSession`は従来どおりInvitation承認とtransport交渉を必須とし、coordinatorはその境界を迂回しない。peer-transfer-coreは15 test、workspace全78 testを期待値とする。
+
+### 2026-08-30: Authenticated chunk transport contract and resume proof
+
+`EncryptedChunkCodec`を追加し、32-byte session keyでChaCha20-Poly1305を使用する。frameはtransfer ID、offset、平文長、nonce、ciphertextを持ち、AADへprotocol version、transfer ID、offset、平文長、asset総長を含める。nonceはsession固有prefix、key、transfer ID、offset、平文hashから導出するため、同じoffsetで内容が変わってもnonceを再利用しない。key materialは`Zeroizing`で保持する。改ざん、offset変更、別transfer／asset長への転用はwriterへ渡す前に拒否する。
+
+`ReceiveWriter::resume_checkpoint`はledgerとpart fileがdurableになった`persisted_bytes`と、そのprefix SHA-256だけを返す。送信側は`verify_resume_checkpoint`で元fileの同じprefixを再hashし、`TransferSession`がresume対応を交渉済みの場合だけoffsetを採用する。checkpoint以後もencrypted chunkは通常のdurable ACK、全file SHA-256、atomic rename境界を通る。
+
+この段階のkeyは上位handshakeから注入する契約であり、ephemeral key agreement、確認code binding、実socket adapterは未実装である。したがって製品としてend-to-end encryption完成とは扱わない。peer-transfer-coreは16 test、workspace全79 testを期待値とする。
+
+### 2026-08-31: X25519 handshake and transcript confirmation
+
+`EphemeralKeyPair`と`AgreedSessionSecrets`を追加した。platform CSPRNGが供給する32 byteからsession限定X25519 key pairを作り、low-order／all-zero shared secretと自己public keyを拒否する。secretと導出keyはzeroize対応型で保持する。
+
+6桁確認codeは事前共有PINではない。X25519 shared secret、sort済み双方public key、Invitation ID、sender ephemeral ID、transfer ID、asset SHA-256、byte長から双方が同じ値を導出し、利用者が二画面で比較する。公開鍵、Invitation、Manifestのいずれかが差し替えられるとcodeが変わる。双方が確認したcodeをHKDF-SHA256 saltへ含め、同じtranscriptから32-byte chunk keyと16-byte nonce prefixを導出する。これを既存ChaCha20-Poly1305 codecへ直接変換できる。
+
+Rust共通層は乱数を自作せず、OS別adapterがCSPRNG secretを供給する。socket transport、CSPRNG adapter、session終了／cancel／error時の統合key lifecycle試験は次工程である。peer-transfer-coreは17 test、workspace全80 testを期待値とする。
+
+### 2026-08-31: OS CSPRNG and bounded local-network framing
+
+`EphemeralKeyPair::generate`を追加し、Rust `getrandom`経由で各OSのCSPRNGから32-byte session secretを取得する。all-zero検査と既存zeroize lifecycleを通るため、applicationが通常経路でsecret byteを生成・保持する必要はない。native security provider固有の監査が必要なplatformでは、従来の`from_secret_bytes`へ明示的に供給できる。
+
+`LocalNetworkTransport`は`TcpStream`へbounded binary protocolを接続する。messageはEncryptedChunk、ResumeCheckpoint、DurableAckの3種類で、magic、protocol kind、u32 payload長を共通headerに持つ。受信側は最大chunk＋固定header上限をallocation前に検査し、transfer ID、ciphertext長、hash形式、末尾余剰data、未知kindを拒否する。JSONで暗号byte列を膨張させない。
+
+テストはsocket bind可能な環境ではIPv4 loopback TCPを往復し、sandboxがsocketを禁止する環境では同じ`Read`／`Write` binary framingをmemory streamで検証する。oversize headerはpayloadを確保・読込する前に拒否する。connection timeout、cancel、切断後resume orchestration、Bonjour／Nearby discovery、Tauri command接続は次工程である。peer-transfer-coreは18 test、workspace全81 testを期待値とする。
+
+### 2026-08-31: Encrypted transport lifecycle milestone
+
+`EncryptedTransferSender`と`EncryptedTransferReceiver`を追加した。生成時に`TransferSession`が承認・高速transport交渉後のTransferringであること、codecとmanifest identityが一致することを要求する。senderは元file全体をmanifest SHA-256と照合してから開き、交渉chunk長で1 chunkだけを暗号化する。対応するdurable ACKが正確なend offsetを返すまで次chunkを送らないstop-and-wait方式とした。
+
+切断時はsenderを`PeerDisconnected`へ移し、receiverのdurable prefix checkpointをsession resume能力と元file prefix hashの双方で検証した場合だけ再開する。receiver再生成は既存ledger／part fileを再hashする従来境界を通る。最終ACK後にだけCompleteとなり、`ReceiveWriter`を既存の全file hash／atomic rename finalizeへ渡せる。User／Timeout／PeerDisconnected cancel wire messageを追加し、Cancelledからの送信、Complete後のcancel、ACK飛越しを拒否する。TCP read／write timeoutは0以外だけ設定できる。
+
+暗号化、切断、checkpoint resume、残chunk、全体hash、完成renameを1本のtestで通した。peer-transfer-coreは19 test、workspace全82 testを期待値とする。次の大きい境界はApple Bonjour discoveryとTauri commandであり、mobile background／network切替は実機検証が必要である。
+
+### 2026-08-31: Apple Bonjour discovery and Tauri command boundary
+
+Tauri applicationへ`nearby_discovery` stateを追加し、`start_nearby_discovery`、`get_nearby_discovery`、`stop_nearby_discovery` commandを登録した。startは最初にIPv4 unspecified addressへTCP listenerをbindし、port 0ならOS選択portを取得する。その後OS CSPRNG由来X25519 key pairを生成し、`_ufcamera._tcp.local.`をmDNS advertise／browseする。Apple P2P interfaceを明示的に含める。
+
+TXT recordはprotocol version、public key由来12桁ephemeral ID、64桁public key、利用者が任意入力した32文字以内labelだけを持つ。端末名、永続device ID、secret key、確認codeは広告しない。受信TXTはversion、IDとpublic keyの対応、hex形式、port、resolved addressを検証し、自己serviceを除外する。daemon errorはsnapshotの`last_error`へ保持する。stop／application state dropでbrowse、register、daemon、listener、ephemeral secretを終了する。
+
+Apple `Info.plist`へ`NSLocalNetworkUsageDescription`と`NSBonjourServices`、sandbox entitlementへnetwork client／serverを追加した。用途説明は英語、日本語、简体中文を用意した。`mdns-sd` 0.21.0を固定し、async runtimeに依存しないdaemon channelをTauriのpoll型snapshotへ接続した。現段階ではlistenerを予約・広告するところまでで、accept後のInvitation／handshake／transfer taskとUIは次工程である。workspace全84 testを期待値とする。
+
+### 2026-08-31: Nearby discovery UI milestone
+
+撮影画面のright／bottom railへNearby入口を追加し、専用画面で`start_nearby_discovery`、`get_nearby_discovery`、`stop_nearby_discovery`を接続した。専用画面へ移る前にnative camera previewを停止し、戻ると検出を停止してcamera discovery／previewを再開する。周囲へのadvertiseが画面を閉じた後も意図せず残らないことを優先した。application unloadでもstopを要求する。
+
+画面は英語、日本語、简体中文で、local ephemeral ID、peer label／ephemeral ID、protocol version、resolved endpoint、privacy説明、daemon errorを表示する。active中は1.5秒ごとにsnapshotを更新する。IPv6 endpointは`[address]:port`表記にして曖昧さを避ける。開発用`?nearby-fixture=1`は実networkへ接続せず2 peerを表示し、desktop／375px幅のvisual QAに使える。
+
+この節目は発見UIまでである。peer cardを押しても接続済みとは扱わない。次工程はMedia asset選択、Invitation、双方の6桁確認code、明示承認を1つのstate machineとしてnative listener／outbound connectionへ接続する。workspace全84 testを期待値とする。
+
+### 2026-08-31: Outgoing transfer approval preparation
+
+Nearby画面で発見peerとFinalized Media Originalを選択し、native `prepare_nearby_approval`へ渡す縦切りを追加した。native側はMedia indexからIDを再解決し、Incomplete／Failedやasset本体を持たないentryを拒否する。`AssetTransferManifest::from_captured_asset`が実fileのbyte長とSHA-256を計算し、256 KiB chunk、Preserve metadata policyのOriginal manifestを作る。
+
+Invitation IDはOS CSPRNGの16 byteから生成し、有効期限は2分とした。発見sessionのlocal X25519 key、mDNSで検証したpeer public key、Invitation ID、sender ephemeral ID、Manifest identityから既存protocolの6桁codeを導出する。UIは英語、日本語、简体中文でpeer／asset選択、code比較、cancel、local approveを表示する。375×812と1280×800でfixture操作を検証した。
+
+local approve後の`TransferSession`はNegotiatingであり、転送開始済みではない。TCP control frameでremoteへInvitation／Manifestを送り、相手側が同じcodeを導出・承認した事実を認証して受け取るまでは`AgreedSessionSecrets`を生成しない。次工程はincoming acceptとoutbound connectを同じ相互handshake stateへ接続することである。workspace全85 testを期待値とする。
 
 ## 未確定事項（実装前に決める）
 

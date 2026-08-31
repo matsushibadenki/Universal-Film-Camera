@@ -2,6 +2,7 @@
 mod android_camera;
 #[cfg(target_os = "macos")]
 mod camera_settings;
+mod nearby_discovery;
 
 #[cfg(not(target_os = "android"))]
 use camera_apple::AppleCameraBackend;
@@ -24,11 +25,13 @@ use camera_core::{
 #[cfg(target_os = "macos")]
 use camera_settings::{StoredCameraFormat, load_format, save_format};
 use imaging_core::SignalDomain;
+use nearby_discovery::{
+    NearbyDiscoverySnapshot, NearbyDiscoveryState, StartNearbyDiscoveryRequest,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "android"))]
 use std::sync::Arc;
 use std::sync::Mutex;
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 
@@ -1515,6 +1518,76 @@ fn get_imaging_pipeline_contract() -> ImagingPipelineContract {
     }
 }
 
+#[tauri::command]
+fn start_nearby_discovery(
+    request: StartNearbyDiscoveryRequest,
+    state: tauri::State<'_, NearbyDiscoveryState>,
+) -> Result<NearbyDiscoverySnapshot, String> {
+    state.start(request)
+}
+
+#[tauri::command]
+fn get_nearby_discovery(
+    state: tauri::State<'_, NearbyDiscoveryState>,
+) -> Result<NearbyDiscoverySnapshot, String> {
+    state.snapshot()
+}
+
+#[tauri::command]
+fn stop_nearby_discovery(
+    state: tauri::State<'_, NearbyDiscoveryState>,
+) -> Result<NearbyDiscoverySnapshot, String> {
+    state.stop()
+}
+
+#[derive(Deserialize)]
+struct PrepareNearbyApprovalRequest {
+    peer_ephemeral_id: String,
+    asset_id: String,
+}
+
+fn now_unix_ms() -> Result<u64, String> {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "system clock is before the Unix epoch")?
+        .as_millis();
+    u64::try_from(millis).map_err(|_| "system clock is outside supported range".into())
+}
+
+#[tauri::command]
+fn prepare_nearby_approval(
+    request: PrepareNearbyApprovalRequest,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, NearbyDiscoveryState>,
+) -> Result<NearbyDiscoverySnapshot, String> {
+    let entry = MediaIndex::new(captures_directory(&app)?)
+        .list()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|entry| entry.id == request.asset_id)
+        .ok_or_else(|| "selected media asset was not found".to_owned())?;
+    let asset = entry
+        .asset
+        .as_ref()
+        .ok_or_else(|| "only finalized media can be shared".to_owned())?;
+    state.prepare_approval(&request.peer_ephemeral_id, asset, now_unix_ms()?)
+}
+
+#[tauri::command]
+fn approve_nearby_transfer(
+    confirmation_code: String,
+    state: tauri::State<'_, NearbyDiscoveryState>,
+) -> Result<NearbyDiscoverySnapshot, String> {
+    state.approve(&confirmation_code, now_unix_ms()?)
+}
+
+#[tauri::command]
+fn cancel_nearby_approval(
+    state: tauri::State<'_, NearbyDiscoveryState>,
+) -> Result<NearbyDiscoverySnapshot, String> {
+    state.cancel_approval()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -1522,6 +1595,7 @@ pub fn run() {
     let builder = builder.plugin(android_camera::init());
     builder
         .manage(AppState::default())
+        .manage(NearbyDiscoveryState::default())
         .invoke_handler(tauri::generate_handler![
             get_camera_status,
             get_camera_discovery,
@@ -1544,7 +1618,13 @@ pub fn run() {
             get_media_index,
             reconcile_media_index,
             cleanup_media_entry,
-            reinspect_media_entry
+            reinspect_media_entry,
+            start_nearby_discovery,
+            get_nearby_discovery,
+            stop_nearby_discovery,
+            prepare_nearby_approval,
+            approve_nearby_transfer,
+            cancel_nearby_approval
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Universal Film Camera");

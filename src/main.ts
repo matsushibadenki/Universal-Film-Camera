@@ -110,6 +110,30 @@ type CaptureStorageStatus = {
   photo_ready: boolean;
   video_ready: boolean;
 };
+type NearbyPeer = {
+  ephemeral_id: string;
+  display_label: string | null;
+  protocol_version: number;
+  addresses: string[];
+  port: number;
+};
+type NearbyDiscoverySnapshot = {
+  supported?: boolean;
+  active: boolean;
+  local_peer: { ephemeral_id: string; display_label: string | null; port: number } | null;
+  peers: NearbyPeer[];
+  last_error: string | null;
+  approval?: {
+    invitation_id: string;
+    peer_ephemeral_id: string;
+    asset_id: string;
+    file_name: string;
+    byte_length: number;
+    confirmation_code: string;
+    expires_at_unix_ms: number;
+    local_approved: boolean;
+  } | null;
+};
 
 type Copy = {
   photo: string;
@@ -191,6 +215,28 @@ type Copy = {
   storageUnavailable: string;
   storageLow: string;
   storageAutoStop: string;
+  nearby: string;
+  nearbyTitle: string;
+  nearbySubtitle: string;
+  nearbyStart: string;
+  nearbyStop: string;
+  nearbyRefresh: string;
+  nearbyBack: string;
+  nearbySearching: string;
+  nearbyEmpty: string;
+  nearbyEmptyDetail: string;
+  nearbyLocal: string;
+  nearbyProtocol: string;
+  nearbyAddress: string;
+  nearbyPrivacy: string;
+  nearbyAsset: string;
+  nearbySelectAsset: string;
+  nearbyPrepare: string;
+  nearbyCodeTitle: string;
+  nearbyCodeDetail: string;
+  nearbyApprove: string;
+  nearbyCancel: string;
+  nearbyApproved: string;
 };
 
 const copy: Record<Locale, Copy> = {
@@ -221,7 +267,16 @@ const copy: Record<Locale, Copy> = {
     mediaReinspect: "Reinspect file", mediaReinspecting: "Reinspecting media…", mediaReinspectFailed: "The media could not be reinspected.",
     mediaRecapture: "Recapture"
     , output: "Output", outputPreset: "Output preset", storageRemaining: "Storage remaining",
-    estimatedCapacity: "Estimated capacity", photosRemaining: "photos", minutesRemaining: "minutes", storageUnavailable: "Storage information unavailable", storageLow: "Not enough free space", storageAutoStop: "Recording stopped safely because storage is low"
+    estimatedCapacity: "Estimated capacity", photosRemaining: "photos", minutesRemaining: "minutes", storageUnavailable: "Storage information unavailable", storageLow: "Not enough free space", storageAutoStop: "Recording stopped safely because storage is low",
+    nearby: "Nearby", nearbyTitle: "Nearby Share", nearbySubtitle: "Discover nearby Universal Film Camera users",
+    nearbyStart: "Start discovery", nearbyStop: "Stop discovery", nearbyRefresh: "Refresh peers", nearbyBack: "Back to camera",
+    nearbySearching: "Visible nearby · searching for peers…", nearbyEmpty: "No nearby users found",
+    nearbyEmptyDetail: "Keep this screen open on both devices. Discovery stops when you return to the camera.",
+    nearbyLocal: "Your temporary ID", nearbyProtocol: "Protocol", nearbyAddress: "Network path",
+    nearbyPrivacy: "Only an ephemeral ID is advertised. Transfer still requires mutual approval and a matching confirmation code.",
+    nearbyAsset: "Media to share", nearbySelectAsset: "Select finalized media", nearbyPrepare: "Prepare approval",
+    nearbyCodeTitle: "Compare confirmation code", nearbyCodeDetail: "Confirm that this exact code appears on both devices before approving.",
+    nearbyApprove: "Code matches · Approve", nearbyCancel: "Cancel", nearbyApproved: "Approved locally · waiting for the other device"
   },
   ja: {
     photo: "写真", video: "動画", camera: "カメラ", noSignal: "カメラ信号なし",
@@ -250,7 +305,16 @@ const copy: Record<Locale, Copy> = {
     mediaReinspect: "ファイルを再検査", mediaReinspecting: "メディアを再検査しています…", mediaReinspectFailed: "メディアを再検査できませんでした。",
     mediaRecapture: "再撮影"
     , output: "出力", outputPreset: "出力プリセット", storageRemaining: "残容量",
-    estimatedCapacity: "推定撮影可能量", photosRemaining: "枚", minutesRemaining: "分", storageUnavailable: "残容量を取得できません", storageLow: "空き容量が不足しています", storageAutoStop: "空き容量が少ないため安全に録画を停止しました"
+    estimatedCapacity: "推定撮影可能量", photosRemaining: "枚", minutesRemaining: "分", storageUnavailable: "残容量を取得できません", storageLow: "空き容量が不足しています", storageAutoStop: "空き容量が少ないため安全に録画を停止しました",
+    nearby: "近距離共有", nearbyTitle: "近距離共有", nearbySubtitle: "近くのUniversal Film Cameraユーザーを検出",
+    nearbyStart: "検出を開始", nearbyStop: "検出を停止", nearbyRefresh: "相手を更新", nearbyBack: "カメラへ戻る",
+    nearbySearching: "周囲へ一時公開中・相手を検索しています…", nearbyEmpty: "近くのユーザーが見つかりません",
+    nearbyEmptyDetail: "両方の端末でこの画面を開いてください。カメラへ戻ると検出を停止します。",
+    nearbyLocal: "あなたの一時ID", nearbyProtocol: "プロトコル", nearbyAddress: "ネットワーク経路",
+    nearbyPrivacy: "周囲へ公開するのは一時IDだけです。転送には双方の承認と一致する確認コードが必要です。",
+    nearbyAsset: "共有するメディア", nearbySelectAsset: "完了メディアを選択", nearbyPrepare: "承認を準備",
+    nearbyCodeTitle: "確認コードを比較", nearbyCodeDetail: "承認する前に、両方の端末へ同じコードが表示されていることを確認してください。",
+    nearbyApprove: "コード一致・承認", nearbyCancel: "キャンセル", nearbyApproved: "この端末で承認済み・相手の承認待ち"
   },
   "zh-CN": {
     photo: "照片", video: "视频", camera: "相机", noSignal: "无相机信号",
@@ -279,7 +343,16 @@ const copy: Record<Locale, Copy> = {
     mediaReinspect: "重新检查文件", mediaReinspecting: "正在重新检查媒体…", mediaReinspectFailed: "无法重新检查媒体。",
     mediaRecapture: "重新拍摄"
     , output: "输出", outputPreset: "输出预设", storageRemaining: "剩余容量",
-    estimatedCapacity: "预计可拍摄量", photosRemaining: "张照片", minutesRemaining: "分钟", storageUnavailable: "无法获取存储信息", storageLow: "可用存储空间不足", storageAutoStop: "存储空间不足，已安全停止录制"
+    estimatedCapacity: "预计可拍摄量", photosRemaining: "张照片", minutesRemaining: "分钟", storageUnavailable: "无法获取存储信息", storageLow: "可用存储空间不足", storageAutoStop: "存储空间不足，已安全停止录制",
+    nearby: "附近共享", nearbyTitle: "附近共享", nearbySubtitle: "发现附近的 Universal Film Camera 用户",
+    nearbyStart: "开始发现", nearbyStop: "停止发现", nearbyRefresh: "刷新用户", nearbyBack: "返回相机",
+    nearbySearching: "已在附近临时可见・正在搜索用户…", nearbyEmpty: "未发现附近用户",
+    nearbyEmptyDetail: "请在两台设备上保持此页面打开。返回相机后会停止发现。",
+    nearbyLocal: "你的临时 ID", nearbyProtocol: "协议", nearbyAddress: "网络路径",
+    nearbyPrivacy: "仅广播临时 ID。传输仍需双方批准并核对相同的确认码。",
+    nearbyAsset: "要共享的媒体", nearbySelectAsset: "选择已完成媒体", nearbyPrepare: "准备批准",
+    nearbyCodeTitle: "比较确认码", nearbyCodeDetail: "批准前，请确认两台设备上显示完全相同的代码。",
+    nearbyApprove: "代码一致・批准", nearbyCancel: "取消", nearbyApproved: "已在此设备批准・等待对方批准"
   }
 };
 
@@ -301,6 +374,7 @@ function icon(name: string): string {
     pipeline: '<circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 6h10M6 8l5 8M18 8l-5 8"/>',
     media: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="m10 9 6 3-6 3z"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
+    nearby: '<path d="M5 8.5a10 10 0 0 1 14 0M8 12a6 6 0 0 1 8 0M11 15.5a2 2 0 0 1 2 0"/><circle cx="12" cy="19" r="1"/>',
     close: '<path d="m6 6 12 12M18 6 6 18"/>'
   };
   return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths[name]}</svg>`;
@@ -415,6 +489,49 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       </div>
     </section>
 
+    <section class="nearby-library" id="nearby-library" aria-labelledby="nearby-title" hidden>
+      <header class="media-header">
+        <div>
+          <h1 id="nearby-title">${t.nearbyTitle}</h1>
+          <p>${t.nearbySubtitle}</p>
+        </div>
+        <div class="media-header-actions">
+          <button id="nearby-refresh" type="button" aria-label="${t.nearbyRefresh}">${icon("nearby")}<span>${t.nearbyRefresh}</span></button>
+          <button id="nearby-back" type="button" aria-label="${t.nearbyBack}">${icon("close")}<span>${t.nearbyBack}</span></button>
+        </div>
+      </header>
+      <div class="nearby-controls">
+        <button id="nearby-toggle" type="button" data-state="default">${t.nearbyStart}</button>
+        <div class="nearby-identity"><span>${t.nearbyLocal}</span><strong id="nearby-local-id">—</strong></div>
+      </div>
+      <p class="nearby-privacy">${t.nearbyPrivacy}</p>
+      <div class="nearby-share-controls">
+        <label><span>${t.nearbyAsset}</span><select id="nearby-asset"><option value="">${t.nearbySelectAsset}</option></select></label>
+        <button id="nearby-prepare" type="button" disabled>${t.nearbyPrepare}</button>
+      </div>
+      <div class="media-status" id="nearby-status" role="status" aria-live="polite"></div>
+      <div class="nearby-grid" id="nearby-grid"></div>
+      <div class="media-empty" id="nearby-empty">
+        ${icon("nearby")}
+        <strong>${t.nearbyEmpty}</strong>
+        <p>${t.nearbyEmptyDetail}</p>
+      </div>
+    </section>
+
+    <dialog class="media-dialog nearby-approval-dialog" id="nearby-approval-dialog" aria-labelledby="nearby-code-title">
+      <header>
+        <h2 id="nearby-code-title">${t.nearbyCodeTitle}</h2>
+        <button id="nearby-approval-close" type="button" aria-label="${t.close}">${icon("close")}</button>
+      </header>
+      <p>${t.nearbyCodeDetail}</p>
+      <strong id="nearby-confirmation-code">—</strong>
+      <dl id="nearby-approval-detail"></dl>
+      <footer>
+        <button id="nearby-approval-cancel" type="button">${t.nearbyCancel}</button>
+        <button id="nearby-approval-confirm" type="button">${t.nearbyApprove}</button>
+      </footer>
+    </dialog>
+
     <dialog class="media-dialog" id="media-detail-dialog" aria-labelledby="media-detail-title">
       <header>
         <h2 id="media-detail-title">${t.mediaDetails}</h2>
@@ -475,6 +592,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <nav class="destination-tools" aria-label="Application sections">
           <button class="is-active" aria-label="${t.pipeline}">${icon("pipeline")}<span>${t.pipeline}</span></button>
           <button id="open-media" aria-label="${t.media}" aria-controls="media-library" aria-pressed="false">${icon("media")}<span>${t.media}</span></button>
+          <button id="open-nearby" aria-label="${t.nearby}" aria-controls="nearby-library" aria-pressed="false">${icon("nearby")}<span>${t.nearby}</span></button>
           <button aria-label="${t.settings}">${icon("settings")}<span>${t.settings}</span></button>
         </nav>
       </div>
@@ -505,6 +623,16 @@ const mediaEmpty = document.querySelector<HTMLElement>("#media-empty")!;
 const mediaStatus = document.querySelector<HTMLElement>("#media-status")!;
 const mediaButton = document.querySelector<HTMLButtonElement>("#open-media")!;
 const mediaRefresh = document.querySelector<HTMLButtonElement>("#media-refresh")!;
+const nearbyLibrary = document.querySelector<HTMLElement>("#nearby-library")!;
+const nearbyButton = document.querySelector<HTMLButtonElement>("#open-nearby")!;
+const nearbyToggle = document.querySelector<HTMLButtonElement>("#nearby-toggle")!;
+const nearbyRefresh = document.querySelector<HTMLButtonElement>("#nearby-refresh")!;
+const nearbyStatus = document.querySelector<HTMLElement>("#nearby-status")!;
+const nearbyGrid = document.querySelector<HTMLElement>("#nearby-grid")!;
+const nearbyEmpty = document.querySelector<HTMLElement>("#nearby-empty")!;
+const nearbyAsset = document.querySelector<HTMLSelectElement>("#nearby-asset")!;
+const nearbyPrepare = document.querySelector<HTMLButtonElement>("#nearby-prepare")!;
+const nearbyApprovalDialog = document.querySelector<HTMLDialogElement>("#nearby-approval-dialog")!;
 const mediaDetailDialog = document.querySelector<HTMLDialogElement>("#media-detail-dialog")!;
 const mediaDetailContent = document.querySelector<HTMLDListElement>("#media-detail-content")!;
 const mediaDetailDiagnostic = document.querySelector<HTMLParagraphElement>("#media-detail-diagnostic")!;
@@ -523,9 +651,13 @@ let lastOrientationKey: string | undefined;
 let mediaEntries: MediaIndexEntry[] = [];
 let mediaFilter: MediaFilter = "all";
 let selectedMediaEntry: MediaIndexEntry | undefined;
+let nearbySnapshot: NearbyDiscoverySnapshot = { active: false, local_peer: null, peers: [], last_error: null };
+let nearbyPollId: number | undefined;
+let selectedNearbyPeerId: string | undefined;
 const devQuery = new URLSearchParams(window.location.search);
 const recoveryFixtureEnabled = import.meta.env.DEV && devQuery.get("recovery-fixture") === "1";
 const storageLowFixtureEnabled = import.meta.env.DEV && devQuery.get("storage-low") === "1";
+const nearbyFixtureEnabled = import.meta.env.DEV && devQuery.get("nearby-fixture") === "1";
 
 function recoveryFixtureEntries(): MediaIndexEntry[] {
   return [{
@@ -815,6 +947,210 @@ async function closeMediaLibrary(): Promise<void> {
   window.requestAnimationFrame(syncNativePreviewFrame);
 }
 
+function nearbyFixtureSnapshot(active = true): NearbyDiscoverySnapshot {
+  return {
+    active,
+    local_peer: active ? { ephemeral_id: "a19f30c24e81", display_label: null, port: 49172 } : null,
+    peers: active ? [
+      { ephemeral_id: "7bc5d01e94a2", display_label: "Studio B", protocol_version: 1, addresses: ["192.168.1.42"], port: 51309 },
+      { ephemeral_id: "c2028f31aa09", display_label: null, protocol_version: 1, addresses: ["fe80::21a:7dff:fe3c:9081"], port: 49844 }
+    ] : [],
+    last_error: null,
+    approval: nearbySnapshot?.approval ?? null
+  };
+}
+
+function renderNearbySnapshot(): void {
+  nearbyToggle.textContent = nearbySnapshot.active ? t.nearbyStop : t.nearbyStart;
+  nearbyToggle.dataset.state = nearbySnapshot.active ? "active" : "default";
+  document.querySelector<HTMLElement>("#nearby-local-id")!.textContent = nearbySnapshot.local_peer?.ephemeral_id ?? "—";
+  nearbyStatus.textContent = nearbySnapshot.last_error
+    ? nearbySnapshot.last_error
+    : nearbySnapshot.active ? t.nearbySearching : "";
+  nearbyStatus.dataset.state = nearbySnapshot.last_error ? "error" : "default";
+  nearbyEmpty.hidden = nearbySnapshot.peers.length !== 0;
+  nearbyGrid.replaceChildren(...nearbySnapshot.peers.map((peer) => {
+    const article = document.createElement("article");
+    article.className = "nearby-peer";
+    article.classList.toggle("is-selected", selectedNearbyPeerId === peer.ephemeral_id);
+    const heading = document.createElement("div");
+    const label = document.createElement("strong");
+    label.textContent = peer.display_label || `${t.nearby} · ${peer.ephemeral_id.slice(0, 6)}`;
+    const id = document.createElement("code");
+    id.textContent = peer.ephemeral_id;
+    heading.append(label, id);
+    const details = document.createElement("dl");
+    const rows: [string, string][] = [
+      [t.nearbyProtocol, `UFC/${peer.protocol_version}`],
+      [t.nearbyAddress, peer.addresses[0]
+        ? `${peer.addresses[0].includes(":") ? `[${peer.addresses[0]}]` : peer.addresses[0]}:${peer.port}`
+        : `—:${peer.port}`]
+    ];
+    for (const [term, value] of rows) {
+      const row = document.createElement("div");
+      const dt = document.createElement("dt");
+      const dd = document.createElement("dd");
+      dt.textContent = term;
+      dd.textContent = value;
+      row.append(dt, dd);
+      details.append(row);
+    }
+    const select = document.createElement("button");
+    select.type = "button";
+    select.textContent = selectedNearbyPeerId === peer.ephemeral_id ? "✓" : t.nearbyPrepare;
+    select.setAttribute("aria-label", `${t.nearbyPrepare}: ${peer.display_label || peer.ephemeral_id}`);
+    select.setAttribute("aria-pressed", String(selectedNearbyPeerId === peer.ephemeral_id));
+    select.addEventListener("click", () => {
+      selectedNearbyPeerId = peer.ephemeral_id;
+      renderNearbySnapshot();
+      updateNearbyPrepareState();
+    });
+    article.append(heading, details, select);
+    return article;
+  }));
+}
+
+function updateNearbyPrepareState(): void {
+  nearbyPrepare.disabled = !selectedNearbyPeerId || !nearbyAsset.value || !nearbySnapshot.active;
+}
+
+async function loadNearbyAssets(): Promise<void> {
+  try {
+    const entries = nearbyFixtureEnabled ? [{
+      schema_version: 1, id: "UFC-finalized-demo", state: "finalized" as const, media_type: "photo" as const,
+      resource_path: "/captures/UFC-finalized-demo.jpg", asset: null, error: null, updated_at_utc: "2026-08-31T00:00:00Z"
+    }] : await invoke<MediaIndexEntry[]>("get_media_index");
+    const options = entries.filter((entry) => entry.state === "finalized").map((entry) => {
+      const option = document.createElement("option");
+      option.value = entry.id;
+      option.textContent = `${entry.media_type === "photo" ? t.mediaPhoto : t.mediaVideo} · ${mediaFileName(entry.resource_path)}`;
+      return option;
+    });
+    nearbyAsset.replaceChildren(new Option(t.nearbySelectAsset, ""), ...options);
+  } catch (error) {
+    nearbyStatus.textContent = String(error);
+    nearbyStatus.dataset.state = "error";
+  }
+  updateNearbyPrepareState();
+}
+
+function showNearbyApproval(): void {
+  const approval = nearbySnapshot.approval;
+  if (!approval) return;
+  document.querySelector<HTMLElement>("#nearby-confirmation-code")!.textContent = approval.confirmation_code;
+  const details = document.querySelector<HTMLElement>("#nearby-approval-detail")!;
+  details.replaceChildren();
+  for (const [term, value] of [[t.nearbyAsset, `${approval.file_name} · ${bytesLabel(approval.byte_length)}`], [t.nearby, approval.peer_ephemeral_id]]) {
+    const row = document.createElement("div");
+    const dt = document.createElement("dt");
+    const dd = document.createElement("dd");
+    dt.textContent = term;
+    dd.textContent = value;
+    row.append(dt, dd);
+    details.append(row);
+  }
+  const confirm = document.querySelector<HTMLButtonElement>("#nearby-approval-confirm")!;
+  confirm.disabled = approval.local_approved;
+  confirm.textContent = approval.local_approved ? t.nearbyApproved : t.nearbyApprove;
+  if (!nearbyApprovalDialog.open) nearbyApprovalDialog.showModal();
+}
+
+async function prepareNearbyApproval(): Promise<void> {
+  if (!selectedNearbyPeerId || !nearbyAsset.value) return;
+  nearbyPrepare.disabled = true;
+  try {
+    nearbySnapshot = nearbyFixtureEnabled ? {
+      ...nearbySnapshot,
+      approval: { invitation_id: "inv-fixture", peer_ephemeral_id: selectedNearbyPeerId, asset_id: nearbyAsset.value,
+        file_name: "UFC-finalized-demo.jpg", byte_length: 8_421_376, confirmation_code: "482913",
+        expires_at_unix_ms: Date.now() + 120_000, local_approved: false }
+    } : await invoke<NearbyDiscoverySnapshot>("prepare_nearby_approval", {
+      request: { peer_ephemeral_id: selectedNearbyPeerId, asset_id: nearbyAsset.value }
+    });
+    showNearbyApproval();
+  } catch (error) {
+    nearbyStatus.textContent = String(error);
+    nearbyStatus.dataset.state = "error";
+  } finally {
+    updateNearbyPrepareState();
+  }
+}
+
+async function loadNearbyDiscovery(): Promise<void> {
+  nearbyRefresh.disabled = true;
+  try {
+    nearbySnapshot = nearbyFixtureEnabled
+      ? nearbyFixtureSnapshot(nearbySnapshot.active)
+      : await invoke<NearbyDiscoverySnapshot>("get_nearby_discovery");
+  } catch (error) {
+    nearbySnapshot = { ...nearbySnapshot, last_error: String(error) };
+  } finally {
+    nearbyRefresh.disabled = false;
+    renderNearbySnapshot();
+  }
+}
+
+async function setNearbyDiscovery(active: boolean): Promise<void> {
+  nearbyToggle.disabled = true;
+  nearbyToggle.dataset.state = "loading";
+  try {
+    nearbySnapshot = nearbyFixtureEnabled
+      ? nearbyFixtureSnapshot(active)
+      : active
+        ? await invoke<NearbyDiscoverySnapshot>("start_nearby_discovery", { request: { display_label: null, port: 0 } })
+        : await invoke<NearbyDiscoverySnapshot>("stop_nearby_discovery");
+    nearbySnapshot.last_error = null;
+  } catch (error) {
+    nearbySnapshot = { ...nearbySnapshot, last_error: String(error) };
+  } finally {
+    nearbyToggle.disabled = false;
+    renderNearbySnapshot();
+  }
+}
+
+async function openNearbyLibrary(): Promise<void> {
+  if (recording || !nearbyLibrary.hidden) return;
+  if (!mediaLibrary.hidden) await closeMediaLibrary();
+  nearbyButton.disabled = true;
+  if (nativePreviewRunning) {
+    try {
+      await invoke("stop_camera_preview");
+      nativePreviewRunning = false;
+      document.body.classList.remove("has-native-preview");
+    } catch (error) {
+      feedback.textContent = String(error);
+      feedback.classList.add("is-visible");
+      nearbyButton.disabled = false;
+      return;
+    }
+  }
+  monitor.hidden = true;
+  nearbyLibrary.hidden = false;
+  document.body.classList.add("section-nearby");
+  document.querySelectorAll<HTMLButtonElement>(".destination-tools button").forEach((button) => button.classList.remove("is-active"));
+  nearbyButton.classList.add("is-active");
+  nearbyButton.setAttribute("aria-pressed", "true");
+  nearbyButton.disabled = false;
+  await setNearbyDiscovery(true);
+  await loadNearbyAssets();
+  nearbyPollId = window.setInterval(() => void loadNearbyDiscovery(), 1500);
+}
+
+async function closeNearbyLibrary(): Promise<void> {
+  if (nearbyLibrary.hidden) return;
+  if (nearbyPollId !== undefined) window.clearInterval(nearbyPollId);
+  nearbyPollId = undefined;
+  await setNearbyDiscovery(false);
+  nearbyLibrary.hidden = true;
+  monitor.hidden = false;
+  document.body.classList.remove("section-nearby");
+  nearbyButton.classList.remove("is-active");
+  nearbyButton.setAttribute("aria-pressed", "false");
+  document.querySelector<HTMLButtonElement>(".destination-tools button:first-child")?.classList.add("is-active");
+  await refreshCameraDiscovery();
+  window.requestAnimationFrame(syncNativePreviewFrame);
+}
+
 function previewViewport(): PreviewViewport {
   const rect = previewSurface.getBoundingClientRect();
   return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
@@ -1021,7 +1357,7 @@ accessButton.addEventListener("click", async () => {
   }
 });
 
-void refreshCameraDiscovery();
+if (!nearbyFixtureEnabled) void refreshCameraDiscovery();
 
 let resizeFrame: number | undefined;
 let resizeSettleTimer: number | undefined;
@@ -1047,10 +1383,10 @@ screen.orientation?.addEventListener("change", () => void syncNativeOrientation(
 window.addEventListener("orientationchange", () => void syncNativeOrientation());
 
 window.addEventListener("beforeunload", () => {
-  if (!nativePreviewRunning) return;
-  if (recording) {
+  if (nearbySnapshot.active) void invoke("stop_nearby_discovery");
+  if (nativePreviewRunning && recording) {
     void invoke("stop_video_recording").finally(() => invoke("stop_camera_preview"));
-  } else {
+  } else if (nativePreviewRunning) {
     void invoke("stop_camera_preview");
   }
 });
@@ -1191,11 +1527,44 @@ async function selectMode(nextMode: CameraMode): Promise<void> {
 document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
   button.addEventListener("click", async () => {
     if (!mediaLibrary.hidden) await closeMediaLibrary();
+    if (!nearbyLibrary.hidden) await closeNearbyLibrary();
     await selectMode(button.dataset.mode as CameraMode);
   });
 });
 
 mediaButton.addEventListener("click", () => void openMediaLibrary());
+nearbyButton.addEventListener("click", () => void openNearbyLibrary());
+nearbyToggle.addEventListener("click", () => void setNearbyDiscovery(!nearbySnapshot.active));
+nearbyRefresh.addEventListener("click", () => void loadNearbyDiscovery());
+document.querySelector<HTMLButtonElement>("#nearby-back")!.addEventListener("click", () => void closeNearbyLibrary());
+nearbyAsset.addEventListener("change", updateNearbyPrepareState);
+nearbyPrepare.addEventListener("click", () => void prepareNearbyApproval());
+document.querySelector<HTMLButtonElement>("#nearby-approval-close")!.addEventListener("click", () => nearbyApprovalDialog.close());
+document.querySelector<HTMLButtonElement>("#nearby-approval-cancel")!.addEventListener("click", async () => {
+  try {
+    nearbySnapshot = nearbyFixtureEnabled
+      ? { ...nearbySnapshot, approval: null }
+      : await invoke<NearbyDiscoverySnapshot>("cancel_nearby_approval");
+  } finally {
+    nearbyApprovalDialog.close();
+  }
+});
+document.querySelector<HTMLButtonElement>("#nearby-approval-confirm")!.addEventListener("click", async () => {
+  const approval = nearbySnapshot.approval;
+  if (!approval) return;
+  const button = document.querySelector<HTMLButtonElement>("#nearby-approval-confirm")!;
+  button.disabled = true;
+  try {
+    nearbySnapshot = nearbyFixtureEnabled
+      ? { ...nearbySnapshot, approval: { ...approval, local_approved: true } }
+      : await invoke<NearbyDiscoverySnapshot>("approve_nearby_transfer", { confirmationCode: approval.confirmation_code });
+    showNearbyApproval();
+  } catch (error) {
+    nearbyStatus.textContent = String(error);
+    nearbyStatus.dataset.state = "error";
+    button.disabled = false;
+  }
+});
 outputStatus.addEventListener("click", () => {
   renderOutputStatus();
   outputDialog.showModal();
@@ -1430,4 +1799,4 @@ captureButton.addEventListener("click", async () => {
   }, 1600);
 });
 
-void refreshOutputStatus();
+if (!nearbyFixtureEnabled) void refreshOutputStatus();

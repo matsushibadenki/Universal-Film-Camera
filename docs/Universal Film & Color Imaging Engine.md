@@ -2443,4 +2443,18 @@ Still acceptanceではdecode可能、寸法、orientation、embedded color descr
 - [Later] wgpu renderer、OCIO adapter、LUT compiler、GPU conformance runner
 - [Later] Spectral Engine、profile measurement、Film Profile Editor
 - [Done] Nearby共有のephemeral identity、招待、能力交渉、manifest、転送状態機械を`peer-transfer-core`へ実装
-- [Next] CapturedAsset選択とIncomplete受信writer、resume、実file hash、atomic finalizeを接続
+- [Done] Nearby受信のIncomplete writer、durable ACK、resume ledger、実file hash、atomic renameを実装
+- [Done] Nearby Original受信をMedia Incomplete → probe／validation → Finalized／Failedへ接続
+- [Done] Original／Derivative／両方のAsset Transfer Manifest選択modelを実装
+- [Done] Nearby JPEG `StripDeviceAndLocation`の実bytemetadata sanitizerと再hashを実装
+- [Done] 不透明なsanitizer証明型を再probe／byte長／SHA-256照合付きsource manifest builderへ接続
+- [Done] 既存親assetへのDerivative provenance保持finalizeを実装
+- [Done] Original＋Derivative一括受信のID map／依存順序／循環検査付きbundle coordinatorを実装
+- [Done] ChaCha20-Poly1305 chunk frameとdurable prefix hash resume proofを実装
+- [Done] X25519 ephemeral handshake、transcript由来6桁code、HKDF session key導出を実装
+- [Done] OS CSPRNGとbounded encrypted local-network stream adapterへ接続
+- [Done] durable ACK／cancel／disconnect-resume／finalize transport lifecycleを実装
+- [Done] Apple Bonjour互換discovery、TCP listener、Tauri discovery command、三言語permissionを実装
+- [Done] Nearby三言語UIでpeer／Finalized Media選択、実file Manifest、2分Invitation、6桁code比較、local承認を実装
+- [Next] listener accept／outbound connect後のremote offer／相互承認、encrypted transfer task、mobile実機試験
+- [Later] 選択的`StripLocation`とMOV／MP4 metadata sanitizerを実装

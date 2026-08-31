@@ -6,5 +6,11 @@
   <string>Camera access is required for professional photo and video capture.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>Microphone access is required when recording video with sound.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Local network access is used to discover nearby users and transfer approved photos and videos securely.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_ufcamera._tcp</string>
+  </array>
 </dict>
 </plist>

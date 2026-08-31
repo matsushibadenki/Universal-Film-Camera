@@ -1,2 +1,3 @@
 NSCameraUsageDescription = "プロ向けの写真・動画撮影にカメラへのアクセスが必要です。";
 NSMicrophoneUsageDescription = "音声付き動画の収録にマイクへのアクセスが必要です。";
+NSLocalNetworkUsageDescription = "近くのユーザーを見つけ、承認した写真や動画を安全に転送するためにローカルネットワークを使用します。";

@@ -1,6 +1,6 @@
 # Universal Imaging Camera Roadmap
 
-更新日: 2026-08-30
+更新日: 2026-08-31
 対象: macOS / iOS / Android / Windows / Linux  
 正本仕様: [`Universal Film & Color Imaging Engine.md`](Universal%20Film%20%26%20Color%20Imaging%20Engine.md)
 
@@ -196,11 +196,29 @@ Bluetooth LE / Bonjour / Nearby discovery
 - [Done] `peer-transfer-core`のephemeral peer identity、invitation、capability、transfer state machine
 - [Done] version 1 Transfer Manifest、basename／容量／chunk／SHA-256 validation
 - [Done] contiguous ack、cancel、content verification前のFinalized禁止
-- [Next] CapturedAsset original／processed／両方の選択と受信Incomplete lifecycle adapter
-- [Next] chunk payload、resume ledger、実file SHA-256、atomic receive finalize
-- [Later] ephemeral key、end-to-end encryption、双方の短い確認コード
+- [Done] `.incomplete`受信writer、durable contiguous ACK、resume ledger、既存byte再hash
+- [Done] 容量予約、symlink拒否、実file SHA-256、完成先atomic rename
+- [Done] CapturedAsset original／derivative／両方のAsset Transfer Manifest選択model
+- [Done] Original受信のMedia Incomplete → probe → Finalized／Failed lifecycle adapter
+- [Done] JPEGのEXIF／XMP／IPTC／comment／未知APP segmentを実byteから除去し、再hashする`StripDeviceAndLocation` sanitizer
+- [Done] 不透明な`SanitizedJpeg`証明型と再probe／byte長／SHA-256照合をAsset Transfer Manifest source builderへ接続
+- [Done] 既存親assetへのDerivative受信をparent resource ID／render snapshot／engine version／seed保持付きでfinalize
+- [Done] Original＋Derivative一括受信のsource→local resource ID map、依存順序、循環／欠落検査を行うbundle coordinator
+- [Done] ChaCha20-Poly1305 chunk frame、offset／transfer binding、durable prefix hashによるresume proof
+- [Done] X25519 ephemeral key agreement、transcript由来6桁確認code、HKDF-SHA256 session key導出
+- [Done] OS CSPRNG session secret生成とbounded binary frameをTCP stream adapterへ接続
+- [Done] encrypted chunk／resume checkpoint／durable ACKのwire round-tripとoversize事前拒否
+- [Done] stop-and-wait durable ACK、timeout設定、cancel、切断後resume、finalizeを束ねるtransport lifecycle
+- [Done] Apple Bonjour互換mDNS advertise／browse、Apple P2P interface、TCP listener、Tauri discovery commands
+- [Done] Apple local-network／Bonjour permission宣言と英語／日本語／简体中文の用途説明
+- [Done] 撮影previewを停止して開くNearby専用画面、発見開始／停止、短期ID／peer一覧、1.5秒更新、撮影画面復帰を英語／日本語／简体中文で接続
+- [Done] 発見peer＋Finalized Media選択、実file hash済みManifest、2分Invitation、transcript由来6桁code、local明示承認の三言語UI
+- [Next] accepted／outbound TCPでInvitation／Manifest／公開鍵／remote approvalを交換し、双方承認後だけ暗号化sessionへ接続
+- [Next] 暗号化送受信progress／cancel／disconnect-resumeの三言語UI
+- [Next] mobile background／network切替時のdisconnect-resume実機検証
 - [Later] 一定時間だけ受信可能にするvisibilityと自動停止
-- [Later] EXIF位置情報／device metadataの共有範囲を送信前に選択
+- [Later] 選択的`StripLocation` EXIF再構築とMOV／MP4 metadata sanitizer
+- [Later] EXIF位置情報／device metadataの共有範囲を送信前に選択するUI
 - [Later] Apple adapter: Bonjour／local networkと対応OSの近距離API
 - [Later] Android adapter: Nearby ConnectionsまたはBLE＋Wi-Fi経路
 - [Later] Windows adapter: Bluetooth RFCOMM／DNS-SD＋Wi-Fi Direct
