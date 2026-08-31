@@ -3,11 +3,12 @@
 //! AVFoundation session objects remain native and pixel data never crosses
 //! the Tauri IPC boundary.
 
+use camera_core::{
+    AudioCapability, CameraBackend, CameraCapabilities, CameraConfig, CameraDevice, CameraError,
+    CameraMode, CameraSession, CaptureCodec, CaptureContainer, CaptureOutputCapability,
+};
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use camera_core::{CameraAuthorizationStatus, CameraFormatCapability, CaptureOrientation};
-use camera_core::{
-    CameraBackend, CameraCapabilities, CameraConfig, CameraDevice, CameraError, CameraSession,
-};
 
 #[derive(Debug, Default)]
 pub struct AppleCameraBackend;
@@ -32,22 +33,37 @@ pub struct ActiveCameraFormat {
 mod platform {
     use super::*;
     use block2::RcBlock;
+    use dispatch2::{DispatchQueue, DispatchQueueAttr};
     use objc2::rc::Retained;
     use objc2::runtime::{Bool, ProtocolObject};
     use objc2::{AnyThread, DefinedClass, define_class, msg_send};
     use objc2_av_foundation::{
         AVAuthorizationStatus, AVCaptureConnection, AVCaptureDevice,
         AVCaptureDeviceDiscoverySession, AVCaptureDeviceInput, AVCaptureDevicePosition,
+        AVCaptureDeviceTypeBuiltInTelephotoCamera, AVCaptureDeviceTypeBuiltInUltraWideCamera,
         AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureDeviceTypeExternalUnknown,
         AVCaptureExposureMode, AVCaptureFileOutput, AVCaptureFileOutputRecordingDelegate,
         AVCaptureFocusMode, AVCaptureMovieFileOutput, AVCapturePhoto,
         AVCapturePhotoCaptureDelegate, AVCapturePhotoOutput, AVCapturePhotoSettings,
         AVCaptureSession, AVCaptureSessionPreset640x480, AVCaptureSessionPreset1280x720,
         AVCaptureSessionPreset1920x1080, AVCaptureSessionPresetInputPriority,
-        AVCaptureVideoPreviewLayer, AVLayerVideoGravityResizeAspectFill, AVMediaType,
-        AVMediaTypeAudio, AVMediaTypeVideo,
+        AVCaptureOutput, AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate,
+        AVCaptureVideoPreviewLayer, AVCaptureWhiteBalanceMode,
+        AVCaptureWhiteBalanceTemperatureAndTintValues, AVLayerVideoGravityResizeAspectFill,
+        AVMediaType, AVMediaTypeAudio, AVMediaTypeVideo,
     };
-    use objc2_core_media::{CMTimeMakeWithSeconds, CMVideoFormatDescriptionGetDimensions};
+    use objc2_core_media::{
+        CMSampleBuffer, CMTimeGetSeconds, CMTimeMakeWithSeconds,
+        CMVideoFormatDescriptionGetDimensions,
+    };
+    use objc2_core_video::{
+        CVPixelBufferGetBaseAddress, CVPixelBufferGetBaseAddressOfPlane,
+        CVPixelBufferGetBytesPerRow, CVPixelBufferGetBytesPerRowOfPlane,
+        CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType,
+        CVPixelBufferGetWidth, CVPixelBufferGetWidthOfPlane, CVPixelBufferIsPlanar,
+        CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
+        kCVPixelFormatType_32BGRA,
+    };
     use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol, NSString, NSURL};
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -61,6 +77,92 @@ mod platform {
         },
         time::Duration,
     };
+
+    #[derive(Debug, Clone)]
+    pub struct CameraMonitorSnapshot {
+        pub red: Vec<u32>,
+        pub green: Vec<u32>,
+        pub blue: Vec<u32>,
+        pub audio_db: Vec<f32>,
+        pub frame_received: bool,
+    }
+
+    impl Default for CameraMonitorSnapshot {
+        fn default() -> Self {
+            Self {
+                red: vec![0; 32],
+                green: vec![0; 32],
+                blue: vec![0; 32],
+                audio_db: Vec::new(),
+                frame_received: false,
+            }
+        }
+    }
+
+    struct VideoMonitorDelegateIvars {
+        snapshot: Arc<Mutex<CameraMonitorSnapshot>>,
+    }
+
+    define_class!(
+        #[unsafe(super = NSObject)]
+        #[ivars = VideoMonitorDelegateIvars]
+        struct VideoMonitorDelegate;
+
+        unsafe impl NSObjectProtocol for VideoMonitorDelegate {}
+
+        unsafe impl AVCaptureVideoDataOutputSampleBufferDelegate for VideoMonitorDelegate {
+            #[unsafe(method(captureOutput:didOutputSampleBuffer:fromConnection:))]
+            unsafe fn capture_output(
+                &self,
+                _output: &AVCaptureOutput,
+                sample_buffer: &CMSampleBuffer,
+                _connection: &AVCaptureConnection,
+            ) {
+                let Some(buffer) = (unsafe { sample_buffer.image_buffer() }) else { return };
+                let flags = CVPixelBufferLockFlags::ReadOnly;
+                if unsafe { CVPixelBufferLockBaseAddress(&buffer, flags) } != 0 { return; }
+                let planar = CVPixelBufferIsPlanar(&buffer);
+                let width = if planar { CVPixelBufferGetWidthOfPlane(&buffer, 0) } else { CVPixelBufferGetWidth(&buffer) };
+                let height = if planar { CVPixelBufferGetHeightOfPlane(&buffer, 0) } else { CVPixelBufferGetHeight(&buffer) };
+                let row_bytes = if planar { CVPixelBufferGetBytesPerRowOfPlane(&buffer, 0) } else { CVPixelBufferGetBytesPerRow(&buffer) };
+                let base = if planar { CVPixelBufferGetBaseAddressOfPlane(&buffer, 0) } else { CVPixelBufferGetBaseAddress(&buffer) } as *const u8;
+                let is_bgra = CVPixelBufferGetPixelFormatType(&buffer) == kCVPixelFormatType_32BGRA;
+                let mut red = vec![0u32; 32];
+                let mut green = vec![0u32; 32];
+                let mut blue = vec![0u32; 32];
+                if !base.is_null() && width > 0 && height > 0 {
+                    let step_x = (width / 160).max(1);
+                    let step_y = (height / 90).max(1);
+                    for y in (0..height).step_by(step_y) {
+                        let row = unsafe { base.add(y * row_bytes) };
+                        for x in (0..width).step_by(step_x) {
+                            if is_bgra {
+                                let pixel = unsafe { row.add(x * 4) };
+                                blue[usize::from(unsafe { *pixel }) >> 3] += 1;
+                                green[usize::from(unsafe { *pixel.add(1) }) >> 3] += 1;
+                                red[usize::from(unsafe { *pixel.add(2) }) >> 3] += 1;
+                            } else {
+                                let bin = usize::from(unsafe { *row.add(x) }) >> 3;
+                                red[bin] += 1; green[bin] += 1; blue[bin] += 1;
+                            }
+                        }
+                    }
+                }
+                let _ = unsafe { CVPixelBufferUnlockBaseAddress(&buffer, flags) };
+                if let Ok(mut snapshot) = self.ivars().snapshot.lock() {
+                    snapshot.red = red; snapshot.green = green; snapshot.blue = blue;
+                    snapshot.frame_received = true;
+                }
+            }
+        }
+    );
+
+    impl VideoMonitorDelegate {
+        fn new(snapshot: Arc<Mutex<CameraMonitorSnapshot>>) -> Retained<Self> {
+            let this = Self::alloc().set_ivars(VideoMonitorDelegateIvars { snapshot });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
 
     #[derive(Debug)]
     struct PhotoCaptureState {
@@ -218,6 +320,10 @@ mod platform {
         video_device: objc2::rc::Retained<AVCaptureDevice>,
         photo_output: objc2::rc::Retained<AVCapturePhotoOutput>,
         movie_output: objc2::rc::Retained<AVCaptureMovieFileOutput>,
+        _video_data_output: objc2::rc::Retained<AVCaptureVideoDataOutput>,
+        _monitor_delegate: objc2::rc::Retained<VideoMonitorDelegate>,
+        _monitor_queue: dispatch2::DispatchRetained<DispatchQueue>,
+        monitor_snapshot: Arc<Mutex<CameraMonitorSnapshot>>,
         preview_layer: objc2::rc::Retained<AVCaptureVideoPreviewLayer>,
         operation_lock: std::sync::Mutex<()>,
         orientation: std::sync::Mutex<CaptureOrientation>,
@@ -248,6 +354,20 @@ mod platform {
             let session = unsafe { AVCaptureSession::new() };
             let photo_output = unsafe { AVCapturePhotoOutput::new() };
             let movie_output = unsafe { AVCaptureMovieFileOutput::new() };
+            let video_data_output = unsafe { AVCaptureVideoDataOutput::new() };
+            unsafe { video_data_output.setAlwaysDiscardsLateVideoFrames(true) };
+            let monitor_snapshot = Arc::new(Mutex::new(CameraMonitorSnapshot::default()));
+            let monitor_delegate = VideoMonitorDelegate::new(Arc::clone(&monitor_snapshot));
+            let monitor_queue = DispatchQueue::new(
+                "app.universalfilm.camera.monitor",
+                DispatchQueueAttr::SERIAL,
+            );
+            unsafe {
+                video_data_output.setSampleBufferDelegate_queue(
+                    Some(ProtocolObject::from_ref(&*monitor_delegate)),
+                    Some(&monitor_queue),
+                );
+            }
             unsafe {
                 session.beginConfiguration();
                 if !session.canAddInput(&input) {
@@ -271,6 +391,13 @@ mod platform {
                     ));
                 }
                 session.addOutput(&movie_output);
+                if !session.canAddOutput(&video_data_output) {
+                    session.commitConfiguration();
+                    return Err(CameraError(
+                        "video monitoring output is not compatible with the session".into(),
+                    ));
+                }
+                session.addOutput(&video_data_output);
                 session.commitConfiguration();
             }
             // SAFETY: The preview layer retains the configured session.
@@ -283,6 +410,10 @@ mod platform {
                 video_device: device,
                 photo_output,
                 movie_output,
+                _video_data_output: video_data_output,
+                _monitor_delegate: monitor_delegate,
+                _monitor_queue: monitor_queue,
+                monitor_snapshot,
                 preview_layer,
                 operation_lock: std::sync::Mutex::new(()),
                 orientation: std::sync::Mutex::new(CaptureOrientation::default()),
@@ -315,6 +446,17 @@ mod platform {
             unsafe { self.session.isRunning() }
         }
 
+        pub fn monitor_snapshot(&self) -> CameraMonitorSnapshot {
+            let mut snapshot = self.monitor_snapshot.lock().map(|value| value.clone()).unwrap_or_default();
+            if let Some(connection) = unsafe { self.movie_output.connectionWithMediaType(audio_media_type()) } {
+                snapshot.audio_db = unsafe { connection.audioChannels() }
+                    .iter()
+                    .map(|channel| unsafe { channel.averagePowerLevel() })
+                    .collect();
+            }
+            snapshot
+        }
+
         pub fn active_format(&self) -> ActiveCameraFormat {
             // SAFETY: The session retains the device and has completed its
             // configuration before this query. Format objects are immutable.
@@ -335,6 +477,108 @@ mod platform {
                 height: dimensions.height.max(0) as u32,
                 fps,
             }
+        }
+
+        pub fn set_shutter_seconds(&self, seconds: f64) -> Result<f64, CameraError> {
+            if !seconds.is_finite() || seconds <= 0.0 {
+                return Err(CameraError("shutter duration must be positive".into()));
+            }
+            let _guard = self
+                .operation_lock
+                .lock()
+                .map_err(|_| CameraError("capture session lock poisoned".into()))?;
+            if !unsafe {
+                self.video_device
+                    .isExposureModeSupported(AVCaptureExposureMode::Custom)
+            } {
+                return Err(CameraError(
+                    "manual shutter is not supported by this lens".into(),
+                ));
+            }
+            unsafe { self.video_device.lockForConfiguration() }
+                .map_err(|error| CameraError(error.localizedDescription().to_string()))?;
+            let duration = unsafe { CMTimeMakeWithSeconds(seconds, 1_000_000_000) };
+            let iso = unsafe { self.video_device.ISO() };
+            unsafe {
+                self.video_device
+                    .setExposureModeCustomWithDuration_ISO_completionHandler(duration, iso, None);
+                self.video_device.unlockForConfiguration();
+            }
+            Ok(seconds)
+        }
+
+        pub fn set_iso(&self, requested_iso: f32) -> Result<f32, CameraError> {
+            if !requested_iso.is_finite() || requested_iso <= 0.0 {
+                return Err(CameraError("ISO must be positive".into()));
+            }
+            let _guard = self
+                .operation_lock
+                .lock()
+                .map_err(|_| CameraError("capture session lock poisoned".into()))?;
+            if !unsafe {
+                self.video_device
+                    .isExposureModeSupported(AVCaptureExposureMode::Custom)
+            } {
+                return Err(CameraError(
+                    "manual ISO is not supported by this lens".into(),
+                ));
+            }
+            let format = unsafe { self.video_device.activeFormat() };
+            let iso = requested_iso.clamp(unsafe { format.minISO() }, unsafe { format.maxISO() });
+            unsafe { self.video_device.lockForConfiguration() }
+                .map_err(|error| CameraError(error.localizedDescription().to_string()))?;
+            let duration = unsafe { self.video_device.exposureDuration() };
+            unsafe {
+                self.video_device
+                    .setExposureModeCustomWithDuration_ISO_completionHandler(duration, iso, None);
+                self.video_device.unlockForConfiguration();
+            }
+            Ok(iso)
+        }
+
+        pub fn set_white_balance_kelvin(&self, kelvin: f32) -> Result<f32, CameraError> {
+            if !kelvin.is_finite() || !(2_000.0..=10_000.0).contains(&kelvin) {
+                return Err(CameraError(
+                    "white balance must be between 2000K and 10000K".into(),
+                ));
+            }
+            let _guard = self
+                .operation_lock
+                .lock()
+                .map_err(|_| CameraError("capture session lock poisoned".into()))?;
+            if !unsafe {
+                self.video_device
+                    .isWhiteBalanceModeSupported(AVCaptureWhiteBalanceMode::Locked)
+            } || !unsafe {
+                self.video_device
+                    .isLockingWhiteBalanceWithCustomDeviceGainsSupported()
+            } {
+                return Err(CameraError(
+                    "manual white balance is not supported by this lens".into(),
+                ));
+            }
+            let values = AVCaptureWhiteBalanceTemperatureAndTintValues {
+                temperature: kelvin,
+                tint: 0.0,
+            };
+            let mut gains = unsafe {
+                self.video_device
+                    .deviceWhiteBalanceGainsForTemperatureAndTintValues(values)
+            };
+            let max_gain = unsafe { self.video_device.maxWhiteBalanceGain() };
+            gains.redGain = gains.redGain.clamp(1.0, max_gain);
+            gains.greenGain = gains.greenGain.clamp(1.0, max_gain);
+            gains.blueGain = gains.blueGain.clamp(1.0, max_gain);
+            unsafe { self.video_device.lockForConfiguration() }
+                .map_err(|error| CameraError(error.localizedDescription().to_string()))?;
+            unsafe {
+                self.video_device
+                    .setWhiteBalanceModeLockedWithDeviceWhiteBalanceGains_completionHandler(
+                        gains, None,
+                    );
+                self.video_device.unlockForConfiguration();
+            }
+            Ok(kelvin)
         }
 
         pub fn set_active_format(
@@ -836,7 +1080,7 @@ mod platform {
         ) -> Result<IosPreviewHost, CameraError> {
             use objc2::MainThreadMarker;
             use objc2_core_foundation::{CGPoint, CGRect, CGSize};
-            use objc2_ui_kit::UIView;
+            use objc2_ui_kit::{UIColor, UIView};
 
             let mtm = MainThreadMarker::new().ok_or_else(|| {
                 CameraError("preview view must be attached on the main thread".into())
@@ -847,18 +1091,34 @@ mod platform {
             // SAFETY: WKWebView inherits UIView. Tauri owns the parent for the
             // window lifetime and invokes this closure on UIKit's main thread.
             let parent = unsafe { &*(parent_view.cast::<UIView>()) };
-            let frame = CGRect::new(
+            let container = parent
+                .superview()
+                .ok_or_else(|| CameraError("WKWebView has no UIKit container".into()))?;
+            let webview_frame = CGRect::new(
                 CGPoint::new(rect.x, rect.y),
                 CGSize::new(rect.width, rect.height),
             );
+            let frame = parent.convertRect_toView(webview_frame, Some(&container));
             let host = UIView::initWithFrame(mtm.alloc(), frame);
             host.setClipsToBounds(true);
             self.preview_layer.setFrame(host.bounds());
             self.preview_layer.setMasksToBounds(true);
             host.layer().addSublayer(&self.preview_layer);
-            parent.addSubview(&host);
+            // The camera belongs behind WKWebView. The Web surface makes only
+            // its preview rectangle transparent, so guides and menus remain
+            // interactive and render above the native video layer.
+            parent.setOpaque(false);
+            parent.setBackgroundColor(Some(&UIColor::clearColor()));
+            // WKWebView paints through its UIScrollView. Clearing only the
+            // outer WKWebView leaves that scroll surface opaque and hides a
+            // sibling preview layer placed behind it.
+            let scroll_view: Retained<UIView> = unsafe { msg_send![parent, scrollView] };
+            scroll_view.setOpaque(false);
+            scroll_view.setBackgroundColor(Some(&UIColor::clearColor()));
+            container.insertSubview_belowSubview(&host, parent);
             Ok(IosPreviewHost {
                 view: objc2::rc::Retained::into_raw(host) as usize,
+                webview: parent_view as usize,
             })
         }
 
@@ -878,13 +1138,15 @@ mod platform {
             // SAFETY: The retained UIView pointer remains valid until the
             // consuming detach operation balances the retain.
             let view = unsafe { &*(host.view as *mut UIView) };
-            if unsafe { view.superview() }.is_none() {
-                return Err(CameraError("preview host is detached".into()));
-            }
-            view.setFrame(CGRect::new(
+            let container = view
+                .superview()
+                .ok_or_else(|| CameraError("preview host is detached".into()))?;
+            let webview = unsafe { &*(host.webview as *mut UIView) };
+            let webview_frame = CGRect::new(
                 CGPoint::new(rect.x, rect.y),
                 CGSize::new(rect.width, rect.height),
-            ));
+            );
+            view.setFrame(webview.convertRect_toView(webview_frame, Some(&container)));
             self.preview_layer.setFrame(view.bounds());
             Ok(())
         }
@@ -1007,6 +1269,7 @@ mod platform {
     #[derive(Debug, Clone, Copy)]
     pub struct IosPreviewHost {
         view: usize,
+        webview: usize,
     }
 
     #[cfg(target_os = "ios")]
@@ -1102,7 +1365,9 @@ mod platform {
     fn discovery_session() -> objc2::rc::Retained<AVCaptureDeviceDiscoverySession> {
         #[allow(deprecated)]
         let device_types = NSArray::from_slice(&[
+            unsafe { AVCaptureDeviceTypeBuiltInUltraWideCamera },
             unsafe { AVCaptureDeviceTypeBuiltInWideAngleCamera },
+            unsafe { AVCaptureDeviceTypeBuiltInTelephotoCamera },
             unsafe { AVCaptureDeviceTypeExternalUnknown },
         ]);
         // SAFETY: The device type array contains AVFoundation constants and
@@ -1217,6 +1482,19 @@ mod platform {
             }
             let manual_shutter =
                 unsafe { device.isExposureModeSupported(AVCaptureExposureMode::Custom) };
+            let aperture = unsafe { device.lensAperture() };
+            let shutter_seconds = unsafe { CMTimeGetSeconds(device.exposureDuration()) };
+            let manual_white_balance = unsafe {
+                device.isWhiteBalanceModeSupported(AVCaptureWhiteBalanceMode::Locked)
+                    && device.isLockingWhiteBalanceWithCustomDeviceGainsSupported()
+            };
+            let white_balance = unsafe {
+                device
+                    .temperatureAndTintValuesForDeviceWhiteBalanceGains(
+                        device.deviceWhiteBalanceGains(),
+                    )
+                    .temperature
+            };
             Ok(CameraCapabilities {
                 supports_still: true,
                 supports_video: true,
@@ -1235,9 +1513,42 @@ mod platform {
                     .then_some((min_iso, max_iso)),
                 manual_shutter,
                 manual_focus: unsafe { device.isFocusModeSupported(AVCaptureFocusMode::Locked) },
+                lens_label: Some(unsafe { device.localizedName() }.to_string()),
+                lens_aperture: (aperture.is_finite() && aperture > 0.0).then_some(aperture),
+                current_shutter_seconds: (shutter_seconds.is_finite() && shutter_seconds > 0.0)
+                    .then_some(shutter_seconds),
+                current_iso: Some(unsafe { device.ISO() }),
+                manual_white_balance,
+                current_white_balance_kelvin: (white_balance.is_finite() && white_balance > 0.0)
+                    .then_some(white_balance),
                 raw_photo: false,
                 log_video: false,
                 hdr_video: false,
+                output_formats: vec![
+                    CaptureOutputCapability {
+                        id: "jpeg_high".into(),
+                        mode: CameraMode::Still,
+                        container: CaptureContainer::Jpeg,
+                        video_or_still_codec: CaptureCodec::Jpeg,
+                        bit_depths: vec![8],
+                        bitrate_range_bps: None,
+                        audio: None,
+                    },
+                    CaptureOutputCapability {
+                        id: "h264_aac_balanced".into(),
+                        mode: CameraMode::Video,
+                        container: CaptureContainer::QuickTime,
+                        video_or_still_codec: CaptureCodec::H264,
+                        bit_depths: vec![8],
+                        bitrate_range_bps: Some((8_000_000, 80_000_000)),
+                        audio: Some(AudioCapability {
+                            codec: CaptureCodec::Aac,
+                            sample_rates_hz: vec![48_000],
+                            channel_counts: vec![1, 2],
+                            bitrate_range_bps: Some((64_000, 320_000)),
+                        }),
+                    },
+                ],
             })
         }
 
@@ -1269,7 +1580,7 @@ mod platform {
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-pub use platform::AppleCaptureSession;
+pub use platform::{AppleCaptureSession, CameraMonitorSnapshot};
 
 #[cfg(target_os = "macos")]
 pub use platform::MacPreviewHost;

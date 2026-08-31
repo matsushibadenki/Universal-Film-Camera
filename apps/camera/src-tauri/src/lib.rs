@@ -17,6 +17,7 @@ use camera_core::CameraBackend;
 use camera_core::{
     CameraAuthorizationStatus, CameraCapabilities, CameraController, CameraDevice, CameraMode,
     CameraState, CaptureOrientation, CapturedAsset, MediaIndex, MediaIndexEntry,
+    RecoverableCleanupCandidate,
 };
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
 use camera_core::{
@@ -139,6 +140,71 @@ struct PreviewStatus {
     format_restored: bool,
     settings_warning: Option<String>,
     orientation: CaptureOrientation,
+}
+
+#[derive(Serialize)]
+struct CameraRuntimeHealth {
+    preview_attached: bool,
+    session_running: bool,
+    recording_pending: bool,
+}
+
+#[derive(Serialize)]
+struct CameraMonitorSnapshot {
+    red: Vec<u32>,
+    green: Vec<u32>,
+    blue: Vec<u32>,
+    audio_db: Vec<f32>,
+    frame_received: bool,
+}
+
+#[tauri::command]
+fn get_camera_monitor_snapshot(state: tauri::State<'_, AppState>) -> CameraMonitorSnapshot {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let snapshot = state.preview.lock().ok()
+            .and_then(|preview| preview.as_ref().map(|runtime| runtime.session.monitor_snapshot()))
+            .unwrap_or_default();
+        return CameraMonitorSnapshot {
+            red: snapshot.red,
+            green: snapshot.green,
+            blue: snapshot.blue,
+            audio_db: snapshot.audio_db,
+            frame_received: snapshot.frame_received,
+        };
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        let _ = state;
+        CameraMonitorSnapshot { red: vec![], green: vec![], blue: vec![], audio_db: vec![], frame_received: false }
+    }
+}
+
+#[tauri::command]
+fn get_camera_runtime_health(state: tauri::State<'_, AppState>) -> CameraRuntimeHealth {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let preview = state.preview.lock().ok();
+        let runtime = preview.as_ref().and_then(|slot| slot.as_ref());
+        return CameraRuntimeHealth {
+            preview_attached: runtime.is_some(),
+            session_running: runtime.is_some_and(|runtime| runtime.session.is_running()),
+            recording_pending: state
+                .pending_movie
+                .lock()
+                .map(|pending| pending.is_some())
+                .unwrap_or(false),
+        };
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        let _ = state;
+        CameraRuntimeHealth {
+            preview_attached: false,
+            session_running: false,
+            recording_pending: false,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -385,6 +451,32 @@ fn cleanup_media_entry(app: tauri::AppHandle, id: String) -> Result<Vec<MediaInd
     index.list().map_err(|error| error.to_string())
 }
 
+const RECOVERABLE_RETENTION_DAYS: u64 = 7;
+
+#[tauri::command]
+fn get_recoverable_cleanup_candidates(
+    app: tauri::AppHandle,
+) -> Result<Vec<RecoverableCleanupCandidate>, String> {
+    MediaIndex::new(captures_directory(&app)?)
+        .cleanup_candidates(
+            SystemTime::now(),
+            std::time::Duration::from_secs(RECOVERABLE_RETENTION_DAYS * 24 * 60 * 60),
+        )
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn cleanup_media_entries(
+    app: tauri::AppHandle,
+    ids: Vec<String>,
+) -> Result<Vec<MediaIndexEntry>, String> {
+    let index = MediaIndex::new(captures_directory(&app)?);
+    index
+        .cleanup_recoverable_many(&ids)
+        .map_err(|error| error.to_string())?;
+    index.list().map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn reinspect_media_entry(
     app: tauri::AppHandle,
@@ -571,6 +663,98 @@ async fn apply_camera_format(
     {
         let _ = (width, height, fps, app, state);
         Err("camera format selection is not implemented on this platform yet".into())
+    }
+}
+
+#[tauri::command]
+async fn set_camera_shutter(
+    seconds: f64,
+    state: tauri::State<'_, AppState>,
+) -> Result<f64, String> {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let session = {
+            let preview = state
+                .preview
+                .lock()
+                .map_err(|_| "preview state lock poisoned")?;
+            Arc::clone(
+                &preview
+                    .as_ref()
+                    .ok_or("camera preview is not running")?
+                    .session,
+            )
+        };
+        return tauri::async_runtime::spawn_blocking(move || session.set_shutter_seconds(seconds))
+            .await
+            .map_err(|error| format!("camera shutter task failed: {error}"))?
+            .map_err(|error| error.to_string());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        let _ = (seconds, state);
+        Err("manual shutter is not implemented on this platform".into())
+    }
+}
+
+#[tauri::command]
+async fn set_camera_white_balance(
+    kelvin: f32,
+    state: tauri::State<'_, AppState>,
+) -> Result<f32, String> {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let session = {
+            let preview = state
+                .preview
+                .lock()
+                .map_err(|_| "preview state lock poisoned")?;
+            Arc::clone(
+                &preview
+                    .as_ref()
+                    .ok_or("camera preview is not running")?
+                    .session,
+            )
+        };
+        return tauri::async_runtime::spawn_blocking(move || {
+            session.set_white_balance_kelvin(kelvin)
+        })
+        .await
+        .map_err(|error| format!("camera white balance task failed: {error}"))?
+        .map_err(|error| error.to_string());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        let _ = (kelvin, state);
+        Err("manual white balance is not implemented on this platform".into())
+    }
+}
+
+#[tauri::command]
+async fn set_camera_iso(iso: f32, state: tauri::State<'_, AppState>) -> Result<f32, String> {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let session = {
+            let preview = state
+                .preview
+                .lock()
+                .map_err(|_| "preview state lock poisoned")?;
+            Arc::clone(
+                &preview
+                    .as_ref()
+                    .ok_or("camera preview is not running")?
+                    .session,
+            )
+        };
+        return tauri::async_runtime::spawn_blocking(move || session.set_iso(iso))
+            .await
+            .map_err(|error| format!("camera ISO task failed: {error}"))?
+            .map_err(|error| error.to_string());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        let _ = (iso, state);
+        Err("manual ISO is not implemented on this platform".into())
     }
 }
 
@@ -787,7 +971,11 @@ async fn start_camera_preview(
 
         let requested_id = device_id.clone();
         let session = tauri::async_runtime::spawn_blocking(move || {
-            AppleCaptureSession::new(&requested_id).map(Arc::new)
+            let session = AppleCaptureSession::new(&requested_id)?;
+            // Audio metering needs a live audio connection before recording.
+            // Lack of microphone authorization must not block still preview.
+            let _ = session.enable_audio_input();
+            Ok::<_, camera_core::CameraError>(Arc::new(session))
         })
         .await
         .map_err(|error| format!("camera configuration task failed: {error}"))?
@@ -1631,9 +1819,14 @@ pub fn run() {
         .manage(NearbyDiscoveryState::default())
         .invoke_handler(tauri::generate_handler![
             get_camera_status,
+            get_camera_runtime_health,
+            get_camera_monitor_snapshot,
             get_camera_discovery,
             get_camera_capabilities,
             apply_camera_format,
+            set_camera_shutter,
+            set_camera_white_balance,
+            set_camera_iso,
             request_camera_authorization,
             get_microphone_authorization,
             request_microphone_authorization,
@@ -1651,6 +1844,8 @@ pub fn run() {
             get_media_index,
             reconcile_media_index,
             cleanup_media_entry,
+            get_recoverable_cleanup_candidates,
+            cleanup_media_entries,
             reinspect_media_entry,
             start_nearby_discovery,
             get_nearby_discovery,

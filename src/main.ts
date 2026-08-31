@@ -1,12 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./style.css";
 
 type CameraMode = "still" | "video";
 type Locale = "en" | "ja" | "zh-CN";
 type Tool = "focus" | "zebra" | "guides" | "scope";
+type CameraMonitorSnapshot = { red: number[]; green: number[]; blue: number[]; audio_db: number[]; frame_received: boolean };
 type CameraAuthorization = "not_determined" | "restricted" | "denied" | "authorized" | "unavailable";
 type CameraDevice = { id: string; label: string; position: "front" | "back" | "external" | "unspecified" };
 type CameraDiscovery = { authorization: CameraAuthorization; devices: CameraDevice[] };
+type CameraRuntimeHealth = { preview_attached: boolean; session_running: boolean; recording_pending: boolean };
 type CameraCapabilities = {
   supports_still: boolean;
   supports_video: boolean;
@@ -17,6 +20,12 @@ type CameraCapabilities = {
   manual_iso: [number, number] | null;
   manual_shutter: boolean;
   manual_focus: boolean;
+  lens_label?: string | null;
+  lens_aperture?: number | null;
+  current_shutter_seconds?: number | null;
+  current_iso?: number | null;
+  manual_white_balance?: boolean;
+  current_white_balance_kelvin?: number | null;
   raw_photo: boolean;
   log_video: boolean;
   hdr_video: boolean;
@@ -93,6 +102,7 @@ type MediaIndexEntry = {
   error: string | null;
   updated_at_utc: string;
 };
+type RecoverableCleanupCandidate = { entry: MediaIndexEntry; age_seconds: number; retention_expired: boolean };
 type MediaFilter = "all" | MediaState;
 type CaptureOutputPreset = {
   id: string;
@@ -214,6 +224,8 @@ type Copy = {
   mediaReinspecting: string;
   mediaReinspectFailed: string;
   mediaRecapture: string;
+  mediaCleanupExpired: string;
+  mediaCleanupExpiredPrompt: string;
   output: string;
   outputPreset: string;
   storageRemaining: string;
@@ -297,7 +309,7 @@ const copy: Record<Locale, Copy> = {
     mediaCleanupTitle: "Remove recoverable media?", mediaCleanupPrompt: "This permanently removes the incomplete or failed resource and its diagnostic manifest.",
     mediaCleanupConfirm: "Remove file", mediaCleanupCancel: "Keep file", mediaCleanupFailed: "The recoverable media could not be removed.",
     mediaReinspect: "Reinspect file", mediaReinspecting: "Reinspecting media…", mediaReinspectFailed: "The media could not be reinspected.",
-    mediaRecapture: "Recapture"
+    mediaRecapture: "Recapture", mediaCleanupExpired: "Review expired recovery files", mediaCleanupExpiredPrompt: "Remove all selected recovery files older than 7 days? Finalized media is protected."
     , output: "Output", outputPreset: "Output preset", storageRemaining: "Storage remaining",
     estimatedCapacity: "Estimated capacity", photosRemaining: "photos", minutesRemaining: "minutes", storageUnavailable: "Storage information unavailable", storageLow: "Not enough free space", storageAutoStop: "Recording stopped safely because storage is low",
     nearby: "Nearby", nearbyTitle: "Nearby Share", nearbySubtitle: "Discover nearby Universal Film Camera users",
@@ -352,7 +364,7 @@ const copy: Record<Locale, Copy> = {
     mediaCleanupTitle: "復旧対象メディアを削除しますか？", mediaCleanupPrompt: "未完了または失敗したリソースと診断マニフェストを完全に削除します。",
     mediaCleanupConfirm: "ファイルを削除", mediaCleanupCancel: "ファイルを残す", mediaCleanupFailed: "復旧対象メディアを削除できませんでした。",
     mediaReinspect: "ファイルを再検査", mediaReinspecting: "メディアを再検査しています…", mediaReinspectFailed: "メディアを再検査できませんでした。",
-    mediaRecapture: "再撮影"
+    mediaRecapture: "再撮影", mediaCleanupExpired: "期限切れ復旧ファイルを確認", mediaCleanupExpiredPrompt: "7日を超えた復旧ファイルをすべて削除しますか？完了済みメディアは保護されます。"
     , output: "出力", outputPreset: "出力プリセット", storageRemaining: "残容量",
     estimatedCapacity: "推定撮影可能量", photosRemaining: "枚", minutesRemaining: "分", storageUnavailable: "残容量を取得できません", storageLow: "空き容量が不足しています", storageAutoStop: "空き容量が少ないため安全に録画を停止しました",
     nearby: "近距離共有", nearbyTitle: "近距離共有", nearbySubtitle: "近くのUniversal Film Cameraユーザーを検出",
@@ -407,7 +419,7 @@ const copy: Record<Locale, Copy> = {
     mediaCleanupTitle: "删除可恢复媒体？", mediaCleanupPrompt: "这将永久删除未完成或失败的资源及其诊断清单。",
     mediaCleanupConfirm: "删除文件", mediaCleanupCancel: "保留文件", mediaCleanupFailed: "无法删除可恢复媒体。",
     mediaReinspect: "重新检查文件", mediaReinspecting: "正在重新检查媒体…", mediaReinspectFailed: "无法重新检查媒体。",
-    mediaRecapture: "重新拍摄"
+    mediaRecapture: "重新拍摄", mediaCleanupExpired: "检查过期恢复文件", mediaCleanupExpiredPrompt: "删除所有超过7天的恢复文件吗？已完成媒体会受到保护。"
     , output: "输出", outputPreset: "输出预设", storageRemaining: "剩余容量",
     estimatedCapacity: "预计可拍摄量", photosRemaining: "张照片", minutesRemaining: "分钟", storageUnavailable: "无法获取存储信息", storageLow: "可用存储空间不足", storageAutoStop: "存储空间不足，已安全停止录制",
     nearby: "附近共享", nearbyTitle: "附近共享", nearbySubtitle: "发现附近的 Universal Film Camera 用户",
@@ -476,6 +488,8 @@ let storageCheckPending = false;
 let recordingStopPending = false;
 let recordingPausedByLifecycle = false;
 let currentCapabilities: CameraCapabilities | undefined;
+let adjustmentParameter: "lens" | "iris" | "shutter" | "ei" | "wb" | undefined;
+let availableDevices: CameraDevice[] = [];
 let outputPresets: CaptureOutputPresets | undefined;
 let storageStatus: CaptureStorageStatus | undefined;
 
@@ -505,6 +519,11 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
           <button id="format-apply" type="button">${t.apply}</button>
           <button id="format-close" type="button" aria-label="${t.close}">${icon("close")}</button>
         </section>
+        <section class="quick-adjust" id="quick-adjust" hidden aria-live="polite">
+          <div><span id="adjust-label">EI</span><strong id="adjust-value">400</strong></div>
+          <select id="adjust-select" aria-label="${t.adjust}"></select>
+          <button id="adjust-close" aria-label="${t.close}">${icon("close")}</button>
+        </section>
       </div>
 
       <div class="preview-surface">
@@ -521,23 +540,17 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 
         <section class="histogram" aria-label="RGB histogram">
           <svg viewBox="0 0 132 44" role="img" aria-label="RGB histogram unavailable">
-            <path class="hist-red" d="M2 41 16 37 27 39 38 25 49 35 61 19 71 38 86 32 98 40 112 28 130 41Z"/>
-            <path class="hist-green" d="M2 41 15 40 29 31 40 38 55 16 68 26 81 17 94 36 108 33 119 39 130 41Z"/>
-            <path class="hist-blue" d="M2 41 18 36 33 18 45 30 58 8 71 25 84 34 97 21 112 37 130 41Z"/>
+            <path id="hist-red" class="hist-red" d="M2 41H130V41Z"/>
+            <path id="hist-green" class="hist-green" d="M2 41H130V41Z"/>
+            <path id="hist-blue" class="hist-blue" d="M2 41H130V41Z"/>
           </svg>
           <span>HIST</span>
         </section>
 
         <section class="audio-meter" aria-label="Audio meters">
-          <div><span>1</span><i style="--level: 68%"></i></div>
-          <div><span>2</span><i style="--level: 54%"></i></div>
+          <div><span>1</span><i id="audio-level-1" style="--level: 0%"></i></div>
+          <div><span>2</span><i id="audio-level-2" style="--level: 0%"></i></div>
           <small>−48&nbsp;&nbsp;−24&nbsp;&nbsp;−12&nbsp;&nbsp;0</small>
-        </section>
-
-        <section class="quick-adjust" id="quick-adjust" hidden aria-live="polite">
-          <div><span id="adjust-label">EI</span><strong id="adjust-value">400</strong></div>
-          <input id="adjust-range" type="range" min="0" max="100" value="50" aria-label="${t.adjust}" />
-          <button id="adjust-close" aria-label="${t.close}">${icon("close")}</button>
         </section>
 
         <div class="capture-feedback" id="capture-feedback" role="status">${t.captured}</div>
@@ -551,6 +564,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
           <p>${t.mediaSubtitle}</p>
         </div>
         <div class="media-header-actions">
+          <button id="media-cleanup-expired" type="button" hidden>${icon("close")}<span>${t.mediaCleanupExpired}</span></button>
           <button id="media-refresh" type="button" aria-label="${t.mediaRefresh}">${icon("media")}<span>${t.mediaRefresh}</span></button>
           <button id="media-back" type="button" aria-label="${t.mediaBack}">${icon("close")}<span>${t.mediaBack}</span></button>
         </div>
@@ -719,6 +733,7 @@ const mediaEmpty = document.querySelector<HTMLElement>("#media-empty")!;
 const mediaStatus = document.querySelector<HTMLElement>("#media-status")!;
 const mediaButton = document.querySelector<HTMLButtonElement>("#open-media")!;
 const mediaRefresh = document.querySelector<HTMLButtonElement>("#media-refresh")!;
+const mediaCleanupExpired = document.querySelector<HTMLButtonElement>("#media-cleanup-expired")!;
 const nearbyLibrary = document.querySelector<HTMLElement>("#nearby-library")!;
 const nearbyButton = document.querySelector<HTMLButtonElement>("#open-nearby")!;
 const nearbyToggle = document.querySelector<HTMLButtonElement>("#nearby-toggle")!;
@@ -742,17 +757,66 @@ const outputStatus = document.querySelector<HTMLButtonElement>("#output-status")
 const outputDialog = document.querySelector<HTMLDialogElement>("#output-dialog")!;
 let nativePreviewRunning = false;
 let nativePreviewStarting = false;
+let monitorTelemetryPending = false;
 let activeDeviceId: string | undefined;
 let activeDevicePosition: CameraDevice["position"] | undefined;
 let lastOrientationKey: string | undefined;
 let mediaEntries: MediaIndexEntry[] = [];
 let mediaFilter: MediaFilter = "all";
 let selectedMediaEntry: MediaIndexEntry | undefined;
+let pendingBulkCleanupIds: string[] = [];
+let bulkCleanupRequested = false;
 let nearbySnapshot: NearbyDiscoverySnapshot = { active: false, local_peer: null, peers: [], last_error: null };
 let nearbyPollId: number | undefined;
 let selectedNearbyPeerId: string | undefined;
+
+function setNativePreviewCompositing(active: boolean): void {
+  document.documentElement.classList.toggle("has-native-preview", active);
+  document.body.classList.toggle("has-native-preview", active);
+}
+
+function histogramPath(values: number[]): string {
+  if (!values.length) return "M2 41H130V41Z";
+  const peak = Math.max(1, ...values);
+  const points = values.map((value, index) => {
+    const x = 2 + (128 * index) / Math.max(1, values.length - 1);
+    const y = 41 - (38 * Math.sqrt(value / peak));
+    return `${x.toFixed(1)} ${y.toFixed(1)}`;
+  });
+  return `M2 41 L${points.join(" L")} L130 41Z`;
+}
+
+function audioLevelPercent(db: number | undefined): string {
+  if (db === undefined || !Number.isFinite(db)) return "0%";
+  return `${Math.max(0, Math.min(100, ((db + 60) / 60) * 100)).toFixed(1)}%`;
+}
+
+async function updateMonitorTelemetry(): Promise<void> {
+  if (!nativePreviewRunning || monitorTelemetryPending || document.hidden) return;
+  monitorTelemetryPending = true;
+  try {
+    const snapshot = await invoke<CameraMonitorSnapshot>("get_camera_monitor_snapshot");
+    if (snapshot.frame_received) {
+      document.querySelector<SVGPathElement>("#hist-red")!.setAttribute("d", histogramPath(snapshot.red));
+      document.querySelector<SVGPathElement>("#hist-green")!.setAttribute("d", histogramPath(snapshot.green));
+      document.querySelector<SVGPathElement>("#hist-blue")!.setAttribute("d", histogramPath(snapshot.blue));
+    }
+    const channels = snapshot.audio_db.length === 1
+      ? [snapshot.audio_db[0], snapshot.audio_db[0]]
+      : snapshot.audio_db;
+    document.querySelector<HTMLElement>("#audio-level-1")!.style.setProperty("--level", audioLevelPercent(channels[0]));
+    document.querySelector<HTMLElement>("#audio-level-2")!.style.setProperty("--level", audioLevelPercent(channels[1]));
+  } catch {
+    // Browser fixtures and unsupported platforms have no native telemetry IPC.
+  } finally {
+    monitorTelemetryPending = false;
+  }
+}
+
+window.setInterval(() => void updateMonitorTelemetry(), 150);
 const devQuery = new URLSearchParams(window.location.search);
 const recoveryFixtureEnabled = import.meta.env.DEV && devQuery.get("recovery-fixture") === "1";
+const controlFixtureEnabled = import.meta.env.DEV && devQuery.get("control-fixture") === "1";
 const storageLowFixtureEnabled = import.meta.env.DEV && devQuery.get("storage-low") === "1";
 const nearbyFixtureEnabled = import.meta.env.DEV && devQuery.get("nearby-fixture") === "1";
 const nearbyRetryFixtureEnabled = nearbyFixtureEnabled && devQuery.get("nearby-retry") === "1";
@@ -982,6 +1046,17 @@ function renderMediaIndex(): void {
   });
 }
 
+async function refreshCleanupCandidateCount(): Promise<void> {
+  const candidates = recoveryFixtureEnabled
+    ? recoveryFixtureEntries().filter((entry) => entry.state !== "finalized").map((entry) => ({ entry, age_seconds: 8 * 86_400, retention_expired: true }))
+    : await invoke<RecoverableCleanupCandidate[]>("get_recoverable_cleanup_candidates");
+  pendingBulkCleanupIds = candidates
+    .filter((candidate) => candidate.retention_expired)
+    .map((candidate) => candidate.entry.id);
+  mediaCleanupExpired.hidden = pendingBulkCleanupIds.length === 0;
+  mediaCleanupExpired.querySelector("span")!.textContent = `${t.mediaCleanupExpired} · ${pendingBulkCleanupIds.length}`;
+}
+
 async function loadMediaIndex(): Promise<void> {
   mediaLibrary.setAttribute("aria-busy", "true");
   mediaRefresh.disabled = true;
@@ -993,6 +1068,7 @@ async function loadMediaIndex(): Promise<void> {
       ? recoveryFixtureEntries()
       : await invoke<MediaIndexEntry[]>("reconcile_media_index");
     mediaEntries.sort((a, b) => b.updated_at_utc.localeCompare(a.updated_at_utc));
+    await refreshCleanupCandidateCount();
     mediaStatus.textContent = "";
     mediaRefresh.dataset.state = "success";
     renderMediaIndex();
@@ -1003,6 +1079,8 @@ async function loadMediaIndex(): Promise<void> {
     mediaStatus.textContent = `${t.mediaLoadFailed} ${String(error)}`;
     mediaStatus.dataset.state = "error";
     mediaRefresh.dataset.state = "error";
+    mediaCleanupExpired.hidden = true;
+    pendingBulkCleanupIds = [];
   } finally {
     mediaLibrary.removeAttribute("aria-busy");
     mediaRefresh.disabled = false;
@@ -1017,7 +1095,7 @@ async function openMediaLibrary(): Promise<void> {
     try {
       await invoke("stop_camera_preview");
       nativePreviewRunning = false;
-      document.body.classList.remove("has-native-preview");
+      setNativePreviewCompositing(false);
     } catch (error) {
       feedback.textContent = `${t.mediaLoadFailed} ${String(error)}`;
       feedback.classList.add("is-visible");
@@ -1280,7 +1358,7 @@ async function openNearbyLibrary(): Promise<void> {
     try {
       await invoke("stop_camera_preview");
       nativePreviewRunning = false;
-      document.body.classList.remove("has-native-preview");
+      setNativePreviewCompositing(false);
     } catch (error) {
       feedback.textContent = String(error);
       feedback.classList.add("is-visible");
@@ -1370,7 +1448,8 @@ function populateFrameRates(preferred?: number): void {
   formatFps.replaceChildren(...(format?.frame_rates ?? []).map((fps) => {
     const option = document.createElement("option");
     option.value = String(fps);
-    option.textContent = `${fps} FPS`;
+    const cadence = fps === 24 ? "CINEMA" : fps === 25 ? "PAL" : fps === 30 ? "NTSC" : fps >= 50 ? "HFR" : "";
+    option.textContent = `${fps} fps${cadence ? ` · ${cadence}` : ""}`;
     return option;
   }));
   if (preferred && format?.frame_rates.includes(preferred)) formatFps.value = String(preferred);
@@ -1384,7 +1463,7 @@ function populateFormatPanel(capabilities: CameraCapabilities): void {
   formatResolution.replaceChildren(...formats.map((format) => {
     const option = document.createElement("option");
     option.value = `${format.width}x${format.height}`;
-    option.textContent = `${resolutionLabel(format.width, format.height)} · ${format.width}×${format.height}`;
+    option.textContent = `${format.width} × ${format.height} · ${resolutionLabel(format.width, format.height)}`;
     return option;
   }));
   populateFrameRates();
@@ -1397,15 +1476,23 @@ function applyCapabilities(capabilities: CameraCapabilities): void {
   const iris = document.querySelector<HTMLButtonElement>('[data-parameter="iris"]')!;
   const ei = document.querySelector<HTMLButtonElement>('[data-parameter="ei"]')!;
   const wb = document.querySelector<HTMLButtonElement>('[data-parameter="wb"]')!;
-  lens.disabled = true;
+  lens.disabled = availableDevices.length === 0;
   fpsControl.disabled = capabilities.formats.length === 0;
-  iris.disabled = true;
-  wb.disabled = true;
-  lens.querySelector("strong")!.textContent = "—";
-  iris.querySelector("strong")!.textContent = "—";
-  wb.querySelector("strong")!.textContent = "AUTO";
+  iris.disabled = false;
+  wb.disabled = !capabilities.manual_white_balance;
+  lens.querySelector("strong")!.textContent = capabilities.lens_label ?? "FIXED";
+  iris.querySelector("strong")!.textContent = capabilities.lens_aperture
+    ? `ƒ/${capabilities.lens_aperture.toFixed(1)}` : "FIXED";
+  const shutterSeconds = capabilities.current_shutter_seconds;
+  if (shutterSeconds && shutterSeconds > 0) {
+    shutter.querySelector("strong")!.textContent = `1/${Math.max(1, Math.round(1 / shutterSeconds))}`;
+  }
+  const wbKelvin = capabilities.current_white_balance_kelvin;
+  wb.querySelector("strong")!.textContent = wbKelvin
+    ? `${Math.round(wbKelvin / 50) * 50}K` : "AUTO";
   shutter.disabled = !capabilities.manual_shutter;
   ei.disabled = capabilities.manual_iso === null;
+  if (capabilities.current_iso) ei.querySelector("strong")!.textContent = String(Math.round(capabilities.current_iso));
   if (!capabilities.manual_shutter) shutter.querySelector("strong")!.textContent = "AUTO";
   if (capabilities.manual_iso === null) ei.querySelector("strong")!.textContent = "AUTO";
   if (ei.disabled) {
@@ -1431,8 +1518,10 @@ function applyActiveFormat(format: PreviewStatus["active_format"]): void {
   }
 }
 
-async function startNativePreview(result: CameraDiscovery): Promise<void> {
-  const device = result.authorization === "authorized" ? result.devices[0] : undefined;
+async function startNativePreview(result: CameraDiscovery, preferredDeviceId?: string): Promise<void> {
+  const device = result.authorization === "authorized"
+    ? result.devices.find((candidate) => candidate.id === preferredDeviceId) ?? result.devices[0]
+    : undefined;
   if (!device || nativePreviewStarting || (nativePreviewRunning && activeDeviceId === device.id)) return;
   nativePreviewStarting = true;
   signalMessage.textContent = t.previewStarting;
@@ -1455,7 +1544,7 @@ async function startNativePreview(result: CameraDiscovery): Promise<void> {
       feedback.classList.add("is-visible");
       window.setTimeout(() => feedback.classList.remove("is-visible"), 5000);
     }
-    document.body.classList.toggle("has-native-preview", status.running);
+    setNativePreviewCompositing(status.running);
     captureButton.disabled = !status.running || mode === "video" || !storageAllowsCapture();
   } catch (error) {
     signalTitle.textContent = t.previewFailed;
@@ -1466,6 +1555,7 @@ async function startNativePreview(result: CameraDiscovery): Promise<void> {
 }
 
 function renderDiscovery(result: CameraDiscovery): void {
+  availableDevices = result.devices;
   accessButton.hidden = true;
   captureButton.disabled = true;
   if (result.authorization === "not_determined") {
@@ -1499,6 +1589,23 @@ function renderDiscovery(result: CameraDiscovery): void {
 }
 
 async function refreshCameraDiscovery(): Promise<void> {
+  if (controlFixtureEnabled) {
+    availableDevices = [
+      { id: "ultra", label: "Ultra Wide 13mm", position: "back" },
+      { id: "wide", label: "Wide 26mm", position: "back" },
+      { id: "tele", label: "Telephoto 77mm", position: "back" }
+    ];
+    applyCapabilities({
+      supports_still: true, supports_video: true, supports_audio: true,
+      resolutions: [[1920, 1080]], frame_rates: [24, 30],
+      formats: [{ width: 1920, height: 1080, frame_rates: [24, 30] }],
+      manual_iso: [32, 1600], manual_shutter: true, manual_focus: true, current_iso: 400,
+      lens_label: "Wide 26mm", lens_aperture: 1.6, current_shutter_seconds: 1 / 48,
+      manual_white_balance: true, current_white_balance_kelvin: 5600,
+      raw_photo: false, log_video: false, hdr_video: false
+    });
+    return;
+  }
   try {
     const result = await invoke<CameraDiscovery>("get_camera_discovery");
     renderDiscovery(result);
@@ -1638,17 +1745,55 @@ async function monitorRecordingStorage(): Promise<void> {
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    if (recording) recordingPausedByLifecycle = true;
+    if (recording) {
+      recordingPausedByLifecycle = true;
+      void finishVideoRecording().finally(() => {
+        nativePreviewRunning = false;
+        activeDeviceId = undefined;
+      });
+    }
     return;
   }
-  if (!recordingPausedByLifecycle || !recording) return;
+  if (!recordingPausedByLifecycle) return;
   recordingPausedByLifecycle = false;
-  void finishVideoRecording().finally(() => {
+  void refreshCameraDiscovery();
+});
+
+// Polling is deliberately low-frequency and only active in the foreground.
+// It covers external-camera hot unplug on backends that cannot yet forward a
+// native device notification into the webview.
+window.setInterval(() => {
+  if (document.hidden || !nativePreviewRunning || !activeDeviceId) return;
+  const expectedDevice = activeDeviceId;
+  void Promise.all([
+    invoke<CameraDiscovery>("get_camera_discovery"),
+    invoke<CameraRuntimeHealth>("get_camera_runtime_health")
+  ]).then(([discovery, health]) => {
+    if (health.preview_attached && !health.session_running) {
+      if (recording || health.recording_pending) void finishVideoRecording();
+      nativePreviewRunning = false;
+      activeDeviceId = undefined;
+      void refreshCameraDiscovery();
+      return;
+    }
+    if (discovery.devices.some((device) => device.id === expectedDevice)) return;
+    if (recording) void finishVideoRecording();
     nativePreviewRunning = false;
     activeDeviceId = undefined;
     void refreshCameraDiscovery();
+  }).catch(() => { /* A transient discovery error is not a confirmed disconnect. */ });
+}, 5_000);
+
+if ("__TAURI_INTERNALS__" in window) {
+  void getCurrentWindow().onCloseRequested(async (event) => {
+    event.preventDefault();
+    if (recording) await finishVideoRecording();
+    if (nativePreviewRunning) {
+      try { await invoke("stop_camera_preview"); } catch { /* Continue close after best-effort teardown. */ }
+    }
+    await getCurrentWindow().destroy();
   });
-});
+}
 
 async function selectMode(nextMode: CameraMode): Promise<void> {
   if (recording) return;
@@ -1828,7 +1973,16 @@ mediaDetailDialog.addEventListener("click", (event) => {
 });
 mediaCleanup.addEventListener("click", () => {
   if (!selectedMediaEntry || selectedMediaEntry.state === "finalized") return;
+  bulkCleanupRequested = false;
+  document.querySelector<HTMLElement>("#media-cleanup-dialog p")!.textContent = t.mediaCleanupPrompt;
   document.querySelector<HTMLElement>("#media-cleanup-name")!.textContent = mediaFileName(selectedMediaEntry.resource_path);
+  mediaCleanupDialog.showModal();
+});
+mediaCleanupExpired.addEventListener("click", () => {
+  if (pendingBulkCleanupIds.length === 0) return;
+  bulkCleanupRequested = true;
+  document.querySelector<HTMLElement>("#media-cleanup-dialog p")!.textContent = t.mediaCleanupExpiredPrompt;
+  document.querySelector<HTMLElement>("#media-cleanup-name")!.textContent = `${pendingBulkCleanupIds.length} ${t.mediaIncomplete} / ${t.mediaFailed}`;
   mediaCleanupDialog.showModal();
 });
 mediaReinspect.addEventListener("click", async () => {
@@ -1875,15 +2029,20 @@ mediaCleanupDialog.addEventListener("click", (event) => {
   if (event.target === mediaCleanupDialog) mediaCleanupDialog.close();
 });
 mediaCleanupConfirm.addEventListener("click", async () => {
-  if (!selectedMediaEntry || selectedMediaEntry.state === "finalized") return;
+  if (!bulkCleanupRequested && (!selectedMediaEntry || selectedMediaEntry.state === "finalized")) return;
   mediaCleanupConfirm.disabled = true;
   mediaCleanupConfirm.dataset.state = "loading";
   try {
-    mediaEntries = await invoke<MediaIndexEntry[]>("cleanup_media_entry", { id: selectedMediaEntry.id });
+    mediaEntries = bulkCleanupRequested
+      ? await invoke<MediaIndexEntry[]>("cleanup_media_entries", { ids: pendingBulkCleanupIds })
+      : await invoke<MediaIndexEntry[]>("cleanup_media_entry", { id: selectedMediaEntry!.id });
     mediaCleanupConfirm.dataset.state = "success";
     mediaCleanupDialog.close();
     mediaDetailDialog.close();
     selectedMediaEntry = undefined;
+    pendingBulkCleanupIds = [];
+    bulkCleanupRequested = false;
+    mediaCleanupExpired.hidden = true;
     renderMediaIndex();
   } catch (error) {
     mediaCleanupConfirm.dataset.state = "error";
@@ -1961,6 +2120,44 @@ document.querySelectorAll<HTMLButtonElement>("[data-parameter]").forEach((button
       }
       return;
     }
+    const parameter = button.dataset.parameter as typeof adjustmentParameter;
+    if (!parameter) return;
+    adjustmentParameter = parameter;
+    const select = document.querySelector<HTMLSelectElement>("#adjust-select")!;
+    const setOptions = (entries: { value: string; label: string }[], selected: string) => {
+      select.replaceChildren(...entries.map((entry) => {
+        const option = document.createElement("option");
+        option.value = entry.value;
+        option.textContent = entry.label;
+        option.selected = entry.value === selected;
+        return option;
+      }));
+    };
+    if (parameter === "lens") {
+      setOptions(availableDevices.map((device) => ({ value: device.id, label: device.label })), activeDeviceId ?? availableDevices[0]?.id ?? "");
+    } else if (parameter === "iris") {
+      const aperture = currentCapabilities?.lens_aperture;
+      const label = aperture ? `ƒ/${aperture.toFixed(1)} · FIXED` : "FIXED";
+      setOptions([{ value: "fixed", label }], "fixed");
+    } else if (parameter === "shutter") {
+      const stops = [24, 25, 30, 40, 48, 50, 60, 80, 96, 100, 120, 125, 160, 200, 240, 250, 320, 400, 480, 500, 640, 800, 1000];
+      const current = Math.max(1, Math.round(1 / (currentCapabilities?.current_shutter_seconds ?? (1 / 48))));
+      const selected = stops.reduce((best, value) => Math.abs(value - current) < Math.abs(best - current) ? value : best);
+      setOptions(stops.map((value) => ({ value: String(value), label: `1/${value}` })), String(selected));
+    } else if (parameter === "ei") {
+      const [minimum, maximum] = currentCapabilities?.manual_iso ?? [32, 3200];
+      const current = currentCapabilities?.current_iso ?? 400;
+      const stops = [25, 32, 40, 50, 64, 80, 100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12800]
+        .filter((value) => value >= minimum && value <= maximum);
+      if (stops.length === 0) stops.push(Math.round(Math.max(minimum, Math.min(maximum, current))));
+      const selected = stops.reduce((best, value) => Math.abs(value - current) < Math.abs(best - current) ? value : best);
+      setOptions(stops.map((value) => ({ value: String(value), label: `EI ${value}` })), String(selected));
+    } else {
+      const stops = [2000, 2400, 2800, 3200, 3600, 4000, 4300, 4800, 5200, 5600, 6000, 6500, 7000, 8000, 9000, 10000];
+      const current = currentCapabilities?.current_white_balance_kelvin ?? 5600;
+      const selected = stops.reduce((best, value) => Math.abs(value - current) < Math.abs(best - current) ? value : best);
+      setOptions(stops.map((value) => ({ value: String(value), label: `${value}K` })), String(selected));
+    }
     document.querySelectorAll<HTMLButtonElement>("[data-parameter]").forEach((item) => {
       item.classList.remove("is-selected");
       item.setAttribute("aria-pressed", "false");
@@ -1975,6 +2172,39 @@ document.querySelectorAll<HTMLButtonElement>("[data-parameter]").forEach((button
 
 document.querySelector<HTMLButtonElement>("#adjust-close")!.addEventListener("click", () => {
   document.querySelector<HTMLElement>("#quick-adjust")!.hidden = true;
+  adjustmentParameter = undefined;
+});
+
+document.querySelector<HTMLSelectElement>("#adjust-select")!.addEventListener("change", async (event) => {
+  const select = event.currentTarget as HTMLSelectElement;
+  if (!adjustmentParameter) return;
+  const value = Number(select.value);
+  select.disabled = true;
+  try {
+    if (adjustmentParameter === "lens") {
+      if (controlFixtureEnabled) {
+        document.querySelector<HTMLElement>('[data-parameter="lens"] strong')!.textContent = select.selectedOptions[0]?.textContent ?? "LENS";
+      } else {
+        await startNativePreview({ authorization: "authorized", devices: availableDevices }, select.value);
+      }
+    } else if (adjustmentParameter === "shutter" && Number.isFinite(value)) {
+      const seconds = await invoke<number>("set_camera_shutter", { seconds: 1 / value });
+      if (currentCapabilities) currentCapabilities.current_shutter_seconds = seconds;
+      document.querySelector<HTMLElement>('[data-parameter="shutter"] strong')!.textContent = `1/${Math.round(1 / seconds)}`;
+    } else if (adjustmentParameter === "ei" && Number.isFinite(value)) {
+      const iso = await invoke<number>("set_camera_iso", { iso: value });
+      if (currentCapabilities) currentCapabilities.current_iso = iso;
+      document.querySelector<HTMLElement>('[data-parameter="ei"] strong')!.textContent = String(Math.round(iso));
+    } else if (adjustmentParameter === "wb" && Number.isFinite(value)) {
+      const kelvin = await invoke<number>("set_camera_white_balance", { kelvin: value });
+      if (currentCapabilities) currentCapabilities.current_white_balance_kelvin = kelvin;
+      document.querySelector<HTMLElement>('[data-parameter="wb"] strong')!.textContent = `${Math.round(kelvin)}K`;
+    }
+  } catch (error) {
+    document.querySelector<HTMLElement>("#adjust-value")!.textContent = String(error);
+  } finally {
+    select.disabled = false;
+  }
 });
 
 captureButton.addEventListener("click", async () => {
@@ -2035,3 +2265,6 @@ captureButton.addEventListener("click", async () => {
 });
 
 if (!nearbyFixtureEnabled) void refreshOutputStatus();
+if (!nearbyFixtureEnabled) void refreshCleanupCandidateCount().catch(() => {
+  mediaCleanupExpired.hidden = true;
+});

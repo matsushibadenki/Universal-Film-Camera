@@ -513,3 +513,35 @@ Nearbyの受信partialは失敗分類だけで自動削除しない。受信側U
 native discardはUI由来pathを受け取らず、Prepared Approvalのtransfer IDからmanaged `.incomplete/peer-transfer/{id}.part`とledgerを組み立てる。ID形式、canonical managed directory、symlink、ledger schema、ledger内transfer ID、Media Indexが非Finalizedであることを検証する。削除対象はpart、resume ledger、対応するIncomplete／Failed Media manifestだけで、Original送信元とFinalized Mediaを削除しない。
 
 discard確定は復元不能なため、「復旧用に保持」を既定の離脱操作として残し、「途中データを破棄」を別buttonにする。削除後はPrepared Approvalと診断errorを消去する。保持期限や一括cleanupは別policyとして定義し、この操作を自動実行しない。
+
+## ADR-066: Capture output capability is a typed combination, not independent toggles
+
+Status: Accepted (2026-08-31)
+
+HEIF／RAW、codec、container、bit depth、bitrate、audio codec／sample rate／channel数を独立したbooleanとして組み合わせない。backendが実際に成立させられる`CaptureOutputCapability`の組として列挙し、Stillへaudioを付ける、不正なbitrate範囲、空のbit depthなどを共通validationで拒否する。既存backendとのschema互換のため未報告listは空を許すが、UIが推測して組合せを増やしてはならない。
+
+## ADR-067: Recovery retention is advisory and deletion stays user-selected
+
+Status: Accepted (2026-08-31)
+
+Incomplete／Failed mediaの既定保持期限は7日とする。期限超過は起動後のMedia読込でcleanup候補として列挙するだけで、自動削除しない。一括削除は利用者確認後にID listをnativeへ渡し、native側が全IDを安全な非Finalized recordとして事前検査してから処理する。1件でもFinalized、不正ID、未知IDが混ざる場合はbatch全体を開始しない。
+
+## ADR-068: CPU monitor output is the conformance source for future GPU scopes
+
+Status: Accepted (2026-08-31)
+
+waveform、vectorscope、RGB histogram、false color、focus peakingはBGRA8の決定論的CPU referenceを`media-core`へ置く。native／GPU版は同じbinning、Rec.709 luma／chroma、false-color band、edge thresholdへ適合させる。CPU経路は正解fixtureと低rate診断用であり、4K60 previewへCPU readbackして使用しない。実時間GPU接続はCVPixelBuffer／AHardwareBuffer bridge後の独立した`[Later]`項目とする。
+
+## ADR-069: iOS is the sole active platform until its camera acceptance gate passes
+
+Status: Accepted (2026-08-31)
+
+iOSを唯一のactive platformとする。macOS／Androidの既存実装と共通core testは退行防止のため維持するが、新しいplatform固有機能は追加しない。Windows／Linux backend、他OS adapter、macOS固有改善、Android追加開発は`[Later]`へ固定する。
+
+iOSの優先gateはSimulator build／launch／lifecycle回帰と、iPhone実機でpermission、Preview、Still、音声付きVideo、portrait／landscape／upside-down、front mirror、background interruption、Media Finalized回収を受け入れることである。共通coreの変更もこのgateへ直接必要なものを優先する。
+
+## ADR-070: iPhone supports portrait upside-down as a professional capture orientation
+
+Status: Accepted (2026-08-31)
+
+iPhoneのsupported interface orientationsへPortraitUpsideDownを含める。端末を上下反転してrig、gimbal、低位置へ据えるプロ用途で、landscape UIを横倒しのまま残さないためである。UI orientationは既存の0／90／180／270度contractを通してPreview／Photo／Movie connectionへ同期し、保存mirrorとは分離する。SimulatorはUI追従だけを検証し、保存EXIF／MOV rotationの最終受け入れは実機で行う。

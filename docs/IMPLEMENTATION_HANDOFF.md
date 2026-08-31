@@ -403,6 +403,54 @@ Tauri `discard_nearby_partial`はIncoming、失敗分類あり、task非active�
 
 core testは対象part／ledger／Media記録が消え、path traversal IDが拒否されることを検証する。peer-transfer-coreは23 test、workspace全90 testを期待値とする。Browser fixtureでIncoming Integrity failureの保持／破棄、Outgoing InvitationExpiredから新規承認への復帰、375×812 dialogを確認した。Browser単体のTauri IPC不在による既知native preview error以外に対象flowのerrorはない。
 
+### 2026-08-31: Next queue closure — capability, lifecycle, scopes, retention
+
+`CameraCapabilities`へ型付き`CaptureOutputCapability`を追加し、JPEG／HEIF／DNG／QuickTime／MP4、JPEG／HEVC／RAW／H.264／ProRes／AAC／PCM、bit depth、bitrate範囲、audio sample rate／channel数を表現可能にした。Apple backendは現行実装で成立するJPEG StillとH.264＋AAC QuickTimeだけを組として報告する。未実装codecをUIが推測して選択可能にしてはいけない。
+
+window closeは録画をfinalizeしてpreviewを停止してから破棄し、background遷移は即座に録画停止、foregroundはdevice再発見を行う。foreground中は5秒間隔でactive deviceのpresenceを確認し、confirmed disconnect時だけ安全停止／再発見へ移る。共通`CameraLifecycleEvent`／`CameraRecoveryAction`はnative notification adapterが同じ判断を再利用する境界である。
+
+`media-core`へBGRA8のRGB histogram、waveform、vectorscope、false color、focus-peaking CPU referenceを追加した。これは将来のMetal／Vulkan／D3D rendererのconformance正本で、4K60実時間CPU処理を意図しない。Media recoveryは7日保持をadvisory candidateとして返し、三言語UIから確認付き一括削除できる。Finalizedを含むbatchはnativeで拒否し、自動削除は行わない。
+
+`npm run build`とRust workspace全95 testが成功した。実機orientation／permission／background、実機2台Nearby、Windows／Linux runtime、4K60 GPU、署名／notarizationは環境または製品IDが必要なため、再開条件付き`[Later]`へ移した。これらをcode完成として`[Done]`に読み替えてはいけない。
+
+### 2026-08-31: iOS-only active development policy
+
+ユーザー方針によりiOSを唯一のactive platformへ変更した。macOS／Androidは既存artifactと回帰testだけを維持し、Windows／Linux、他OS peer adapterを含む追加開発は保留する。Roadmapの`[Next]`はiOS Simulator lifecycle回帰とiPhone実機camera受け入れだけである。
+
+Apple preview runtimeのhealthを返す`get_camera_runtime_health`を追加した。foreground中の5秒監視はdevice presenceに加えて、preview hostが残ったままAVCaptureSessionだけ停止した状態を検出する。録画pendingなら共通finalizeを要求し、WebView側のactive runtimeを破棄してdevice再発見へ戻す。これはOS interruptionの完全なnative通知置換ではなく、通知を取りこぼした場合の回復防衛線である。
+
+`cargo build -p universal-film-camera --target aarch64-apple-ios-sim`は成功し、追加したRust／AVFoundation／UIKit境界がiOS Simulator targetでcompile／linkできることを確認した。最初の`tauri ios build`は古い`build/arm64-sim/Universal Film Camera.app`を出力先としてrenameしようとして`Directory not empty`になった。archiveだけでなくこの最終productをXcode cleanする必要がある。
+
+`scripts/build_ios_simulator.sh`はXcode projectのgenerated productだけをcleanしてからTauri正規buildを実行する。この手順でbundle生成に成功し、iPhone 16e Simulatorへinstall／launchした。portrait狭幅の実画面でstatus bar、parameter strip、preview、scope、bottom rail、中央正円capture controlがSafe Area内に収まり、不自然な見出し改行がないことを確認した。実機installはこの工程では行っていない。
+
+再実行でXcode cleanはTauri独自の`build/arm64-sim`を消さないことが判明したため、wrapperはその生成済み`.app`一件を明示削除してからbuildする形へ修正した。削除対象pathは固定で、app dataや撮影assetへ到達しない。
+
+Computer UseでiPhone 16e Simulatorを操作し、Homeによるbackground、foreground復帰、landscape、portrait upside-down、Media empty画面を確認した。landscapeでframe guideがtimecodeを横切る表示を発見し、狭高さlandscapeのtimecodeへ半透明背景を追加して再build／再install後に解消を確認した。iPhoneのsupported orientationsへPortraitUpsideDownも追加した。Simulator回帰は完了し、次のactive gateは接続済みiPhone実機でpermission、Preview、Still、音声Video、保存asset、orientationを受け入れることである。
+
+### 2026-08-31: signed iPhone build and launch
+
+利用者が指定したDevelopment Team `3WH28SSRZC`をTauri iOS bundle設定へ追加し、`scripts/build_ios_device.sh`でarm64 debug buildとdebugging exportを再現可能にした。Apple ID、署名証明書ID、provisioning profile UUID、端末UDIDはrepositoryへ保存しない。Xcodeの既存Keychain認証とautomatic provisioningを利用する。
+
+署名済み`Universal Film Camera.ipa`を生成し、bundle identifierとTeamIdentifierを確認した。接続済みiPhoneへのinstallと`app.universalfilm.camera`のprocess launchも成功した。`scripts/install_ios_device.sh <device-udid>`はIPAを一時directoryへ展開して同じ操作を再現する。ここまでを`[Done]`とし、端末画面上のcamera／microphone permission許可、native Preview、Still、音声Video、Media保存物、回転、background復帰は人による操作確認が必要なため`[Next]`に残す。
+
+同実機のportrait画面で、狭幅時の下部right railが中央シャッターへ侵入し、スコープボタンのタップ領域までシャッターに奪われる不具合を確認した。原因は、7個の48pt touch targetと56ptシャッターを単一行へ配置していたことだった。480px以下では補助操作と撮影navigationを2段、スコープ展開時はpaletteを含む3段へ分け、中央列をシャッター専用にした。320×700と390×844のbrowser回帰で、閉状態／展開状態とも出力、スコープ、Media、Nearbyの矩形とシャッターの交差が0であることを確認した。
+
+続く実機指摘で、capability適用時にLENS／IRISを常に`—`、WBを常にdisabledへしており、SHUTTERも表示だけでnative適用commandがないことを確認した。Apple capabilityへlocalized lens名、固定lens aperture、現在の露出時間、manual WB対応と現在の色温度を追加した。SHUTTERはAVFoundation custom exposureを現在ISOのまま1/24〜1/1000秒へ、WBはcustom device gainsを介して2000〜10000Kへ適用する。iPhoneの絞りは固定なので実ƒ値を表示し、可変操作とは扱わない。調整panelはnative previewに隠れる領域からparameter stripへ移した。viewportの拡大上限と`touch-action: manipulation`も設定し、撮影操作のダブルタップ拡大を抑止した。
+
+次の実機指摘では、映像の上ずれ、メニューが映像の下へ潜ること、グリッド等のoverlayが出ないことが同時に発生した。原因はiOS preview hostをWKWebViewの末尾childとして追加し、native UIViewが全Web UIより前面にあったことと、その回避として`has-native-preview`中のoverlayをCSSで非表示にしていたことだった。preview hostをWKWebViewのsuperviewへ座標変換してWKWebView直下へ挿入し、WKWebViewとDOM preview領域を透明化した。resize時もWKWebView座標からcontainer座標へ毎回変換する。Web側のsafe frame、centre mark、timecode、monitor status、histogram、audio meter、調整menuは前面に残す。
+
+カメラparameterの操作性を続けて修正した。Apple discoveryへUltra Wide／Wide／Telephotoの物理device typeを追加し、LENS selectorからpreview sessionを安全に交換する。IRISは選択可能な情報panelを開くが、iPhoneの物理絞りは固定なので単一の`ƒ/x.x · FIXED`だけを提示し、可変絞りを偽装しない。EIは現在露出時間を保持したAVFoundation custom ISOへ接続した。
+
+SHUTTERの1刻みrangeは廃止し、1/24、1/25、1/30、1/40、1/48、1/50、1/60から1/1000までの撮影用離散値へ変更した。EIも1/3段相当の代表値、WBも2000K〜10000Kの代表値へ止まるnative selectとした。FPS panelは狭幅で1列表示し、解像度を`1920 × 1080 · 1080p`、cadenceを`24 fps · CINEMA`、`25 fps · PAL`、`30 fps · NTSC`、50/60以上をHFRとして表示する。390×844 fixtureで全selector、値列、console無errorを確認した。
+
+撮影画面が再び黒くなった原因は、WKWebView本体を透明化しても内部`UIScrollView`が不透明なまま、背面の`AVCaptureVideoPreviewLayer`を覆っていたことだった。iOS attach時に両方のbackground／opaqueをclearへ統一した。
+
+実機ではさらにCSS `:root`の暗色backgroundがWeb content canvasを塗っていたため、`body`以下だけを透明化しても映像は見えなかった。native preview状態を`html`と`body`の両方へ同期し、root canvasも透明化した。telemetryが動くのに映像だけ黒い場合は、capture sessionではなくこのcompositing chainを先に調べる。
+
+固定SVGだったhistogram／audio meterを実測値へ置換した。`AVCaptureVideoDataOutput`は遅延frameを破棄する専用serial queueで受け、端末内で約160×90点へ間引いて32-bin RGB histogramを生成する。BGRA以外のnative planar formatでは第1planeのlumaをRGB共通分布として扱う。WebViewへcamera pixelは渡さずbin集計だけを約150ms周期で取得する。audio meterは権限済みならpreview開始時からmicrophone inputをsessionへ追加し、AVFoundation audio channelの`averagePowerLevel`（dB）を表示する。権限なしではstill previewを失敗させず0表示とする。
+
+この変更はarm64 iOS camera crate check、本番Web build、workspace全95 test、署名済みarm64 IPA buildまで成功した。実機で被写体の明暗を変えたときのhistogram、発声時のmeter、preview透過合成を目視確認するまでは受け入れ完了ではない。
+
 ## 未確定事項（実装前に決める）
 
 1. 正式な製品名、bundle/application identifier、著作権表記

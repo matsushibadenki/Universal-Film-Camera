@@ -9,6 +9,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
+    time::{Duration, SystemTime},
 };
 
 pub const MEDIA_RECORD_SCHEMA_VERSION: u32 = 1;
@@ -23,6 +24,13 @@ pub struct MediaIndexEntry {
     pub asset: Option<CapturedAsset>,
     pub error: Option<String>,
     pub updated_at_utc: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecoverableCleanupCandidate {
+    pub entry: MediaIndexEntry,
+    pub age_seconds: u64,
+    pub retention_expired: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -235,6 +243,55 @@ impl MediaIndex {
             fs::remove_file(&manifest).map_err(|error| {
                 CameraError(format!("failed to remove media manifest: {error}"))
             })?;
+        }
+        Ok(())
+    }
+
+    /// Retention is advisory. Nothing is removed until the UI submits an
+    /// explicit list of recoverable IDs through `cleanup_recoverable_many`.
+    pub fn cleanup_candidates(
+        &self,
+        now: SystemTime,
+        retention: Duration,
+    ) -> Result<Vec<RecoverableCleanupCandidate>, CameraError> {
+        self.list()?
+            .into_iter()
+            .filter(|entry| entry.state != AssetState::Finalized)
+            .map(|entry| {
+                let modified = fs::metadata(&entry.resource_path)
+                    .and_then(|metadata| metadata.modified())
+                    .unwrap_or(now);
+                let age_seconds = now
+                    .duration_since(modified)
+                    .unwrap_or(Duration::ZERO)
+                    .as_secs();
+                Ok(RecoverableCleanupCandidate {
+                    entry,
+                    age_seconds,
+                    retention_expired: age_seconds >= retention.as_secs(),
+                })
+            })
+            .collect()
+    }
+
+    pub fn cleanup_recoverable_many(&self, ids: &[String]) -> Result<(), CameraError> {
+        if ids.is_empty() {
+            return Err(CameraError("no recoverable media IDs were selected".into()));
+        }
+        let entries = self.list()?;
+        for id in ids {
+            if !is_safe_record_id(id)
+                || !entries
+                    .iter()
+                    .any(|entry| entry.id == *id && entry.state != AssetState::Finalized)
+            {
+                return Err(CameraError(format!(
+                    "bulk cleanup contains an invalid or finalized media ID: {id}"
+                )));
+            }
+        }
+        for id in ids {
+            self.cleanup_recoverable(id)?;
         }
         Ok(())
     }
@@ -585,6 +642,41 @@ mod tests {
         assert!(!failed.exists());
         assert!(!root.join(".manifests/failed-video.json").exists());
         assert_eq!(index.list().unwrap().len(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cleanup_candidates_are_advisory_and_bulk_cleanup_rejects_finalized_ids() {
+        let root = fixture_directory("cleanup-candidates");
+        let index = MediaIndex::new(&root);
+        let finalized = finalized_asset(&root);
+        index.persist_finalized(&finalized).unwrap();
+        let partial = root.join(".incomplete/old-photo.jpg");
+        fs::create_dir_all(partial.parent().unwrap()).unwrap();
+        fs::write(&partial, b"partial").unwrap();
+        index
+            .record_incomplete("old-photo", CapturedMediaType::Photo, &partial)
+            .unwrap();
+
+        let candidates = index
+            .cleanup_candidates(SystemTime::now(), Duration::ZERO)
+            .unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].retention_expired);
+        assert!(
+            partial.exists(),
+            "listing candidates must never delete media"
+        );
+        assert!(
+            index
+                .cleanup_recoverable_many(&[finalized.id.clone()])
+                .is_err()
+        );
+        index
+            .cleanup_recoverable_many(&["old-photo".into()])
+            .unwrap();
+        assert!(!partial.exists());
+        assert!(finalized.original.path.exists());
         fs::remove_dir_all(root).unwrap();
     }
 

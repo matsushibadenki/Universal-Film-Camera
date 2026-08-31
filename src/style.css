@@ -10,6 +10,7 @@ html,
 body {
   overflow-x: clip;
 }
+html { background: transparent; }
 
 :root {
   color: var(--color-ink);
@@ -18,12 +19,14 @@ body {
   font-synthesis: none;
   text-rendering: geometricPrecision;
 }
+html.has-native-preview { background: transparent; }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { margin: 0; min-width: 320px; min-height: 100dvh; background: var(--color-paper); color: var(--color-ink); }
 button, input, select { font: inherit; }
 button { min-width: 44px; min-height: 44px; color: inherit; white-space: nowrap; }
+.camera-shell { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 button:active { transform: translateY(1px); }
 button:disabled, button[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
@@ -154,15 +157,12 @@ svg { width: 1.35rem; height: 1.35rem; fill: none; stroke: currentColor; stroke-
   color: var(--color-accent);
   cursor: pointer;
 }
-body.has-native-preview .preview-empty,
-body.has-native-preview .safe-frame,
-body.has-native-preview .centre-mark,
-body.has-native-preview .timecode,
-body.has-native-preview .monitor-status,
-body.has-native-preview .histogram,
-body.has-native-preview .audio-meter,
-body.has-native-preview .quick-adjust,
-body.has-native-preview .capture-feedback { visibility: hidden; }
+body.has-native-preview,
+body.has-native-preview .camera-shell,
+body.has-native-preview .monitor,
+body.has-native-preview .preview-surface { background: transparent; }
+body.has-native-preview .preview-surface::before { display: none; }
+body.has-native-preview .preview-empty { visibility: hidden; }
 .signal-mark { width: 2.5rem; height: 2.5rem; margin-block-end: var(--space-sm); border: var(--rule-thin) solid var(--color-rule-strong); border-radius: 50%; }
 .signal-mark::after { content: ""; display: block; width: .45rem; height: .45rem; margin: .95rem; border-radius: 50%; background: var(--color-accent); }
 
@@ -235,7 +235,7 @@ body:not(.tool-scope) .histogram, body:not(.tool-scope) .audio-meter { display: 
 .quick-adjust div { display: grid; min-width: 4rem; }
 .quick-adjust span { color: var(--color-neutral); font: 700 var(--text-2xs)/1 var(--font-mono); }
 .quick-adjust strong { font: 600 var(--text-sm)/1.2 var(--font-mono); }
-.quick-adjust input { width: 100%; accent-color: var(--color-accent); }
+.quick-adjust select { width: 100%; min-height: 44px; padding: var(--space-xs); border: var(--rule-thin) solid var(--color-rule-strong); border-radius: var(--radius-xs); background: var(--color-paper-3); color: var(--color-ink); font: 600 var(--text-sm)/1.2 var(--font-mono); }
 .quick-adjust button { display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--color-muted); cursor: pointer; }
 
 .capture-feedback {
@@ -609,8 +609,48 @@ body:not(.tool-scope) .histogram, body:not(.tool-scope) .audio-meter { display: 
 }
 
 @media (max-width: 30rem) {
+  .format-panel { grid-template-columns: minmax(0, 1fr); }
+  .format-panel small,
+  .format-panel button { grid-column: 1; }
+  .format-panel select { font-size: var(--text-sm); }
   .nearby-share-controls { grid-template-columns: minmax(0, 1fr); }
   .nearby-share-controls button { width: 100%; }
+
+  /* A single row cannot hold seven 48pt touch targets and the centred shutter
+     on narrow iPhones. Split utilities from capture navigation so the shutter
+     always owns an isolated centre cell. */
+  .tool-rail { grid-template-rows: auto auto; }
+  .tool-rail.is-menu-open { grid-template-rows: auto auto auto; }
+  .rail-leading,
+  .tool-rail.is-menu-open .rail-leading { grid-column: 1; grid-row: 1; }
+  .rail-trailing,
+  .tool-rail.is-menu-open .rail-trailing { display: contents; }
+  .output-status {
+    grid-column: 3;
+    grid-row: 1;
+    width: 100%;
+    min-width: 0;
+    justify-self: stretch;
+  }
+  .monitor-tools-toggle {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: end;
+  }
+  .destination-tools {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .destination-tools button.is-active { display: none; }
+  .shutter,
+  .tool-rail.is-menu-open .shutter { grid-column: 2; grid-row: 2; }
+  .tool-rail.is-menu-open .monitor-tools { grid-row: 1; }
+  .tool-rail.is-menu-open .rail-leading,
+  .tool-rail.is-menu-open .output-status { grid-row: 2; }
+  .tool-rail.is-menu-open .monitor-tools-toggle,
+  .tool-rail.is-menu-open .destination-tools,
+  .tool-rail.is-menu-open .shutter { grid-row: 3; }
 }
 
 @media (min-width: 60rem) {
@@ -683,6 +723,10 @@ body:not(.tool-scope) .histogram, body:not(.tool-scope) .audio-meter { display: 
   .monitor { min-height: 20rem; }
   .parameter { min-height: 3rem; padding-block: var(--space-2xs); }
   .preview-empty p, .tool-rail button span { display: none; }
+  .timecode {
+    padding: var(--space-2xs) var(--space-xs);
+    background: color-mix(in srgb, var(--color-paper-2) 92%, transparent);
+  }
 }
 
 @media (pointer: coarse) {

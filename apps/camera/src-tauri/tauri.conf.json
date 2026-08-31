@@ -30,6 +30,9 @@
     "macOS": {
       "entitlements": "./Entitlements.plist"
     },
+    "iOS": {
+      "developmentTeam": "3WH28SSRZC"
+    },
     "resources": {
       "infoplist/en.lproj": "en.lproj",
       "infoplist/ja.lproj": "ja.lproj",

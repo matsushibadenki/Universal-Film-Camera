@@ -12,20 +12,25 @@
 
 この文書はプロジェクト全体の進捗indexである。個別機能の技術契約と検証記録は各詳細文書を正本とする。「設計済み」と「実装済み」を混同せず、コードまたは検証可能なartifactが存在する項目だけを`[Done]`にする。
 
+## 現在の開発優先方針
+
+iOSを唯一のactive platformとする。既存のmacOS／Android codeと共通coreは退行を防ぐためbuild／test対象に残すが、新機能開発は保留する。Windows／Linux、Android、macOS固有拡張、iOS以外とのpeer transfer、他platform向けGPU最適化はすべて`[Later]`である。共通coreを変更する場合も、直近の受け入れ先がiOSであることを必須とする。
+
 ## 現在地
 
-現在は、macOS向けプロカメラの最初のnative縦切りと、Universal Imaging Pipelineの記述・Profile基盤まで完了している。実際のFilm／Sensor画素処理renderer、GPU scope、iOS／Android、Windows／Linux backendは未完了である。
+現在は、macOS向けプロカメラのnative縦切り、Universal Imaging Pipeline、CPU finishing、CPU monitor scope、Media／Nearby recovery基盤まで完了している。GPU実時間経路と、保有していない実機／他OS／配布証明書を要する受け入れは`[Later]`である。
 
 | 領域 | 現在の段階 | 最も近い完了条件 |
 |---|---|---|
-| macOS camera | [Done] validated native MVP + Media recovery | lifecycle／device disconnect recovery |
-| Professional UI | [Done] capture-first shell | native／GPU monitoring overlayを接続 |
-| Imaging Pipeline model | [Done] schema v1 + render snapshot | CPU finishing縦切りを追加 |
+| iOS camera | [Done] native Preview／Still／Video compile、Simulator lifecycle回帰、署名済み実機install／launch | [Next] iPhone実機camera受け入れ |
+| macOS camera | [Later] validated MVPを保守のみ | iOS優先期間終了後に再評価 |
+| Professional UI | [Done] capture-first shell + CPU scope contract | native／GPU monitoring overlayを接続 |
+| Imaging Pipeline model | [Done] schema v1 + render snapshot + CPU finishing | measured profile dataを追加 |
 | Profile system | [Done] typed Profiles + loader + migration registry | profile署名／配布方針を確定 |
 | Film renderer | [Done] CPU synthetic finishing縦切り | measured Print／ColorCheckerを追加 |
 | GPU renderer | [Later] architecture only | wgpu texture pipelineとreference比較 |
-| Nearby sharing | [Done] Apple暗号化Original転送＋durable checkpoint再開のcode縦切り | failure recovery、他OS adapter |
-| iOS／Android | [Done] iOS capture code + Android CameraX preview | 実機検証、Android Still／Video |
+| Nearby sharing | [Later] Apple暗号化Original転送＋resume／recovery／partial管理を保守 | iOS camera安定化後に実機2台受け入れ |
+| Android | [Later] CameraX Still／Videoを保守のみ | iOS優先期間終了後に再評価 |
 | Windows／Linux | [Later] 未実装 | platform camera backendの最初のpreview |
 
 プロジェクト全体の最終構想に対する単一の進捗率は使用しない。macOS Camera MVP、Imaging Pipeline、科学renderer、各OS backendは規模と完了条件が異なるため、上表とmilestone単位で判断する。
@@ -82,8 +87,8 @@ Selected camera format
 - [Done] UI端末姿勢をPreview／Photo／Movie connectionへ同期し、preview／capture mirrorを分離
 - [Done] EXIF 1–8とMOV quarter-turn／mirror行列のfixture検証
 - [Next] iOS実機でportrait／upside-down／front-camera mirror caseを検証
-- [Next] HEIF／RAW、codec／container／bitrate／audio channelの能力モデル
-- [Next] window close、sleep、background、device切断時の復旧
+- [Done] HEIF／RAW、codec／container／bitrate／audio channelの型付き能力モデルとbackend別出力組合せ
+- [Done] window close／background時の録画finalize、低頻度device切断監視、foreground再発見と共通復旧action
 - [Later] `AVCaptureVideoDataOutput → CVPixelBuffer → Metal texture`
 
 詳細: [`APPLE_CAMERA_BACKEND.md`](APPLE_CAMERA_BACKEND.md)
@@ -103,7 +108,8 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - [Done] Still／Video別output preset、実filesystem残容量、概算撮影可能量表示
 - [Done] Still／Video別の撮影開始前容量検査、256 MiB安全予約、容量不足時の中央capture control無効化
 - [Done] Finalized／Incomplete／Failedを確認できる三言語Media画面
-- [Next] waveform、vectorscope、false color、focus peakingのnative／GPU renderer
+- [Done] waveform、vectorscope、false color、focus peakingの決定論的BGRA8 CPU reference renderer
+- [Later] 上記monitor toolのnative／GPU renderer（CVPixelBuffer／AHardwareBuffer bridge実装後）
 - [Done] foreground録画中の2秒間隔残容量監視と共通停止経路による安全な自動停止／Finalize
 - [Done] Android CameraX native容量monitor、onPause停止、Finalize結果保持
 - [Done] Apple AVFoundation sessionのWebView非依存容量monitorと単発stop要求
@@ -228,8 +234,8 @@ Bluetooth LE / Bonjour / Nearby discovery
 - [Done] 暗号化送受信progress／cancelの三言語UI
 - [Done] disconnect-resumeの三言語UI
 - [Done] 受信partialの確認付き明示discardと、期限切れ／非retry失敗から新しい承認を準備する三言語導線
-- [Next] partial保持期限、起動時cleanup候補、利用者選択による一括管理
-- [Next] mobile background／network切替時のdisconnect-resume実機検証
+- [Done] 7日partial保持期限、起動／Media読込時cleanup候補、確認付き利用者選択一括管理（自動削除なし）
+- [Later] mobile background／network切替時のdisconnect-resume実機検証（実機2台調達後に再開）
 - [Later] 一定時間だけ受信可能にするvisibilityと自動停止
 - [Later] 選択的`StripLocation` EXIF再構築とMOV／MP4 metadata sanitizer
 - [Later] EXIF位置情報／device metadataの共有範囲を送信前に選択するUI
@@ -257,14 +263,26 @@ Bluetooth LE / Bonjour / Nearby discovery
 - [Done] 英語、日本語、简体中文のiOS camera／microphone権限文言
 - [Done] Android CAMERA／RECORD_AUDIO permission宣言
 - [Done] iOS AVFoundation native preview host／Still／Video command縦切りをcompile
-- [Next] iPhone実機のpermission／preview／Still／Video検証
-- [Next] narrow device、Safe Area、回転、background lifecycleの実機検証
+- [Done] iOS session health commandとforeground中のAVCaptureSession停止検出／安全な再発見経路
+- [Done] iOS Simulator targetのRust／AVFoundation／UIKit compile・link回帰
+- [Done] iPhone 16e Simulatorでbundle build／install／launchとSafe Area内の狭幅portrait表示を確認
+- [Done] iPhone 16e Simulatorでbackground／foreground、portrait／landscape／upside-down、Media empty recoveryを操作回帰
+- [Done] Development Team設定、署名済みarm64 IPA build、接続iPhoneへのinstall／process launch
+- [Done] 320／390px幅で下部railを2段化し、スコープ展開時も中央シャッターとのtouch target重複を解消
+- [Done] iOS LENS／固定IRIS実値表示、manual SHUTTER／WB AVFoundation制御、ダブルタップ拡大抑止
+- [Done] iOS native previewをWKWebView背面へ合成し、映像座標・メニュー・グリッドoverlayのz-orderを修正
+- [Done] WKWebView／内部scroll surfaceの透明化と、実camera frame由来32-bin histogram／実audio dB meter
+- [Done] iOS実レンズ切替、固定IRIS表示、段階式EI／SHUTTER／WB、判読性を上げたFPS format panel
+- [Next] iPhone実機でpreview透過合成、histogram応答、audio meter応答を受け入れる
+- [Next] iPhone実機のpermission／Still／Video／orientationを受け入れる
+- [Next] narrow device、Safe Area、回転、background lifecycleをiPhone実機で受け入れる
 - [Done] Android CameraX permission／discovery／capability／PreviewView
 - [Done] Android CameraX ImageCapture／VideoCaptureと共通CapturedAsset finalize境界を実装しarm64 APKをbuild
-- [Next] Android実機のStill／音声付きVideo／回転／background中断／manifest受け入れ
+- [Later] Android実機のStill／音声付きVideo／回転／background中断／manifest受け入れ（実機調達後に再開）
 - [Done] Androidの選択解像度／FPSをCameraX use caseへ明示し、保存結果を要求値と照合するcodeをAPK build
-- [Next] Android実機でformat別use-case組合せとCamera2 FPS rangeの受け入れ表を作成
+- [Later] Android実機でformat別use-case組合せとCamera2 FPS rangeの受け入れ表を作成（実機調達後に再開）
 - [Done] Android実機conformanceのinstall／snapshot harnessと必須試験matrixを作成
+- [Later] Androidの追加開発・実機受け入れ全般（iOS優先方針のため保留）
 - [Later] RAW、LOG、manual controlが必要な端末向けCamera2経路
 - [Later] CVPixelBuffer／AHardwareBufferのzero-copy GPU bridge
 
@@ -305,7 +323,7 @@ Android実機受け入れ: [`ANDROID_CAMERA_CONFORMANCE.md`](ANDROID_CAMERA_CONF
 次の順序:
 
 1. [Done] UI姿勢をPreview／Photo／Movie connectionへ同期し、保存mirrorを分離する
-2. [Next] iOS実機でportrait／upside-down／front-camera mirrorを検証する
+2. [Next] iOS実機でpermission、Preview、Still、音声Video、portrait／upside-down／front-camera mirrorを検証する
 3. [Done] CapturedAsset derivativeへrender snapshot／parent／engine version／seedを保存する
 4. [Done] Finalized／Incomplete／Failedを扱うMedia indexとatomic manifestを実装する
 5. [Done] Media一覧とFinalized／Incomplete／Failed filterを実装する
@@ -314,8 +332,9 @@ Android実機受け入れ: [`ANDROID_CAMERA_CONFORMANCE.md`](ANDROID_CAMERA_CONF
 8. [Done] iOS native preview hostとStill／Video commandを実装しSimulator buildを通す
 9. [Done] Android CameraX permission／discovery／capability／native previewを実装する
 10. [Done] Android Still／VideoをCameraXから共通CapturedAsset lifecycleへ接続しAPKをbuildする
-11. [Next] iPhone／Android実機でpreview、Still、Video、orientation、lifecycleを検証する
-11. [Later] measured Print dataset確定後にresponse／ColorChecker fixtureを追加する
+11. [Next] 接続済みiPhone実機でpreview、Still、Video、orientation、lifecycleを検証する
+12. [Later] Android実機でpreview、Still、Video、orientation、lifecycleを検証する（iOS優先期間終了後）
+13. [Later] measured Print dataset確定後にresponse／ColorChecker fixtureを追加する
 
 Nearby Peer Transferは上記3–5で`CapturedAsset`とMedia管理が成立した後に着手するため、現時点では`[Later]`とする。
 
@@ -323,12 +342,12 @@ Nearby Peer Transferは上記3–5で`CapturedAsset`とMedia管理が成立し�
 
 ## Verification baseline
 
-2026-08-28時点:
+2026-08-31時点:
 
 ```text
 npm run check
   TypeScript / Vite production build: passed
-  Rust workspace tests: 58 passed, 0 failed
+  Rust workspace tests: 95 passed, 0 failed
 
 macOS native runtime
   camera preview: passed
@@ -355,11 +374,13 @@ mobile scaffold
 
 未検証:
 
-- [Next] iOS／Android camera runtime、Windows／Linux build／runtime
-- [Next] 外部camera hot plugとdevice切断復旧
-- [Next] 英語／简体中文OSでのpermission prompt実表示
-- [Next] 4K60 performance budget
-- [Next] CPU／GPU画像conformance
+- [Later] iOS／Android camera runtime（実機待ち）、Windows／Linux build／runtime（対応host／backend実装待ち）
+- [Done] 外部cameraの低頻度presence監視と切断時の安全停止／再発見経路
+- [Later] 外部camera hot plug／切断復旧の実機受け入れ（対応camera調達後）
+- [Later] 英語／简体中文OSでのpermission prompt実表示（該当localeの実機検証環境準備後）
+- [Later] 4K60 performance budget（4K60対応実機とGPU frame bridge準備後）
+- [Done] monitor scope CPU reference conformance fixture
+- [Later] CPU／GPU画像同値conformance（GPU renderer実装後）
 
 ## Release gates
 
@@ -368,8 +389,9 @@ mobile scaffold
 - [Done] native preview、Still、Video、format選択
 - [Done] orientation connection同期、metadata probe、設定永続化
 - [Next] iOS orientation実機検証、Media runtime検証
-- [Next] lifecycle／device disconnect recovery
-- [Next] 正式な署名、notarization、bundle identifier確定
+- [Done] lifecycle／device disconnect recoveryの共通方針、window/background finalize、再発見経路
+- [Done] Development Teamによるdebug実機署名、IPA生成、install／launch
+- [Later] 配布用署名、notarization、正式bundle identifier確定（配布方針決定後）
 
 ### Cross-platform alpha
 
