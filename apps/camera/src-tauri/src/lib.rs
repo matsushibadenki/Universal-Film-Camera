@@ -1612,6 +1612,15 @@ fn cancel_nearby_secure_transfer(
     state.request_transfer_cancel()
 }
 
+#[tauri::command]
+fn discard_nearby_partial(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, NearbyDiscoveryState>,
+) -> Result<NearbyDiscoverySnapshot, String> {
+    let captures = captures_directory(&app)?;
+    state.discard_failed_partial(&captures)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -1651,7 +1660,8 @@ pub fn run() {
             cancel_nearby_approval,
             connect_nearby_transfer,
             run_nearby_secure_transfer,
-            cancel_nearby_secure_transfer
+            cancel_nearby_secure_transfer,
+            discard_nearby_partial
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Universal Film Camera");

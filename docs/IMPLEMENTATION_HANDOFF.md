@@ -395,6 +395,14 @@ UIは英語、日本語、简体中文で失敗ごとの次動作を表示する
 
 分類とretry可否のunit testを追加し、universal-film-cameraは8 test、peer-transfer-coreは22 testを期待値とする。Browser fixtureでIntegrityがretry不可、Timeoutがretry可能であることをdesktop／375×812で確認した。次工程は不要partialの明示discardとInvitation失効後の新規承認導線である。
 
+### 2026-08-31: Explicit partial discard and renewed approval path
+
+peer-transfer-coreへ`discard_incomplete_transfer`を追加した。transfer IDからmanaged part／ledgerだけを解決し、safe token、canonical directory、symlink、ledger schema、ledger Manifest identityを検査してから、既存Media Indexのrecoverable cleanup境界でpartと非Finalized manifestを削除し、resume ledgerを除去する。path文字列をTauri IPCから受け取らず、Finalized Media cleanupを拒否する既存契約を再利用した。
+
+Tauri `discard_nearby_partial`はIncoming、失敗分類あり、task非active、非Finalized、secure sessionなしの場合だけ実行できる。UIは三言語の確認dialogで、削除対象とFinalized非対象を明記する。「復旧用に保持」は状態を残し、「途中データを破棄」の明示確定後だけnative削除する。Outgoingの期限切れ／非retry失敗はfile削除を行わず、Approvalを閉じて同じpeer／asset選択から新しい確認codeを準備できる。
+
+core testは対象part／ledger／Media記録が消え、path traversal IDが拒否されることを検証する。peer-transfer-coreは23 test、workspace全90 testを期待値とする。Browser fixtureでIncoming Integrity failureの保持／破棄、Outgoing InvitationExpiredから新規承認への復帰、375×812 dialogを確認した。Browser単体のTauri IPC不在による既知native preview error以外に対象flowのerrorはない。
+
 ## 未確定事項（実装前に決める）
 
 1. 正式な製品名、bundle/application identifier、著作権表記

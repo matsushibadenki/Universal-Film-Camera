@@ -503,3 +503,13 @@ Status: Accepted (2026-08-31)
 Nearby native stateは失敗をDisconnected、Timeout、Integrity、Storage、InvitationExpired、Cancelled、Protocolの閉じた分類としてsnapshotへ公開する。内部error文字列は診断用に保持するが、UIの判断や翻訳に使用しない。接続中断とtimeoutだけを同じ承認済みtranscriptからretry可能とし、Invitationが有効でcancel要求がない場合に限る。
 
 hash／prefix／AEAD／Manifest不一致を含むIntegrity、容量不足、期限切れ、利用者cancel、予期しないprotocol errorは自動retryしない。特にIntegrity failureをnetwork failureとして再送すると、破損partialや異なるsourceを正常なresumeとして扱う危険がある。UIは英語、日本語、简体中文の固定文言で、未公開、容量確保、新規確認codeなど必要な次動作を示す。partialの物理削除は別の明示discard操作として実装し、この分類だけで自動削除しない。
+
+## ADR-065: Partial discard is explicit, receiver-only, and manifest-bound
+
+Status: Accepted (2026-08-31)
+
+Nearbyの受信partialは失敗分類だけで自動削除しない。受信側UIが失敗状態で、secure taskが停止済みの場合だけ確認dialogからdiscardできる。送信側には削除対象がないため同操作を出さず、既存Approvalを閉じて新しい確認codeの準備へ戻す。
+
+native discardはUI由来pathを受け取らず、Prepared Approvalのtransfer IDからmanaged `.incomplete/peer-transfer/{id}.part`とledgerを組み立てる。ID形式、canonical managed directory、symlink、ledger schema、ledger内transfer ID、Media Indexが非Finalizedであることを検証する。削除対象はpart、resume ledger、対応するIncomplete／Failed Media manifestだけで、Original送信元とFinalized Mediaを削除しない。
+
+discard確定は復元不能なため、「復旧用に保持」を既定の離脱操作として残し、「途中データを破棄」を別buttonにする。削除後はPrepared Approvalと診断errorを消去する。保持期限や一括cleanupは別policyとして定義し、この操作を自動実行しない。

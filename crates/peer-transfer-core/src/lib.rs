@@ -3381,6 +3381,47 @@ mod tests {
     }
 
     #[test]
+    fn explicit_discard_removes_only_validated_incomplete_transfer() {
+        let data = jpeg_fixture();
+        let (root, transfer) = receive_fixture(&data);
+        let transfer_id = transfer.manifest.transfer_id.clone();
+        let resource = TransferResource {
+            resource_id: "remote:discard-original".into(),
+            role: TransferResourceRole::Original,
+            derivative_provenance: None,
+            manifest: transfer.manifest,
+        };
+        let mut receive = IndexedOriginalReceive::create_or_resume(
+            &root,
+            resource,
+            capture_metadata(),
+            u64::MAX,
+            DEFAULT_RECEIVE_RESERVE_BYTES,
+        )
+        .unwrap();
+        receive.write_chunk(0, &data[..16]).unwrap();
+        drop(receive);
+
+        discard_incomplete_transfer(&root, &transfer_id).unwrap();
+        assert!(MediaIndex::new(&root).list().unwrap().is_empty());
+        assert!(
+            !root
+                .join(format!(".incomplete/peer-transfer/{transfer_id}.part"))
+                .exists()
+        );
+        assert!(
+            !root
+                .join(format!(".incomplete/peer-transfer/{transfer_id}.json"))
+                .exists()
+        );
+        assert!(matches!(
+            discard_incomplete_transfer(&root, "../escape"),
+            Err(TransferError::InvalidSourceAsset)
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn encrypted_indexed_original_receive_finalizes_only_after_authenticated_bytes() {
         let data = jpeg_fixture();
         let (root, mut transfer) = receive_fixture(&data);

@@ -261,6 +261,13 @@ type Copy = {
   nearbyFailureCancelled: string;
   nearbyFailureProtocol: string;
   nearbyFailed: string;
+  nearbyDiscard: string;
+  nearbyDiscardTitle: string;
+  nearbyDiscardPrompt: string;
+  nearbyDiscardConfirm: string;
+  nearbyKeepPartial: string;
+  nearbyNewApproval: string;
+  nearbyPrepareAgain: string;
   nearbyComplete: string;
 };
 
@@ -314,6 +321,10 @@ const copy: Record<Locale, Copy> = {
     nearbyFailureCancelled: "Transfer cancelled · verified partial data remains recoverable",
     nearbyFailureProtocol: "Secure transfer protocol failed · start a new approval",
     nearbyFailed: "Transfer stopped",
+    nearbyDiscard: "Discard partial data", nearbyDiscardTitle: "Discard received partial data?",
+    nearbyDiscardPrompt: "This permanently removes only this transfer's verified partial file and recovery ledger. Finalized media is never removed.",
+    nearbyDiscardConfirm: "Discard partial", nearbyKeepPartial: "Keep for recovery",
+    nearbyNewApproval: "Prepare new approval", nearbyPrepareAgain: "Select Prepare approval to create a new confirmation code.",
     nearbyComplete: "Transfer complete"
   },
   ja: {
@@ -365,6 +376,10 @@ const copy: Record<Locale, Copy> = {
     nearbyFailureCancelled: "転送をキャンセルしました・検証済みデータは復旧可能です",
     nearbyFailureProtocol: "安全な転送手順に失敗しました・承認をやり直してください",
     nearbyFailed: "転送を停止しました",
+    nearbyDiscard: "受信途中データを破棄", nearbyDiscardTitle: "受信途中データを破棄しますか？",
+    nearbyDiscardPrompt: "この転送の検証済みpartial fileと復旧ledgerだけを完全に削除します。Finalizedメディアは削除しません。",
+    nearbyDiscardConfirm: "途中データを破棄", nearbyKeepPartial: "復旧用に保持",
+    nearbyNewApproval: "新しい承認を準備", nearbyPrepareAgain: "「承認を準備」を選び、新しい確認コードを作成してください。",
     nearbyComplete: "転送が完了しました"
   },
   "zh-CN": {
@@ -416,6 +431,10 @@ const copy: Record<Locale, Copy> = {
     nearbyFailureCancelled: "传输已取消・验证通过的数据仍可恢复",
     nearbyFailureProtocol: "安全传输协议失败・请重新批准",
     nearbyFailed: "传输已停止",
+    nearbyDiscard: "丢弃接收中的数据", nearbyDiscardTitle: "丢弃接收中的数据？",
+    nearbyDiscardPrompt: "这将永久删除本次传输的已验证部分文件和恢复记录。不会删除已完成媒体。",
+    nearbyDiscardConfirm: "丢弃部分数据", nearbyKeepPartial: "保留以便恢复",
+    nearbyNewApproval: "准备新的批准", nearbyPrepareAgain: "请选择“准备批准”以创建新的确认码。",
     nearbyComplete: "传输完成"
   }
 };
@@ -600,6 +619,15 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       </footer>
     </dialog>
 
+    <dialog class="media-dialog media-confirm-dialog" id="nearby-discard-dialog" aria-labelledby="nearby-discard-title">
+      <h2 id="nearby-discard-title">${t.nearbyDiscardTitle}</h2>
+      <p>${t.nearbyDiscardPrompt}</p>
+      <footer>
+        <button id="nearby-discard-cancel" type="button">${t.nearbyKeepPartial}</button>
+        <button class="media-cleanup" id="nearby-discard-confirm" type="button">${t.nearbyDiscardConfirm}</button>
+      </footer>
+    </dialog>
+
     <dialog class="media-dialog" id="media-detail-dialog" aria-labelledby="media-detail-title">
       <header>
         <h2 id="media-detail-title">${t.mediaDetails}</h2>
@@ -701,6 +729,7 @@ const nearbyEmpty = document.querySelector<HTMLElement>("#nearby-empty")!;
 const nearbyAsset = document.querySelector<HTMLSelectElement>("#nearby-asset")!;
 const nearbyPrepare = document.querySelector<HTMLButtonElement>("#nearby-prepare")!;
 const nearbyApprovalDialog = document.querySelector<HTMLDialogElement>("#nearby-approval-dialog")!;
+const nearbyDiscardDialog = document.querySelector<HTMLDialogElement>("#nearby-discard-dialog")!;
 const mediaDetailDialog = document.querySelector<HTMLDialogElement>("#media-detail-dialog")!;
 const mediaDetailContent = document.querySelector<HTMLDListElement>("#media-detail-content")!;
 const mediaDetailDiagnostic = document.querySelector<HTMLParagraphElement>("#media-detail-diagnostic")!;
@@ -731,6 +760,7 @@ const nearbyFailureFixtureValue = devQuery.get("nearby-failure");
 const nearbyFailureFixtureKind = nearbyFixtureEnabled && ["disconnected", "timeout", "integrity", "storage", "invitation_expired", "cancelled", "protocol"].includes(nearbyFailureFixtureValue ?? "")
   ? nearbyFailureFixtureValue as NonNullable<NonNullable<NearbyDiscoverySnapshot["approval"]>["failure_kind"]>
   : nearbyRetryFixtureEnabled ? "disconnected" : undefined;
+const nearbyIncomingFixtureEnabled = nearbyFixtureEnabled && devQuery.get("nearby-incoming") === "1";
 
 function recoveryFixtureEntries(): MediaIndexEntry[] {
   return [{
@@ -1158,8 +1188,10 @@ function showNearbyApproval(): void {
     ? "100%"
     : `${percent}% · ${bytesLabel(transferred)} / ${bytesLabel(approval.byte_length)}`;
   const cancel = document.querySelector<HTMLButtonElement>("#nearby-approval-cancel")!;
-  cancel.textContent = approval.cancel_requested ? t.nearbyCancelling
-    : approval.transfer_active ? t.nearbyCancelTransfer : t.nearbyCancel;
+  cancel.textContent = approval.failure_kind && !approval.retry_available
+    ? approval.direction === "incoming" ? t.nearbyDiscard : t.nearbyNewApproval
+    : approval.cancel_requested ? t.nearbyCancelling
+      : approval.transfer_active ? t.nearbyCancelTransfer : t.nearbyCancel;
   cancel.disabled = approval.cancel_requested === true || approval.finalized === true;
   document.querySelector<HTMLButtonElement>("#nearby-approval-close")!.disabled = approval.transfer_active === true;
   if (!nearbyApprovalDialog.open) nearbyApprovalDialog.showModal();
@@ -1185,9 +1217,9 @@ async function prepareNearbyApproval(): Promise<void> {
       ...nearbySnapshot,
       approval: { invitation_id: "inv-fixture", peer_ephemeral_id: selectedNearbyPeerId, asset_id: nearbyAsset.value,
         file_name: "UFC-finalized-demo.jpg", byte_length: 8_421_376, confirmation_code: "482913",
-        expires_at_unix_ms: Date.now() + 120_000, local_approved: false, remote_approved: false, direction: "outgoing",
+        expires_at_unix_ms: Date.now() + 120_000, local_approved: false, remote_approved: false,
         transferred_bytes: 0, transfer_active: false, cancel_requested: false, retry_available: false,
-        failure_kind: undefined, finalized: false }
+        failure_kind: undefined, direction: nearbyIncomingFixtureEnabled ? "incoming" : "outgoing", finalized: false }
     } : await invoke<NearbyDiscoverySnapshot>("prepare_nearby_approval", {
       request: { peer_ephemeral_id: selectedNearbyPeerId, asset_id: nearbyAsset.value }
     });
@@ -1675,6 +1707,17 @@ document.querySelector<HTMLButtonElement>("#nearby-approval-close")!.addEventLis
 document.querySelector<HTMLButtonElement>("#nearby-approval-cancel")!.addEventListener("click", async () => {
   const approval = nearbySnapshot.approval;
   try {
+    if (approval?.failure_kind && !approval.retry_available) {
+      if (approval.direction === "incoming") {
+        nearbyDiscardDialog.showModal();
+        return;
+      }
+      nearbySnapshot = nearbyFixtureEnabled ? { ...nearbySnapshot, approval: null, last_error: null }
+        : await invoke<NearbyDiscoverySnapshot>("cancel_nearby_approval");
+      renderNearbySnapshot();
+      nearbyStatus.textContent = t.nearbyPrepareAgain;
+      return;
+    }
     if (approval?.transfer_active) {
       nearbySnapshot = nearbyFixtureEnabled
         ? { ...nearbySnapshot, approval: { ...approval, cancel_requested: true } }
@@ -1687,6 +1730,26 @@ document.querySelector<HTMLButtonElement>("#nearby-approval-cancel")!.addEventLi
       : await invoke<NearbyDiscoverySnapshot>("cancel_nearby_approval");
   } finally {
     if (!nearbySnapshot.approval?.transfer_active && !nearbySnapshot.approval?.cancel_requested) nearbyApprovalDialog.close();
+  }
+});
+document.querySelector<HTMLButtonElement>("#nearby-discard-cancel")!.addEventListener("click", () => {
+  nearbyDiscardDialog.close();
+  showNearbyApproval();
+});
+document.querySelector<HTMLButtonElement>("#nearby-discard-confirm")!.addEventListener("click", async () => {
+  const button = document.querySelector<HTMLButtonElement>("#nearby-discard-confirm")!;
+  button.disabled = true;
+  try {
+    nearbySnapshot = nearbyFixtureEnabled ? { ...nearbySnapshot, approval: null, last_error: null }
+      : await invoke<NearbyDiscoverySnapshot>("discard_nearby_partial");
+    nearbyDiscardDialog.close();
+    nearbyApprovalDialog.close();
+    renderNearbySnapshot();
+  } catch (error) {
+    nearbyStatus.textContent = String(error);
+    nearbyStatus.dataset.state = "error";
+  } finally {
+    button.disabled = false;
   }
 });
 document.querySelector<HTMLButtonElement>("#nearby-approval-confirm")!.addEventListener("click", async () => {

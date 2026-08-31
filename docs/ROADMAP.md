@@ -227,7 +227,8 @@ Bluetooth LE / Bonjour / Nearby discovery
 - [Later] macOS／iOS実機2台でdiscovery→code比較→相互承認→切断再開を検証（検証機材がないため保留）
 - [Done] 暗号化送受信progress／cancelの三言語UI
 - [Done] disconnect-resumeの三言語UI
-- [Next] integrity／期限切れpartialの明示discardと新規承認への導線
+- [Done] 受信partialの確認付き明示discardと、期限切れ／非retry失敗から新しい承認を準備する三言語導線
+- [Next] partial保持期限、起動時cleanup候補、利用者選択による一括管理
 - [Next] mobile background／network切替時のdisconnect-resume実機検証
 - [Later] 一定時間だけ受信可能にするvisibilityと自動停止
 - [Later] 選択的`StripLocation` EXIF再構築とMOV／MP4 metadata sanitizer

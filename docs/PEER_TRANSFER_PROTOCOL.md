@@ -38,7 +38,8 @@
 - [Done] durable ACK progress snapshot、local cancel要求、wire Cancel、英語／日本語／简体中文UI
 - [Done] Apple可視セッション内の同一Offer再handshake、checkpoint resume、明示retry UI
 - [Done] failure reason分類とdisconnect／timeoutだけに限定したretry UI
-- [Next] Invitation失効後の新規承認、partial discard、background／network切替
+- [Done] Invitation失効後の新規承認導線とmanaged partialの確認付きdiscard
+- [Next] partial retention／一括管理、background／network切替
 - [Next] iOS／Android background、network切替、timeoutの実機試験
 - [Later] Apple／Android／Windows／Linux platform adapter
 

@@ -5,6 +5,7 @@ use peer_transfer_core::{
     HandshakeOffer, IndexedOriginalReceive, Invitation, LocalNetworkTransport, MAX_CHUNK_BYTES,
     MetadataPolicy, PROTOCOL_VERSION, PeerCapabilities, PeerIdentity, PeerWireMessage,
     TransferCancelReason, TransferSession, TransferState, TransportKind, complete_mutual_handshake,
+    discard_incomplete_transfer,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -620,6 +621,39 @@ impl NearbyDiscoveryState {
             .progress
             .cancel_requested
             .store(true, Ordering::Release);
+        Ok(snapshot(
+            &runtime,
+            cfg!(any(target_os = "macos", target_os = "ios")),
+        ))
+    }
+
+    pub fn discard_failed_partial(
+        &self,
+        captures_root: &std::path::Path,
+    ) -> Result<NearbyDiscoverySnapshot, String> {
+        let mut runtime = self
+            .runtime
+            .lock()
+            .map_err(|_| "nearby discovery lock poisoned")?;
+        if runtime.secure_session.is_some() {
+            return Err("active secure session cannot be discarded".into());
+        }
+        let prepared = runtime
+            .approval
+            .as_ref()
+            .ok_or_else(|| "no nearby transfer is prepared".to_owned())?;
+        if prepared.direction != NearbyApprovalDirection::Incoming
+            || prepared.failure_kind.is_none()
+            || prepared.progress.active.load(Ordering::Acquire)
+            || prepared.finalized
+        {
+            return Err("nearby transfer is not a discardable incoming partial".into());
+        }
+        let transfer_id = prepared.session.manifest.transfer_id.clone();
+        discard_incomplete_transfer(captures_root, &transfer_id)
+            .map_err(|error| error.to_string())?;
+        runtime.approval = None;
+        runtime.last_error = None;
         Ok(snapshot(
             &runtime,
             cfg!(any(target_os = "macos", target_os = "ios")),
