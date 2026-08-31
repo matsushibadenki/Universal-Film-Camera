@@ -1588,6 +1588,30 @@ fn cancel_nearby_approval(
     state.cancel_approval()
 }
 
+#[tauri::command]
+fn connect_nearby_transfer(
+    state: tauri::State<'_, NearbyDiscoveryState>,
+) -> Result<NearbyDiscoverySnapshot, String> {
+    state.connect_outgoing()
+}
+
+#[tauri::command]
+fn run_nearby_secure_transfer(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, NearbyDiscoveryState>,
+) -> Result<NearbyDiscoverySnapshot, String> {
+    let captures = captures_directory(&app)?;
+    let (available_bytes, _) = filesystem_capacity(&captures)?;
+    state.run_secure_transfer(&captures, available_bytes)
+}
+
+#[tauri::command]
+fn cancel_nearby_secure_transfer(
+    state: tauri::State<'_, NearbyDiscoveryState>,
+) -> Result<NearbyDiscoverySnapshot, String> {
+    state.request_transfer_cancel()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -1624,7 +1648,10 @@ pub fn run() {
             stop_nearby_discovery,
             prepare_nearby_approval,
             approve_nearby_transfer,
-            cancel_nearby_approval
+            cancel_nearby_approval,
+            connect_nearby_transfer,
+            run_nearby_secure_transfer,
+            cancel_nearby_secure_transfer
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Universal Film Camera");

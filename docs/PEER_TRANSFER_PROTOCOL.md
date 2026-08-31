@@ -30,9 +30,15 @@
 - [Done] sender／receiver lifecycle、単一in-flight chunk、cancel、disconnect-resume、finalize接続
 - [Done] Apple mDNS advertise／browse、P2P interface、実TCP listener、Tauri start／snapshot／stop commands
 - [Done] Finalized Media再解決、Original実file hash、2分Invitation、peer選択、6桁code表示、local approval UI
+- [Done] 64 KiB上限Handshake Offer／Approval wire frame、remote承認context検証、双方能力交渉、相互codec導出
+- [Done] Apple listener accept／outbound connect、発見済みpeer key照合、incoming approval、secure transport／codec state保持
+- [Done] Encrypted Original送信、受信durable ACK、IndexedOriginalReceive、hash／probe／Media確定、TransferFinalized返信
 - [Later] 選択的`StripLocation`とMOV／MP4 metadata sanitizer。未実装policy指定は拒否
-- [Next] listener accept後のInvitation／handshake／transfer session接続
-- [Next] remote offer／approval交換とtransfer progress UI（英語／日本語／简体中文）
+- [Done] Apple transfer task開始時のreceiver checkpoint交換と検証済みoffsetからの暗号化送信
+- [Done] durable ACK progress snapshot、local cancel要求、wire Cancel、英語／日本語／简体中文UI
+- [Done] Apple可視セッション内の同一Offer再handshake、checkpoint resume、明示retry UI
+- [Done] failure reason分類とdisconnect／timeoutだけに限定したretry UI
+- [Next] Invitation失効後の新規承認、partial discard、background／network切替
 - [Next] iOS／Android background、network切替、timeoutの実機試験
 - [Later] Apple／Android／Windows／Linux platform adapter
 
@@ -57,6 +63,13 @@
 17. discovery TXT recordは公開情報だけを持ち、端末名、永続device ID、secret key、確認codeを広告しない。
 18. 広告portは先にbind済みのlistenerから取得し、接続不能な推測portを公開しない。
 19. local code承認だけではTransferringへ進めず、認証済みremote approvalまではNegotiatingに留める。
+20. Handshake ApprovalはInvitation ID、transfer ID、確認code、offer sender keyと異なるapprover keyへbindingし、Offerと異なるcontextを拒否する。
+21. control frameは64 KiBを超える宣言をpayload allocation前に拒否する。
+22. incoming Offerは現在Bonjourで発見中のephemeral IDと公開鍵が完全一致するsenderだけを受理する。
+23. outbound remote待機中にnative state lockを保持せず、cancel／stop後に戻った結果を古いsessionへ確定しない。
+24. senderは最終DurableAckだけで成功扱いにせず、receiverのhash／probe／Media manifest確定後のTransferFinalizedを待つ。
+25. transfer taskはreceiverのdurable checkpointを最初に交換し、sender側の同一prefix SHA-256が一致したoffsetからだけ暗号化chunk送信を開始する。
+26. transport切断後の再接続は同じtransfer identityへ明示的に戻す。別transferのpartialを推測で再利用しない。
 
 ## Platform adapterの責務
 

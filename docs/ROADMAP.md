@@ -24,7 +24,7 @@
 | Profile system | [Done] typed Profiles + loader + migration registry | profile署名／配布方針を確定 |
 | Film renderer | [Done] CPU synthetic finishing縦切り | measured Print／ColorCheckerを追加 |
 | GPU renderer | [Later] architecture only | wgpu texture pipelineとreference比較 |
-| Nearby sharing | [Later] transport方針確定 | iOS／Android基盤後にpeer転送MVP |
+| Nearby sharing | [Done] Apple暗号化Original転送＋durable checkpoint再開のcode縦切り | failure recovery、他OS adapter |
 | iOS／Android | [Done] iOS capture code + Android CameraX preview | 実機検証、Android Still／Video |
 | Windows／Linux | [Later] 未実装 | platform camera backendの最初のpreview |
 
@@ -92,6 +92,7 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 
 ## Milestone 2 — Professional camera UI
 
+- [Done] 光学絞り・センサー・動画方向を統合した媒体非依存のプロ向けアプリアイコンと全platform asset
 - [Done] 技術的・暗色・撮影画面優先のresponsive layout
 - [Done] 320／375／414／768／1280pxのlayout検証
 - [Done] right rail／bottom railで中央正円capture controlを維持
@@ -110,6 +111,8 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - [Later] button remapping、workspace customization、external monitor layout
 
 詳細: [`CAMERA_UI_LAYOUT.md`](CAMERA_UI_LAYOUT.md)
+
+アイコン仕様: [`APP_ICON.md`](APP_ICON.md)
 
 ## Milestone 2.1 — Media persistence and library
 
@@ -213,8 +216,18 @@ Bluetooth LE / Bonjour / Nearby discovery
 - [Done] Apple local-network／Bonjour permission宣言と英語／日本語／简体中文の用途説明
 - [Done] 撮影previewを停止して開くNearby専用画面、発見開始／停止、短期ID／peer一覧、1.5秒更新、撮影画面復帰を英語／日本語／简体中文で接続
 - [Done] 発見peer＋Finalized Media選択、実file hash済みManifest、2分Invitation、transcript由来6桁code、local明示承認の三言語UI
-- [Next] accepted／outbound TCPでInvitation／Manifest／公開鍵／remote approvalを交換し、双方承認後だけ暗号化sessionへ接続
-- [Next] 暗号化送受信progress／cancel／disconnect-resumeの三言語UI
+- [Done] bounded TCP control frameでHandshake Offer／remote Approvalを交換し、transcript／双方能力を照合して同一暗号codecを生成する共通相互handshake
+- [Done] Apple listener非blocking accept／outbound address connect、発見peer照合、incoming invitation三言語UI、双方承認後のsecure session保持
+- [Done] secure sessionからOriginalを暗号chunk転送し、受信Incomplete→hash／probe／Media Finalized、送信側remote Finalized確認まで接続
+- [Done] Apple transfer task開始時にreceiver durable checkpointを交換し、送信元prefix SHA-256一致位置から暗号化送信を再開
+- [Done] Apple可視セッション内でtransport切断後も同じtransfer ID／Offerを保持し、再handshake→checkpoint交換へ戻る再接続制御
+- [Done] durable ACK単位progress、転送容量／割合、local cancel要求とwire Cancelを三言語UIへ接続
+- [Done] 接続中断時に検証済みpartial保持を示し、明示的な「再接続して再開」を提供する三言語UI
+- [Done] disconnect／timeout／integrity／storage／Invitation失効／cancel／protocolを分類し、安全なretry可否を示す三言語recovery UI
+- [Later] macOS／iOS実機2台でdiscovery→code比較→相互承認→切断再開を検証（検証機材がないため保留）
+- [Done] 暗号化送受信progress／cancelの三言語UI
+- [Done] disconnect-resumeの三言語UI
+- [Next] integrity／期限切れpartialの明示discardと新規承認への導線
 - [Next] mobile background／network切替時のdisconnect-resume実機検証
 - [Later] 一定時間だけ受信可能にするvisibilityと自動停止
 - [Later] 選択的`StripLocation` EXIF再構築とMOV／MP4 metadata sanitizer

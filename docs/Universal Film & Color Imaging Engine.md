@@ -2456,5 +2456,8 @@ Still acceptanceではdecode可能、寸法、orientation、embedded color descr
 - [Done] durable ACK／cancel／disconnect-resume／finalize transport lifecycleを実装
 - [Done] Apple Bonjour互換discovery、TCP listener、Tauri discovery command、三言語permissionを実装
 - [Done] Nearby三言語UIでpeer／Finalized Media選択、実file Manifest、2分Invitation、6桁code比較、local承認を実装
-- [Next] listener accept／outbound connect後のremote offer／相互承認、encrypted transfer task、mobile実機試験
+- [Done] bounded TCP Handshake Offer／Approval、remote context検証、双方能力交渉、相互encrypted codec導出を実装
+- [Done] Apple listener accept／outbound connect、発見peer照合、incoming三言語承認UI、secure session保持を実装
+- [Done] secure sessionから暗号化Original転送、durable ACK、hash／probe、Media Finalized、remote確定確認を実装
+- [Next] disconnect-resume、progress／cancel UI、mobile実機試験
 - [Later] 選択的`StripLocation`とMOV／MP4 metadata sanitizerを実装

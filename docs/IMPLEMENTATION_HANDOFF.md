@@ -55,7 +55,7 @@ ADB接続端末を確認したが、2026-08-28時点ではauthorized deviceが0�
 - [Done] `imaging-core` にCamera Body/Exposure、Lens、Film/Digital Sensor、Chemical/RAW Development、Print/Output Transform、Displayの共通Pipelineを定義
 - [Done] SignalDomainによる接続検証とObserved/Simulated/Transformのprovenanceを実装
 - [Done] Tauri IPCはカメラ状態とモード選択だけに限定し、UIは英語・日本語・简体中文に対応
-- [Done] Tauri用ベクター原稿からdesktop/iOS/Android向けアイコン52点を生成
+- [Done] 光学絞り・センサー・動画方向を統合した媒体非依存のベクター正本からdesktop/iOS/Android向けアイコンを生成（`APP_ICON.md`）
 - [Done] macOS上でRust test、TypeScript build、Tauri 2 debug application buildを検証
 - [Done] プロ向けのdark camera UIへ更新し、Photo/Videoを同格の操作階層へ配置
 - [Done] 320 / 375 / 414 / 768 / 1280pxで撮影画面のresponsive layoutと操作を実画面検証
@@ -332,6 +332,68 @@ Nearby画面で発見peerとFinalized Media Originalを選択し、native `prepa
 Invitation IDはOS CSPRNGの16 byteから生成し、有効期限は2分とした。発見sessionのlocal X25519 key、mDNSで検証したpeer public key、Invitation ID、sender ephemeral ID、Manifest identityから既存protocolの6桁codeを導出する。UIは英語、日本語、简体中文でpeer／asset選択、code比較、cancel、local approveを表示する。375×812と1280×800でfixture操作を検証した。
 
 local approve後の`TransferSession`はNegotiatingであり、転送開始済みではない。TCP control frameでremoteへInvitation／Manifestを送り、相手側が同じcodeを導出・承認した事実を認証して受け取るまでは`AgreedSessionSecrets`を生成しない。次工程はincoming acceptとoutbound connectを同じ相互handshake stateへ接続することである。workspace全85 testを期待値とする。
+
+### 2026-08-31: Mutual handshake wire and codec completion
+
+`PeerWireMessage`へHandshake OfferとHandshake Approvalを追加した。OfferはInvitation、単一resource Transfer Manifest、sender X25519 public key、sender capabilityを運ぶ。ApprovalはInvitation ID、transfer ID、同じ6桁code、approver public key、approver capability、明示approved flagを運ぶ。既存UFC1 frameを使うが、chunk上限とは別にcontrol payloadを64 KiBへ制限し、header読取後・payload allocation前に拒否する。
+
+`complete_mutual_handshake`はlocal sessionがNegotiatingで、OfferのInvitation／Manifestと完全一致し、Approvalが同じInvitation ID／transfer ID／codeへbindingされ、双方public keyが異なり、local keyがいずれかのpartyである場合だけ進む。双方のLocalNetwork capability、chunk上限、resume能力を交渉し、その後にX25519／HKDFを実行してTransferring sessionとEncryptedChunkCodecを同時に返す。
+
+memory framingに加えてIPv4 loopback TCPでOffer→Approvalを往復し、sender／receiver双方でcompleteしたcodec間だけChaCha20-Poly1305 chunkを復号できるtestを追加した。異なるtransfer IDのApprovalはcontext mismatchで拒否する。共通protocolは完成したが、Apple discoveryが保持するlistenerをacceptするtask、outbound address選択、incoming UI、timeout／cancelは次工程である。peer-transfer-coreは20 test、workspace全86 testを期待値とする。
+
+### 2026-08-31: Apple two-party handshake task boundary
+
+Bonjour start時に確保したnonblocking TCP listenerをsnapshot pollへ接続した。接続が来た場合は2秒timeoutで最初のHandshake Offerを読み、Offer sender ephemeral IDとpublic keyが現在のmDNS discovery結果へ完全一致するときだけincoming approval stateを作る。受信側もlocal keyからconfirmation codeを再導出し、Offer内codeとの不一致をUIへ出す前に拒否する。
+
+送信側の`connect_nearby_transfer`はlocal approve後だけ実行でき、resolved addressを順に5秒timeoutで接続する。Offer送信後は最大125秒remote Approvalを待つが、その間Nearby state mutexを保持しない。remote contextを検証後に再lockし、同じapprovalがcancel／置換されていないことを確認してからsession keyを消費する。受信側はlocal approve時にApprovalを返し、双方とも`complete_mutual_handshake`を通したTransferring session、EncryptedChunkCodec、TCP transportをnative stateへ保持する。
+
+三言語UIはincoming offerをpoll snapshotから自動表示し、方向、asset名／容量、peer ID、6桁codeを示す。送信側はlocal approve後にoutbound commandを非同期開始し、remote approval完了後に「安全なセッションを確立しました」と更新する。fixture UIと共通loopbackは検証済みだが、Bonjourを介したmacOS／iOS実機2台の受け入れは未完了である。次工程は保持したsecure sessionをEncryptedTransferSender／Receiver、受信Media lifecycleへ接続する。
+
+### 2026-08-31: Encrypted Original to Media Finalized vertical slice
+
+Handshake OfferへOriginal `TransferResource`とCaptureMetadataを追加し、受信側が送信元pathへ依存せずIndexedOriginalReceiveを作れるようにした。Offer validationはresource roleがOriginal、derivative provenanceなし、resource manifestとhandshake manifestが完全一致することを要求する。
+
+secure session確立後、送信側は`EncryptedTransferSender`でFinalized Originalをnegotiated chunkごとに暗号化し、各DurableAckを既存TransferSessionへ反映する。受信側は保存先filesystem残容量と256 MiB reserveをwriter作成前に検査し、`.incomplete/peer-transfer`へ認証済み平文だけを書き、sync済み連続offsetだけをACKする。全byte後は実SHA-256、media probe、CapturedAsset validation、Media manifest保存を通る`finalize_indexed_original`を実行する。
+
+receiver確定後にtransfer IDとManifest SHA-256を持つ`TransferFinalized` control messageを返す。senderはこれを照合するまでUIを完了にしないため、receiverのhash／probe／Media保存失敗を送信成功と誤認しない。Encrypted IndexedOriginalReceiveのtestを追加し、改ざん認証境界からMedia Finalizedまでを検証した。
+
+既存resume ledgerのpersisted offsetが0より大きい場合、現時点のApple orchestrationは明示エラーで停止する。先頭からの再送でpartialを上書きしない。次工程はreceiver checkpointをhandshake直後に送り、sender prefix hash照合後にそのoffsetから再開することと、progress／cancel UIである。peer-transfer-coreは21 test、workspace全87 testを期待値とする。
+
+### 2026-08-31: Apple durable checkpoint transfer start
+
+Apple secure transfer taskはasset chunk送信前にreceiverから`ResumeCheckpoint`を必ず返す。receiverは既存のMedia Incomplete ledger、part file長、保存済みprefix hashを`IndexedOriginalReceive::create_or_resume`で検証してからcheckpointを送る。senderの新しい`EncryptedTransferSender::open_at_checkpoint`は元file全体のManifest hashに加え、checkpoint位置までのprefix SHA-256、transfer ID、offset上限、resume交渉状態を確認し、そのoffsetを最初のencrypted chunk位置にする。
+
+fresh transferもoffset 0 checkpointを通るため、fresh／resumeで別の非認証開始経路を持たない。不正prefixをchunk送信前に拒否するtestを追加し、peer-transfer-coreは22 test、workspace全88 testが成功した。socket切断後に同じtransfer IDを保持して再発見／再handshakeする制御、live progress、cancel／retry UI、実機2台試験は未完了である。
+
+### 2026-08-31: Durable progress and cancel milestone
+
+Prepared Approvalとsecure sessionが共有するatomic progress stateを追加した。転送taskはglobal Nearby mutexを外して動作し、receiverのDurableAckをsessionへ反映した後だけ`transferred_bytes`を進める。snapshotは`transfer_active`、`cancel_requested`、durable byte数を返すため、既存1.5秒pollのままnative taskを妨げず進捗を取得できる。
+
+`cancel_nearby_secure_transfer`はactive taskへcancel flagを設定する。sender／receiverはchunk境界で検出し、同じtransfer IDの`PeerWireMessage::Cancel(User)`を相手へ送って停止する。UIは英語、日本語、简体中文で割合、転送済み容量／総容量、progress bar、安全停止中状態を表示し、active中のdialog closeと重複cancelを無効化する。
+
+Browser fixtureでdesktopと375×812を使い、peer選択→Finalized asset選択→6桁code承認→42% progress→cancelを操作確認した。Browser単体ではTauri IPCがないためnative preview初期化の既知errorが1件出るが、Nearby fixture由来のconsole errorはない。TypeScript buildとworkspace全88 testは成功。socket read中の即時cancel、切断再接続、失敗分類／retry、Apple実機2台は未完了である。
+
+### 2026-08-31: Apple same-transcript reconnect milestone
+
+X25519 ephemeral key pairを一度のsocket handshakeで消費せず、Nearby可視セッションownerが検出停止まで保持するよう変更した。`complete_mutual_handshake`はkey pairをborrowし、同じ承認済みtranscriptで再handshake codecを導出できる。永続keyにはせず、Nearby画面離脱／discovery stop／application終了で従来どおりzeroize対象のownerごと破棄する。
+
+transfer taskが切断エラーで終わるとsecure socketだけを破棄し、Prepared Approval、同じOffer／transfer ID、durable progress、受信partialを`retry_available`として保持する。senderの明示retryは新しいTCP接続と`TransferSession`を作る。receiver pollは現在発見中の同じephemeral ID／public keyかつ完全一致Offerだけを自動再承認し、双方がsecure sessionへ戻る。直後に既存checkpoint交換が走るため、保存済みprefix SHA-256が一致したoffsetから暗号化転送を再開する。
+
+UIは英語、日本語、简体中文で「接続が中断されました・検証済みの受信データは保持されています」と「再接続して再開」を表示する。fixtureで42%中断→retry→暗号化転送中への復帰をdesktopで確認した。core testは同じvisibility keyから双方codecを2回導出し相互復号できることを検証する。workspace全88 testは成功。Invitation 2分失効後、background／interface変更、自動backoff、Apple実機2台は未完了である。
+
+### 2026-08-31: Two-device validation deferred
+
+macOS／iOS実機2台を使うNearby end-to-end検証は、現在検証機材がないため`[Later]`へ移した。これはcode実装の後退や失敗ではなく、Bonjour discovery、二画面code比較、相互承認、暗号化転送、物理的なnetwork切断とcheckpoint再開を実環境で確認するQA項目の保留である。
+
+直近の開発順序やmilestone完了条件へ実機2台試験を置かない。機材確保後は、既存loopback／fixture結果をbaselineとして、異なる端末間の発見、Still／Video、途中切断、再接続、最終hash、受信Media Finalizedを一連で確認する。
+
+### 2026-08-31: Failure taxonomy and recovery policy
+
+Nearby transfer失敗をDisconnected、Timeout、Integrity、Storage、InvitationExpired、Cancelled、Protocolへ分類し、snapshotへ`failure_kind`を追加した。retryはDisconnected／TimeoutかつInvitation有効・cancel未要求の場合だけ許可する。connect段階とchunk transfer段階の双方が同じ分類記録を通るため、接続失敗がUIの一時errorだけで消えない。
+
+UIは英語、日本語、简体中文で失敗ごとの次動作を表示する。IntegrityはMedia未公開、Storageは空き容量確保、Expiredは新しい確認code、Protocolは承認のやり直しを案内する。Integrity／Storage等に「再接続して再開」は表示しない。partialは診断・復旧用に保持し、この工程では自動削除しない。
+
+分類とretry可否のunit testを追加し、universal-film-cameraは8 test、peer-transfer-coreは22 testを期待値とする。Browser fixtureでIntegrityがretry不可、Timeoutがretry可能であることをdesktop／375×812で確認した。次工程は不要partialの明示discardとInvitation失効後の新規承認導線である。
 
 ## 未確定事項（実装前に決める）
 

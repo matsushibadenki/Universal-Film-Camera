@@ -132,6 +132,14 @@ type NearbyDiscoverySnapshot = {
     confirmation_code: string;
     expires_at_unix_ms: number;
     local_approved: boolean;
+    remote_approved?: boolean;
+    direction?: "outgoing" | "incoming";
+    transferred_bytes?: number;
+    transfer_active?: boolean;
+    cancel_requested?: boolean;
+    retry_available?: boolean;
+    failure_kind?: "disconnected" | "timeout" | "integrity" | "storage" | "invitation_expired" | "cancelled" | "protocol";
+    finalized?: boolean;
   } | null;
 };
 
@@ -237,6 +245,23 @@ type Copy = {
   nearbyApprove: string;
   nearbyCancel: string;
   nearbyApproved: string;
+  nearbyIncoming: string;
+  nearbySecure: string;
+  nearbyTransferring: string;
+  nearbyProgress: string;
+  nearbyCancelTransfer: string;
+  nearbyCancelling: string;
+  nearbyRetry: string;
+  nearbyReconnecting: string;
+  nearbyInterrupted: string;
+  nearbyFailureTimeout: string;
+  nearbyFailureIntegrity: string;
+  nearbyFailureStorage: string;
+  nearbyFailureExpired: string;
+  nearbyFailureCancelled: string;
+  nearbyFailureProtocol: string;
+  nearbyFailed: string;
+  nearbyComplete: string;
 };
 
 const copy: Record<Locale, Copy> = {
@@ -276,7 +301,20 @@ const copy: Record<Locale, Copy> = {
     nearbyPrivacy: "Only an ephemeral ID is advertised. Transfer still requires mutual approval and a matching confirmation code.",
     nearbyAsset: "Media to share", nearbySelectAsset: "Select finalized media", nearbyPrepare: "Prepare approval",
     nearbyCodeTitle: "Compare confirmation code", nearbyCodeDetail: "Confirm that this exact code appears on both devices before approving.",
-    nearbyApprove: "Code matches · Approve", nearbyCancel: "Cancel", nearbyApproved: "Approved locally · waiting for the other device"
+    nearbyApprove: "Code matches · Approve", nearbyCancel: "Cancel", nearbyApproved: "Approved locally · waiting for the other device",
+    nearbyIncoming: "Incoming share", nearbySecure: "Secure session established",
+    nearbyTransferring: "Encrypted transfer in progress…", nearbyProgress: "Transferred",
+    nearbyCancelTransfer: "Cancel transfer", nearbyCancelling: "Cancelling safely…",
+    nearbyRetry: "Reconnect and resume", nearbyReconnecting: "Reconnecting securely…",
+    nearbyInterrupted: "Connection interrupted · verified partial data is preserved",
+    nearbyFailureTimeout: "Connection timed out · verified partial data is preserved",
+    nearbyFailureIntegrity: "Integrity verification failed · media was not published",
+    nearbyFailureStorage: "Not enough storage · free space before trying again",
+    nearbyFailureExpired: "Approval expired · prepare a new confirmation code",
+    nearbyFailureCancelled: "Transfer cancelled · verified partial data remains recoverable",
+    nearbyFailureProtocol: "Secure transfer protocol failed · start a new approval",
+    nearbyFailed: "Transfer stopped",
+    nearbyComplete: "Transfer complete"
   },
   ja: {
     photo: "写真", video: "動画", camera: "カメラ", noSignal: "カメラ信号なし",
@@ -314,7 +352,20 @@ const copy: Record<Locale, Copy> = {
     nearbyPrivacy: "周囲へ公開するのは一時IDだけです。転送には双方の承認と一致する確認コードが必要です。",
     nearbyAsset: "共有するメディア", nearbySelectAsset: "完了メディアを選択", nearbyPrepare: "承認を準備",
     nearbyCodeTitle: "確認コードを比較", nearbyCodeDetail: "承認する前に、両方の端末へ同じコードが表示されていることを確認してください。",
-    nearbyApprove: "コード一致・承認", nearbyCancel: "キャンセル", nearbyApproved: "この端末で承認済み・相手の承認待ち"
+    nearbyApprove: "コード一致・承認", nearbyCancel: "キャンセル", nearbyApproved: "この端末で承認済み・相手の承認待ち",
+    nearbyIncoming: "受信する共有", nearbySecure: "安全なセッションを確立しました",
+    nearbyTransferring: "暗号化転送中…", nearbyProgress: "転送済み",
+    nearbyCancelTransfer: "転送をキャンセル", nearbyCancelling: "安全に停止しています…",
+    nearbyRetry: "再接続して再開", nearbyReconnecting: "安全に再接続しています…",
+    nearbyInterrupted: "接続が中断されました・検証済みの受信データは保持されています",
+    nearbyFailureTimeout: "接続がタイムアウトしました・検証済みの受信データは保持されています",
+    nearbyFailureIntegrity: "完全性検証に失敗しました・メディアは公開されていません",
+    nearbyFailureStorage: "保存容量が不足しています・空き容量を確保してください",
+    nearbyFailureExpired: "承認期限が切れました・新しい確認コードを準備してください",
+    nearbyFailureCancelled: "転送をキャンセルしました・検証済みデータは復旧可能です",
+    nearbyFailureProtocol: "安全な転送手順に失敗しました・承認をやり直してください",
+    nearbyFailed: "転送を停止しました",
+    nearbyComplete: "転送が完了しました"
   },
   "zh-CN": {
     photo: "照片", video: "视频", camera: "相机", noSignal: "无相机信号",
@@ -352,7 +403,20 @@ const copy: Record<Locale, Copy> = {
     nearbyPrivacy: "仅广播临时 ID。传输仍需双方批准并核对相同的确认码。",
     nearbyAsset: "要共享的媒体", nearbySelectAsset: "选择已完成媒体", nearbyPrepare: "准备批准",
     nearbyCodeTitle: "比较确认码", nearbyCodeDetail: "批准前，请确认两台设备上显示完全相同的代码。",
-    nearbyApprove: "代码一致・批准", nearbyCancel: "取消", nearbyApproved: "已在此设备批准・等待对方批准"
+    nearbyApprove: "代码一致・批准", nearbyCancel: "取消", nearbyApproved: "已在此设备批准・等待对方批准",
+    nearbyIncoming: "接收共享", nearbySecure: "已建立安全会话",
+    nearbyTransferring: "正在加密传输…", nearbyProgress: "已传输",
+    nearbyCancelTransfer: "取消传输", nearbyCancelling: "正在安全停止…",
+    nearbyRetry: "重新连接并继续", nearbyReconnecting: "正在安全地重新连接…",
+    nearbyInterrupted: "连接已中断・已保留验证通过的接收数据",
+    nearbyFailureTimeout: "连接超时・已保留验证通过的接收数据",
+    nearbyFailureIntegrity: "完整性验证失败・媒体未发布",
+    nearbyFailureStorage: "存储空间不足・请释放空间后重试",
+    nearbyFailureExpired: "批准已过期・请准备新的确认码",
+    nearbyFailureCancelled: "传输已取消・验证通过的数据仍可恢复",
+    nearbyFailureProtocol: "安全传输协议失败・请重新批准",
+    nearbyFailed: "传输已停止",
+    nearbyComplete: "传输完成"
   }
 };
 
@@ -526,6 +590,10 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <p>${t.nearbyCodeDetail}</p>
       <strong id="nearby-confirmation-code">—</strong>
       <dl id="nearby-approval-detail"></dl>
+      <div class="nearby-transfer-progress" id="nearby-transfer-progress" hidden>
+        <div><span id="nearby-progress-label">${t.nearbyProgress}</span><strong id="nearby-progress-value">0%</strong></div>
+        <progress id="nearby-progress-bar" max="100" value="0"></progress>
+      </div>
       <footer>
         <button id="nearby-approval-cancel" type="button">${t.nearbyCancel}</button>
         <button id="nearby-approval-confirm" type="button">${t.nearbyApprove}</button>
@@ -658,6 +726,11 @@ const devQuery = new URLSearchParams(window.location.search);
 const recoveryFixtureEnabled = import.meta.env.DEV && devQuery.get("recovery-fixture") === "1";
 const storageLowFixtureEnabled = import.meta.env.DEV && devQuery.get("storage-low") === "1";
 const nearbyFixtureEnabled = import.meta.env.DEV && devQuery.get("nearby-fixture") === "1";
+const nearbyRetryFixtureEnabled = nearbyFixtureEnabled && devQuery.get("nearby-retry") === "1";
+const nearbyFailureFixtureValue = devQuery.get("nearby-failure");
+const nearbyFailureFixtureKind = nearbyFixtureEnabled && ["disconnected", "timeout", "integrity", "storage", "invitation_expired", "cancelled", "protocol"].includes(nearbyFailureFixtureValue ?? "")
+  ? nearbyFailureFixtureValue as NonNullable<NonNullable<NearbyDiscoverySnapshot["approval"]>["failure_kind"]>
+  : nearbyRetryFixtureEnabled ? "disconnected" : undefined;
 
 function recoveryFixtureEntries(): MediaIndexEntry[] {
   return [{
@@ -960,13 +1033,32 @@ function nearbyFixtureSnapshot(active = true): NearbyDiscoverySnapshot {
   };
 }
 
+function nearbyFailureLabel(kind: NonNullable<NonNullable<NearbyDiscoverySnapshot["approval"]>["failure_kind"]>): string {
+  switch (kind) {
+    case "disconnected": return t.nearbyInterrupted;
+    case "timeout": return t.nearbyFailureTimeout;
+    case "integrity": return t.nearbyFailureIntegrity;
+    case "storage": return t.nearbyFailureStorage;
+    case "invitation_expired": return t.nearbyFailureExpired;
+    case "cancelled": return t.nearbyFailureCancelled;
+    case "protocol": return t.nearbyFailureProtocol;
+  }
+}
+
 function renderNearbySnapshot(): void {
   nearbyToggle.textContent = nearbySnapshot.active ? t.nearbyStop : t.nearbyStart;
   nearbyToggle.dataset.state = nearbySnapshot.active ? "active" : "default";
   document.querySelector<HTMLElement>("#nearby-local-id")!.textContent = nearbySnapshot.local_peer?.ephemeral_id ?? "—";
-  nearbyStatus.textContent = nearbySnapshot.last_error
-    ? nearbySnapshot.last_error
-    : nearbySnapshot.active ? t.nearbySearching : "";
+  const transfer = nearbySnapshot.approval;
+  document.querySelector<HTMLButtonElement>("#nearby-back")!.disabled = transfer?.transfer_active === true;
+  nearbyToggle.disabled = transfer?.transfer_active === true;
+  nearbyStatus.textContent = transfer?.failure_kind
+    ? nearbyFailureLabel(transfer.failure_kind)
+    : nearbySnapshot.last_error ? nearbySnapshot.last_error
+      : transfer?.cancel_requested ? t.nearbyCancelling
+      : transfer?.finalized ? t.nearbyComplete
+        : transfer?.transfer_active ? t.nearbyTransferring
+          : nearbySnapshot.active ? t.nearbySearching : "";
   nearbyStatus.dataset.state = nearbySnapshot.last_error ? "error" : "default";
   nearbyEmpty.hidden = nearbySnapshot.peers.length !== 0;
   nearbyGrid.replaceChildren(...nearbySnapshot.peers.map((peer) => {
@@ -1040,7 +1132,10 @@ function showNearbyApproval(): void {
   document.querySelector<HTMLElement>("#nearby-confirmation-code")!.textContent = approval.confirmation_code;
   const details = document.querySelector<HTMLElement>("#nearby-approval-detail")!;
   details.replaceChildren();
-  for (const [term, value] of [[t.nearbyAsset, `${approval.file_name} · ${bytesLabel(approval.byte_length)}`], [t.nearby, approval.peer_ephemeral_id]]) {
+  for (const [term, value] of [
+    [t.nearbyAsset, `${approval.file_name} · ${bytesLabel(approval.byte_length)}`],
+    [approval.direction === "incoming" ? t.nearbyIncoming : t.nearby, approval.peer_ephemeral_id]
+  ]) {
     const row = document.createElement("div");
     const dt = document.createElement("dt");
     const dd = document.createElement("dd");
@@ -1050,9 +1145,36 @@ function showNearbyApproval(): void {
     details.append(row);
   }
   const confirm = document.querySelector<HTMLButtonElement>("#nearby-approval-confirm")!;
-  confirm.disabled = approval.local_approved;
-  confirm.textContent = approval.local_approved ? t.nearbyApproved : t.nearbyApprove;
+  confirm.disabled = (approval.local_approved && !approval.retry_available) || approval.transfer_active === true;
+  confirm.textContent = approval.retry_available ? t.nearbyRetry : approval.failure_kind ? t.nearbyFailed : approval.remote_approved
+    ? approval.finalized ? t.nearbyComplete : approval.transfer_active ? t.nearbyTransferring : t.nearbySecure
+    : approval.local_approved ? t.nearbyApproved : t.nearbyApprove;
+  const transferred = Math.min(approval.transferred_bytes ?? 0, approval.byte_length);
+  const percent = approval.byte_length > 0 ? Math.round((transferred / approval.byte_length) * 100) : 0;
+  const progress = document.querySelector<HTMLElement>("#nearby-transfer-progress")!;
+  progress.hidden = !approval.transfer_active && transferred === 0 && !approval.finalized;
+  document.querySelector<HTMLProgressElement>("#nearby-progress-bar")!.value = approval.finalized ? 100 : percent;
+  document.querySelector<HTMLElement>("#nearby-progress-value")!.textContent = approval.finalized
+    ? "100%"
+    : `${percent}% · ${bytesLabel(transferred)} / ${bytesLabel(approval.byte_length)}`;
+  const cancel = document.querySelector<HTMLButtonElement>("#nearby-approval-cancel")!;
+  cancel.textContent = approval.cancel_requested ? t.nearbyCancelling
+    : approval.transfer_active ? t.nearbyCancelTransfer : t.nearbyCancel;
+  cancel.disabled = approval.cancel_requested === true || approval.finalized === true;
+  document.querySelector<HTMLButtonElement>("#nearby-approval-close")!.disabled = approval.transfer_active === true;
   if (!nearbyApprovalDialog.open) nearbyApprovalDialog.showModal();
+}
+
+async function runNearbySecureTransfer(): Promise<void> {
+  nearbyStatus.textContent = t.nearbyTransferring;
+  try {
+    nearbySnapshot = await invoke<NearbyDiscoverySnapshot>("run_nearby_secure_transfer");
+    nearbyStatus.textContent = t.nearbyComplete;
+    showNearbyApproval();
+  } catch (error) {
+    nearbyStatus.textContent = String(error);
+    nearbyStatus.dataset.state = "error";
+  }
 }
 
 async function prepareNearbyApproval(): Promise<void> {
@@ -1063,7 +1185,9 @@ async function prepareNearbyApproval(): Promise<void> {
       ...nearbySnapshot,
       approval: { invitation_id: "inv-fixture", peer_ephemeral_id: selectedNearbyPeerId, asset_id: nearbyAsset.value,
         file_name: "UFC-finalized-demo.jpg", byte_length: 8_421_376, confirmation_code: "482913",
-        expires_at_unix_ms: Date.now() + 120_000, local_approved: false }
+        expires_at_unix_ms: Date.now() + 120_000, local_approved: false, remote_approved: false, direction: "outgoing",
+        transferred_bytes: 0, transfer_active: false, cancel_requested: false, retry_available: false,
+        failure_kind: undefined, finalized: false }
     } : await invoke<NearbyDiscoverySnapshot>("prepare_nearby_approval", {
       request: { peer_ephemeral_id: selectedNearbyPeerId, asset_id: nearbyAsset.value }
     });
@@ -1078,6 +1202,8 @@ async function prepareNearbyApproval(): Promise<void> {
 
 async function loadNearbyDiscovery(): Promise<void> {
   nearbyRefresh.disabled = true;
+  const incomingRetryPending = nearbySnapshot.approval?.direction === "incoming"
+    && nearbySnapshot.approval.retry_available === true;
   try {
     nearbySnapshot = nearbyFixtureEnabled
       ? nearbyFixtureSnapshot(nearbySnapshot.active)
@@ -1087,6 +1213,12 @@ async function loadNearbyDiscovery(): Promise<void> {
   } finally {
     nearbyRefresh.disabled = false;
     renderNearbySnapshot();
+    if (nearbySnapshot.approval?.direction === "incoming" || nearbySnapshot.approval?.transfer_active) showNearbyApproval();
+    if (incomingRetryPending && nearbySnapshot.approval?.direction === "incoming"
+      && nearbySnapshot.approval.remote_approved && !nearbySnapshot.approval.retry_available
+      && !nearbySnapshot.approval.transfer_active) {
+      void runNearbySecureTransfer();
+    }
   }
 }
 
@@ -1541,12 +1673,20 @@ nearbyAsset.addEventListener("change", updateNearbyPrepareState);
 nearbyPrepare.addEventListener("click", () => void prepareNearbyApproval());
 document.querySelector<HTMLButtonElement>("#nearby-approval-close")!.addEventListener("click", () => nearbyApprovalDialog.close());
 document.querySelector<HTMLButtonElement>("#nearby-approval-cancel")!.addEventListener("click", async () => {
+  const approval = nearbySnapshot.approval;
   try {
-    nearbySnapshot = nearbyFixtureEnabled
-      ? { ...nearbySnapshot, approval: null }
+    if (approval?.transfer_active) {
+      nearbySnapshot = nearbyFixtureEnabled
+        ? { ...nearbySnapshot, approval: { ...approval, cancel_requested: true } }
+        : await invoke<NearbyDiscoverySnapshot>("cancel_nearby_secure_transfer");
+      showNearbyApproval();
+      renderNearbySnapshot();
+      return;
+    }
+    nearbySnapshot = nearbyFixtureEnabled ? { ...nearbySnapshot, approval: null }
       : await invoke<NearbyDiscoverySnapshot>("cancel_nearby_approval");
   } finally {
-    nearbyApprovalDialog.close();
+    if (!nearbySnapshot.approval?.transfer_active && !nearbySnapshot.approval?.cancel_requested) nearbyApprovalDialog.close();
   }
 });
 document.querySelector<HTMLButtonElement>("#nearby-approval-confirm")!.addEventListener("click", async () => {
@@ -1555,10 +1695,42 @@ document.querySelector<HTMLButtonElement>("#nearby-approval-confirm")!.addEventL
   const button = document.querySelector<HTMLButtonElement>("#nearby-approval-confirm")!;
   button.disabled = true;
   try {
+    if (approval.retry_available) {
+      nearbyStatus.textContent = t.nearbyReconnecting;
+      if (nearbyFixtureEnabled) {
+        nearbySnapshot = { ...nearbySnapshot, last_error: null,
+          approval: { ...approval, retry_available: false, failure_kind: undefined, transfer_active: true } };
+        showNearbyApproval();
+        renderNearbySnapshot();
+        return;
+      }
+      nearbySnapshot = await invoke<NearbyDiscoverySnapshot>("connect_nearby_transfer");
+      showNearbyApproval();
+      void runNearbySecureTransfer();
+      return;
+    }
     nearbySnapshot = nearbyFixtureEnabled
-      ? { ...nearbySnapshot, approval: { ...approval, local_approved: true } }
+      ? { ...nearbySnapshot, last_error: nearbyFailureFixtureKind ? "Fixture transfer failure." : null,
+          approval: { ...approval, local_approved: true, remote_approved: true,
+            transfer_active: !nearbyFailureFixtureKind,
+            retry_available: nearbyFailureFixtureKind === "disconnected" || nearbyFailureFixtureKind === "timeout",
+            failure_kind: nearbyFailureFixtureKind,
+            transferred_bytes: Math.round(approval.byte_length * 0.42) } }
       : await invoke<NearbyDiscoverySnapshot>("approve_nearby_transfer", { confirmationCode: approval.confirmation_code });
     showNearbyApproval();
+    renderNearbySnapshot();
+    if (!nearbyFixtureEnabled && approval.direction !== "incoming") {
+      void invoke<NearbyDiscoverySnapshot>("connect_nearby_transfer").then((snapshot) => {
+        nearbySnapshot = snapshot;
+        showNearbyApproval();
+        return runNearbySecureTransfer();
+      }).catch((error) => {
+        nearbyStatus.textContent = String(error);
+        nearbyStatus.dataset.state = "error";
+      });
+    } else if (!nearbyFixtureEnabled && approval.direction === "incoming") {
+      void runNearbySecureTransfer();
+    }
   } catch (error) {
     nearbyStatus.textContent = String(error);
     nearbyStatus.dataset.state = "error";

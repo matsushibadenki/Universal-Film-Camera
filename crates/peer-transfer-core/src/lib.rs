@@ -33,6 +33,7 @@ pub const MAX_ASSET_BYTES: u64 = 100 * 1024 * 1024 * 1024;
 pub const DEFAULT_RECEIVE_RESERVE_BYTES: u64 = 256 * 1024 * 1024;
 const WIRE_MAGIC: [u8; 4] = *b"UFC1";
 const MAX_WIRE_FRAME_BYTES: usize = MAX_CHUNK_BYTES as usize + 512;
+const MAX_HANDSHAKE_FRAME_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EphemeralPublicKey {
@@ -112,7 +113,7 @@ impl EphemeralKeyPair {
     }
 
     pub fn agree(
-        self,
+        &self,
         peer_public: EphemeralPublicKey,
         invitation: &Invitation,
         confirmation_code: &str,
@@ -198,16 +199,120 @@ pub struct ResumeCheckpoint {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PeerWireMessage {
+    HandshakeOffer(HandshakeOffer),
+    HandshakeApproval(HandshakeApproval),
     EncryptedChunk(EncryptedChunk),
     ResumeCheckpoint(ResumeCheckpoint),
     DurableAck {
         transfer_id: String,
         persisted_bytes: u64,
     },
+    TransferFinalized {
+        transfer_id: String,
+        sha256_hex: String,
+    },
     Cancel {
         transfer_id: String,
         reason: TransferCancelReason,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HandshakeOffer {
+    pub invitation: Invitation,
+    pub manifest: TransferManifest,
+    pub sender_public_key: EphemeralPublicKey,
+    pub sender_capabilities: PeerCapabilities,
+    pub resource: TransferResource,
+    pub capture: CaptureMetadata,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HandshakeApproval {
+    pub invitation_id: String,
+    pub transfer_id: String,
+    pub confirmation_code: String,
+    pub approver_public_key: EphemeralPublicKey,
+    pub approver_capabilities: PeerCapabilities,
+    pub approved: bool,
+}
+
+impl HandshakeOffer {
+    pub fn validate(&self) -> Result<(), TransferError> {
+        validate_invitation(&self.invitation)?;
+        self.manifest.validate()?;
+        if self.resource.manifest != self.manifest
+            || self.resource.role != TransferResourceRole::Original
+            || self.resource.derivative_provenance.is_some()
+        {
+            return Err(TransferError::ManifestMismatch);
+        }
+        if self.sender_public_key.bytes.iter().all(|byte| *byte == 0) {
+            return Err(TransferError::InvalidEphemeralKey);
+        }
+        validate_capabilities(&self.sender_capabilities)?;
+        Ok(())
+    }
+}
+
+impl HandshakeApproval {
+    pub fn validate_for(&self, offer: &HandshakeOffer) -> Result<(), TransferError> {
+        offer.validate()?;
+        if !self.approved
+            || self.invitation_id != offer.invitation.invitation_id
+            || self.transfer_id != offer.manifest.transfer_id
+            || self.confirmation_code != offer.invitation.confirmation_code
+            || self.approver_public_key.bytes.iter().all(|byte| *byte == 0)
+            || self.approver_public_key == offer.sender_public_key
+        {
+            return Err(TransferError::KeyAgreementContextMismatch);
+        }
+        validate_capabilities(&self.approver_capabilities)?;
+        Ok(())
+    }
+}
+
+/// Completes the shared transcript only after this device has approved its
+/// session and the peer's explicit approval is bound to the same offer.
+pub fn complete_mutual_handshake(
+    local_key_pair: &EphemeralKeyPair,
+    offer: &HandshakeOffer,
+    approval: &HandshakeApproval,
+    mut local_session: TransferSession,
+) -> Result<(TransferSession, EncryptedChunkCodec), TransferError> {
+    approval.validate_for(offer)?;
+    if !matches!(local_session.state, TransferState::Negotiating)
+        || local_session.invitation != offer.invitation
+        || local_session.manifest != offer.manifest
+    {
+        return Err(TransferError::KeyAgreementContextMismatch);
+    }
+    let local_public = local_key_pair.public_key();
+    let (peer_public, local_capabilities, remote_capabilities) =
+        if local_public == offer.sender_public_key {
+            (
+                approval.approver_public_key,
+                &offer.sender_capabilities,
+                &approval.approver_capabilities,
+            )
+        } else if local_public == approval.approver_public_key {
+            (
+                offer.sender_public_key,
+                &approval.approver_capabilities,
+                &offer.sender_capabilities,
+            )
+        } else {
+            return Err(TransferError::KeyAgreementContextMismatch);
+        };
+    let secrets = local_key_pair.agree(
+        peer_public,
+        &offer.invitation,
+        &approval.confirmation_code,
+        &offer.manifest,
+    )?;
+    local_session.negotiate(local_capabilities, remote_capabilities)?;
+    let codec = secrets.into_chunk_codec(&offer.manifest)?;
+    Ok((local_session, codec))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,6 +337,17 @@ pub struct LocalNetworkTransport {
 impl LocalNetworkTransport {
     pub fn connect(address: std::net::SocketAddr) -> Result<Self, TransferError> {
         let stream = TcpStream::connect(address).map_err(io_error)?;
+        Self::from_stream(stream)
+    }
+
+    pub fn connect_timeout(
+        address: std::net::SocketAddr,
+        timeout: std::time::Duration,
+    ) -> Result<Self, TransferError> {
+        if timeout.is_zero() {
+            return Err(TransferError::InvalidTransportTimeout);
+        }
+        let stream = TcpStream::connect_timeout(&address, timeout).map_err(io_error)?;
         Self::from_stream(stream)
     }
 
@@ -425,6 +541,24 @@ impl EncryptedTransferSender {
             acknowledged_bytes: 0,
             state: TransportLifecycleState::Transferring,
         })
+    }
+
+    pub fn open_at_checkpoint(
+        source_path: &Path,
+        session: &TransferSession,
+        codec: EncryptedChunkCodec,
+        checkpoint: &ResumeCheckpoint,
+    ) -> Result<Self, TransferError> {
+        let mut sender = Self::open(source_path, session, codec)?;
+        let offset = session.accept_resume_checkpoint(checkpoint)?;
+        verify_resume_checkpoint(source_path, &sender.manifest, checkpoint)?;
+        sender.acknowledged_bytes = offset;
+        sender.state = if offset == sender.manifest.byte_length {
+            TransportLifecycleState::Complete
+        } else {
+            TransportLifecycleState::Transferring
+        };
+        Ok(sender)
     }
 
     pub fn state(&self) -> TransportLifecycleState {
@@ -1252,6 +1386,26 @@ pub fn write_wire_message(
     message: &PeerWireMessage,
 ) -> Result<(), TransferError> {
     let (kind, payload) = match message {
+        PeerWireMessage::HandshakeOffer(offer) => {
+            offer.validate()?;
+            let mut payload = Vec::with_capacity(1024);
+            encode_wire_string(&mut payload, &offer.manifest.transfer_id)?;
+            payload.extend_from_slice(
+                &serde_json::to_vec(offer).map_err(|_| TransferError::InvalidWireMessage)?,
+            );
+            (5_u8, payload)
+        }
+        PeerWireMessage::HandshakeApproval(approval) => {
+            if !safe_media_token(&approval.transfer_id) {
+                return Err(TransferError::InvalidWireMessage);
+            }
+            let mut payload = Vec::with_capacity(512);
+            encode_wire_string(&mut payload, &approval.transfer_id)?;
+            payload.extend_from_slice(
+                &serde_json::to_vec(approval).map_err(|_| TransferError::InvalidWireMessage)?,
+            );
+            (6_u8, payload)
+        }
         PeerWireMessage::EncryptedChunk(chunk) => {
             if !safe_media_token(&chunk.transfer_id)
                 || chunk.ciphertext.len() > MAX_CHUNK_BYTES as usize + 16
@@ -1311,8 +1465,25 @@ pub fn write_wire_message(
             });
             (4_u8, payload)
         }
+        PeerWireMessage::TransferFinalized {
+            transfer_id,
+            sha256_hex,
+        } => {
+            if !safe_media_token(transfer_id)
+                || sha256_hex.len() != 64
+                || !sha256_hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(TransferError::InvalidWireMessage);
+            }
+            let mut payload = Vec::with_capacity(194);
+            encode_wire_string(&mut payload, transfer_id)?;
+            payload.extend_from_slice(sha256_hex.as_bytes());
+            (7_u8, payload)
+        }
     };
-    if payload.len() > MAX_WIRE_FRAME_BYTES {
+    if payload.len() > MAX_WIRE_FRAME_BYTES
+        || (matches!(kind, 5 | 6) && payload.len() > MAX_HANDSHAKE_FRAME_BYTES)
+    {
         return Err(TransferError::WireFrameTooLarge);
     }
     writer.write_all(&WIRE_MAGIC).map_err(io_error)?;
@@ -1331,7 +1502,9 @@ pub fn read_wire_message(reader: &mut impl Read) -> Result<PeerWireMessage, Tran
         return Err(TransferError::InvalidWireMessage);
     }
     let payload_length = u32::from_be_bytes(header[5..9].try_into().unwrap()) as usize;
-    if payload_length > MAX_WIRE_FRAME_BYTES {
+    if payload_length > MAX_WIRE_FRAME_BYTES
+        || (matches!(header[4], 5 | 6) && payload_length > MAX_HANDSHAKE_FRAME_BYTES)
+    {
         return Err(TransferError::WireFrameTooLarge);
     }
     let mut payload = vec![0_u8; payload_length];
@@ -1339,6 +1512,25 @@ pub fn read_wire_message(reader: &mut impl Read) -> Result<PeerWireMessage, Tran
     let mut cursor = 0_usize;
     let transfer_id = decode_wire_string(&payload, &mut cursor)?;
     let message = match header[4] {
+        5 => {
+            let offer: HandshakeOffer = serde_json::from_slice(&payload[cursor..])
+                .map_err(|_| TransferError::InvalidWireMessage)?;
+            cursor = payload.len();
+            if offer.manifest.transfer_id != transfer_id {
+                return Err(TransferError::InvalidWireMessage);
+            }
+            offer.validate()?;
+            PeerWireMessage::HandshakeOffer(offer)
+        }
+        6 => {
+            let approval: HandshakeApproval = serde_json::from_slice(&payload[cursor..])
+                .map_err(|_| TransferError::InvalidWireMessage)?;
+            cursor = payload.len();
+            if approval.transfer_id != transfer_id {
+                return Err(TransferError::InvalidWireMessage);
+            }
+            PeerWireMessage::HandshakeApproval(approval)
+        }
         1 => {
             let offset = take_u64(&payload, &mut cursor)?;
             let plaintext_bytes = take_u32(&payload, &mut cursor)?;
@@ -1391,6 +1583,19 @@ pub fn read_wire_message(reader: &mut impl Read) -> Result<PeerWireMessage, Tran
                 _ => return Err(TransferError::InvalidWireMessage),
             },
         },
+        7 => {
+            let hash = take_wire(&payload, &mut cursor, 64)?;
+            let sha256_hex = std::str::from_utf8(hash)
+                .map_err(|_| TransferError::InvalidWireMessage)?
+                .to_owned();
+            if !sha256_hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(TransferError::InvalidWireMessage);
+            }
+            PeerWireMessage::TransferFinalized {
+                transfer_id,
+                sha256_hex,
+            }
+        }
         _ => return Err(TransferError::InvalidWireMessage),
     };
     if cursor != payload.len() {
@@ -1840,6 +2045,34 @@ pub struct IndexedDerivativeReceive {
     provenance: DerivativeProvenance,
 }
 
+pub fn discard_incomplete_transfer(root: &Path, transfer_id: &str) -> Result<(), TransferError> {
+    if !safe_media_token(transfer_id) {
+        return Err(TransferError::InvalidSourceAsset);
+    }
+    let incomplete_dir = root.join(".incomplete").join("peer-transfer");
+    if !incomplete_dir.exists() {
+        return Err(TransferError::IncompleteReceive);
+    }
+    ensure_managed_directory(root, &incomplete_dir)?;
+    let part_path = incomplete_dir.join(format!("{transfer_id}.part"));
+    let ledger_path = incomplete_dir.join(format!("{transfer_id}.json"));
+    reject_symlink(&part_path)?;
+    reject_symlink(&ledger_path)?;
+    let ledger_bytes = fs::read(&ledger_path).map_err(io_error)?;
+    let ledger: ReceiveLedger =
+        serde_json::from_slice(&ledger_bytes).map_err(|_| TransferError::CorruptResumeLedger)?;
+    if ledger.schema_version != PROTOCOL_VERSION
+        || ledger.manifest.transfer_id != transfer_id
+        || !part_path.exists()
+    {
+        return Err(TransferError::ManifestMismatch);
+    }
+    MediaIndex::new(root)
+        .cleanup_recoverable(transfer_id)
+        .map_err(|error| TransferError::MediaIndex(error.to_string()))?;
+    fs::remove_file(&ledger_path).map_err(io_error)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReceiveCompletion {
     path: PathBuf,
@@ -1915,6 +2148,22 @@ impl IndexedOriginalReceive {
 
     pub fn write_chunk(&mut self, offset: u64, bytes: &[u8]) -> Result<u64, TransferError> {
         self.writer.write_chunk(offset, bytes)
+    }
+
+    pub fn write_encrypted_chunk(
+        &mut self,
+        codec: &EncryptedChunkCodec,
+        chunk: &EncryptedChunk,
+    ) -> Result<u64, TransferError> {
+        self.writer.write_encrypted_chunk(codec, chunk)
+    }
+
+    pub fn manifest(&self) -> &TransferManifest {
+        &self.writer.manifest
+    }
+
+    pub fn resume_checkpoint(&self) -> ResumeCheckpoint {
+        self.writer.resume_checkpoint()
     }
 }
 
@@ -2220,6 +2469,17 @@ fn validate_invitation(invitation: &Invitation) -> Result<(), TransferError> {
             .all(|byte| byte.is_ascii_digit())
     {
         return Err(TransferError::InvalidInvitation);
+    }
+    Ok(())
+}
+
+fn validate_capabilities(capabilities: &PeerCapabilities) -> Result<(), TransferError> {
+    if capabilities.protocol_version != PROTOCOL_VERSION
+        || capabilities.transports.is_empty()
+        || capabilities.max_chunk_bytes < MIN_CHUNK_BYTES
+        || capabilities.max_chunk_bytes > MAX_CHUNK_BYTES
+    {
+        return Err(TransferError::NoCompatibleProtocol);
     }
     Ok(())
 }
@@ -2719,6 +2979,146 @@ mod tests {
             read_wire_message(&mut std::io::Cursor::new(bytes)).unwrap(),
             cancel
         );
+        let finalized = PeerWireMessage::TransferFinalized {
+            transfer_id: "transfer-1".into(),
+            sha256_hex: "cd".repeat(32),
+        };
+        let mut bytes = Vec::new();
+        write_wire_message(&mut bytes, &finalized).unwrap();
+        assert_eq!(
+            read_wire_message(&mut std::io::Cursor::new(bytes)).unwrap(),
+            finalized
+        );
+    }
+
+    #[test]
+    fn handshake_offer_and_remote_approval_are_bounded_and_context_bound() {
+        let mut transfer = session();
+        let sender = EphemeralKeyPair::from_secret_bytes([0x31; 32]).unwrap();
+        let receiver = EphemeralKeyPair::from_secret_bytes([0x42; 32]).unwrap();
+        let code = sender
+            .confirmation_code(
+                receiver.public_key(),
+                &transfer.invitation.invitation_id,
+                &transfer.invitation.sender.ephemeral_id,
+                &transfer.manifest,
+            )
+            .unwrap();
+        transfer.invitation.confirmation_code = code.clone();
+        let offer = HandshakeOffer {
+            invitation: transfer.invitation.clone(),
+            manifest: transfer.manifest.clone(),
+            sender_public_key: sender.public_key(),
+            sender_capabilities: capabilities(vec![TransportKind::LocalNetwork]),
+            resource: TransferResource {
+                resource_id: "original-1".into(),
+                role: TransferResourceRole::Original,
+                derivative_provenance: None,
+                manifest: transfer.manifest.clone(),
+            },
+            capture: capture_metadata(),
+        };
+        let approval = HandshakeApproval {
+            invitation_id: offer.invitation.invitation_id.clone(),
+            transfer_id: offer.manifest.transfer_id.clone(),
+            confirmation_code: code,
+            approver_public_key: receiver.public_key(),
+            approver_capabilities: capabilities(vec![TransportKind::LocalNetwork]),
+            approved: true,
+        };
+        approval.validate_for(&offer).unwrap();
+        for expected in [
+            PeerWireMessage::HandshakeOffer(offer.clone()),
+            PeerWireMessage::HandshakeApproval(approval.clone()),
+        ] {
+            let mut bytes = Vec::new();
+            write_wire_message(&mut bytes, &expected).unwrap();
+            assert_eq!(
+                read_wire_message(&mut std::io::Cursor::new(bytes)).unwrap(),
+                expected
+            );
+        }
+        if let Ok(listener) = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)) {
+            let address = listener.local_addr().unwrap();
+            let expected_offer = offer.clone();
+            let returned_approval = approval.clone();
+            let server = std::thread::spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut transport = LocalNetworkTransport::from_stream(stream).unwrap();
+                assert_eq!(
+                    transport.receive().unwrap(),
+                    PeerWireMessage::HandshakeOffer(expected_offer)
+                );
+                transport
+                    .send(&PeerWireMessage::HandshakeApproval(returned_approval))
+                    .unwrap();
+            });
+            let mut client = LocalNetworkTransport::connect(address).unwrap();
+            client
+                .send(&PeerWireMessage::HandshakeOffer(offer.clone()))
+                .unwrap();
+            assert_eq!(
+                client.receive().unwrap(),
+                PeerWireMessage::HandshakeApproval(approval.clone())
+            );
+            server.join().unwrap();
+        }
+        let mut wrong = approval.clone();
+        wrong.transfer_id = "different-transfer".into();
+        assert!(matches!(
+            wrong.validate_for(&offer),
+            Err(TransferError::KeyAgreementContextMismatch)
+        ));
+
+        let mut sender_session =
+            TransferSession::new(offer.invitation.clone(), offer.manifest.clone()).unwrap();
+        sender_session
+            .approve(&offer.invitation.confirmation_code, 1)
+            .unwrap();
+        let mut receiver_session =
+            TransferSession::new(offer.invitation.clone(), offer.manifest.clone()).unwrap();
+        receiver_session
+            .approve(&offer.invitation.confirmation_code, 1)
+            .unwrap();
+        let (sender_session, sender_codec) =
+            complete_mutual_handshake(&sender, &offer, &approval, sender_session).unwrap();
+        let (receiver_session, receiver_codec) =
+            complete_mutual_handshake(&receiver, &offer, &approval, receiver_session).unwrap();
+        assert!(matches!(
+            sender_session.state,
+            TransferState::Transferring {
+                acknowledged_bytes: 0
+            }
+        ));
+        assert!(matches!(
+            receiver_session.state,
+            TransferState::Transferring {
+                acknowledged_bytes: 0
+            }
+        ));
+        let plaintext = vec![0x6d; MIN_CHUNK_BYTES as usize];
+        let encrypted = sender_codec.encrypt(0, &plaintext).unwrap();
+        assert_eq!(receiver_codec.decrypt(&encrypted).unwrap(), plaintext);
+
+        let mut sender_retry =
+            TransferSession::new(offer.invitation.clone(), offer.manifest.clone()).unwrap();
+        sender_retry
+            .approve(&offer.invitation.confirmation_code, 2)
+            .unwrap();
+        let mut receiver_retry =
+            TransferSession::new(offer.invitation.clone(), offer.manifest.clone()).unwrap();
+        receiver_retry
+            .approve(&offer.invitation.confirmation_code, 2)
+            .unwrap();
+        let (_, retry_sender_codec) =
+            complete_mutual_handshake(&sender, &offer, &approval, sender_retry).unwrap();
+        let (_, retry_receiver_codec) =
+            complete_mutual_handshake(&receiver, &offer, &approval, receiver_retry).unwrap();
+        let retry_encrypted = retry_sender_codec.encrypt(0, &plaintext).unwrap();
+        assert_eq!(
+            retry_receiver_codec.decrypt(&retry_encrypted).unwrap(),
+            plaintext
+        );
     }
 
     #[test]
@@ -2799,6 +3199,52 @@ mod tests {
             sender.cancel(TransferCancelReason::User),
             Err(TransferError::InvalidTransportLifecycle)
         ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sender_opens_at_receiver_durable_checkpoint() {
+        let data = (0..42_000)
+            .map(|index| (index % 251) as u8)
+            .collect::<Vec<_>>();
+        let (root, session) = receive_fixture(&data);
+        fs::create_dir_all(&root).unwrap();
+        let source_path = root.join("checkpoint-source.bin");
+        fs::write(&source_path, &data).unwrap();
+
+        let mut writer = ReceiveWriter::create_or_resume(
+            &root,
+            session.manifest.clone(),
+            u64::MAX,
+            DEFAULT_RECEIVE_RESERVE_BYTES,
+        )
+        .unwrap();
+        let persisted = writer
+            .write_chunk(0, &data[..MIN_CHUNK_BYTES as usize])
+            .unwrap();
+        let checkpoint = writer.resume_checkpoint();
+        assert_eq!(checkpoint.persisted_bytes, persisted);
+
+        let codec = EncryptedChunkCodec::new([0x44; 32], [0x31; 16], &session.manifest).unwrap();
+        let mut sender =
+            EncryptedTransferSender::open_at_checkpoint(&source_path, &session, codec, &checkpoint)
+                .unwrap();
+        let PeerWireMessage::EncryptedChunk(chunk) = sender.next_chunk().unwrap().unwrap() else {
+            panic!("expected resumed encrypted chunk");
+        };
+        assert_eq!(chunk.offset, persisted);
+
+        let invalid = ResumeCheckpoint {
+            prefix_sha256: "00".repeat(32),
+            ..checkpoint
+        };
+        let codec = EncryptedChunkCodec::new([0x45; 32], [0x32; 16], &session.manifest).unwrap();
+        assert!(matches!(
+            EncryptedTransferSender::open_at_checkpoint(&source_path, &session, codec, &invalid,),
+            Err(TransferError::ResumePrefixMismatch)
+        ));
+        drop(sender);
+        drop(writer);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -2931,6 +3377,37 @@ mod tests {
         assert_eq!(final_entries.len(), 1);
         assert_eq!(final_entries[0].state, camera_core::AssetState::Finalized);
         assert_eq!(final_entries[0].asset.as_ref(), Some(&asset));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn encrypted_indexed_original_receive_finalizes_only_after_authenticated_bytes() {
+        let data = jpeg_fixture();
+        let (root, mut transfer) = receive_fixture(&data);
+        let resource = TransferResource {
+            resource_id: "remote:encrypted-original".into(),
+            role: TransferResourceRole::Original,
+            derivative_provenance: None,
+            manifest: transfer.manifest.clone(),
+        };
+        let codec = EncryptedChunkCodec::new([0x73; 32], [0x29; 16], &transfer.manifest).unwrap();
+        let encrypted = codec.encrypt(0, &data).unwrap();
+        let mut receive = IndexedOriginalReceive::create_or_resume(
+            &root,
+            resource,
+            capture_metadata(),
+            u64::MAX,
+            DEFAULT_RECEIVE_RESERVE_BYTES,
+        )
+        .unwrap();
+        let ack = receive.write_encrypted_chunk(&codec, &encrypted).unwrap();
+        transfer.acknowledge(ack).unwrap();
+        let asset = transfer.finalize_indexed_original(receive).unwrap();
+        assert_eq!(asset.state, camera_core::AssetState::Finalized);
+        assert_eq!(
+            MediaIndex::new(&root).list().unwrap()[0].state,
+            camera_core::AssetState::Finalized
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

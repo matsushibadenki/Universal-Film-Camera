@@ -437,3 +437,69 @@ Status: Accepted (2026-08-31)
 送信準備はMedia indexのFinalized entryをIDで再解決し、実fileからTransfer Manifestを生成する。UIが渡したpath、byte長、hash、完成状態を信頼しない。Invitation IDはOS CSPRNG由来とし、2分で失効する。6桁codeは既存ADR-051のhandshake transcriptから導出し、独立したUI乱数を使わない。
 
 利用者が「コード一致・承認」を押した時点ではlocal `TransferSession`をAwaitingApprovalからNegotiatingへ進めるだけとする。発見広告だけでは相手が同じManifestを見たことも承認したことも証明できない。remote approvalを認証済みcontrol channelから受け取り、双方のtranscript一致を確認する前にAgreedSessionSecrets、EncryptedChunkCodec、Transferring stateを作らない。
+
+## ADR-057: Mutual approval and capability negotiation share one bounded control transcript
+
+Status: Accepted (2026-08-31)
+
+Handshake OfferはInvitation、Transfer Manifest、sender public key、sender capabilityを1つのcontrol messageとして運ぶ。ApprovalはInvitation ID、transfer ID、同一確認code、別のapprover public key、approver capability、明示approved flagを返す。一部fieldだけを別sessionから再利用できないよう、暗号codec生成前に全contextを照合する。
+
+control messageも既存UFC1 binary envelopeを使うが、asset chunkと同じ4 MiB上限を許さず64 KiBへ制限する。headerのkindとlengthからallocation前に上限を適用する。双方のlocal sessionが承認済みNegotiatingでなければ相互handshakeをcompleteせず、capability negotiationとX25519／HKDFが両方成功した結果としてのみTransferring sessionとcodecを生成する。
+
+## ADR-058: Incoming connections must correspond to a currently discovered ephemeral key
+
+Status: Accepted (2026-08-31)
+
+Apple listenerが受けた任意TCP connectionをInvitationとしてUIへ表示しない。最初のmessageはbounded Handshake Offerでなければならず、sender ephemeral IDとX25519 public keyが現在のBonjour discovery snapshotの同一peerへ一致することを要求する。さらに受信側local keyで6桁codeを再導出し、Offerのcodeと一致してから利用者へ提示する。
+
+outbound接続は複数resolved addressを順に試すが、各addressを5秒で制限する。remote approval待機はInvitation期限を含む125秒以内とし、待機中にglobal Nearby mutexを保持しない。戻り時にはapproval identityとsession stateを再検査し、待機中にcancel／stopされた古い結果からkeyやsecure sessionを復活させない。
+
+## ADR-059: Sender completion requires receiver Media finalization evidence
+
+Status: Accepted (2026-08-31)
+
+最後のDurableAckは全byteがreceiver filesystemへ永続化されたことだけを意味し、SHA-256、media probe、CapturedAsset validation、Media manifest保存の成功を意味しない。receiverはこれらをすべて完了した後にだけtransfer IDとManifest SHA-256を持つTransferFinalizedを返す。senderは両fieldを照合するまで利用者へ完了を表示しない。
+
+受信OriginalはHandshake OfferのTransferResourceとCaptureMetadataからIndexedOriginalReceiveを作り、送信元pathを使用しない。既存partialが存在する場合、resume checkpoint交換前にoffset 0のchunkを受け入れず明示停止する。安全なresumeが未接続であることを、暗黙の再送やpartial削除で隠さない。
+
+## ADR-060: The application icon represents the imaging system, not one medium
+
+Status: Accepted (2026-08-31)
+
+アプリアイコンはフィルム孔や具体的なカメラ筐体を主題にせず、光学絞り、デジタルセンサー、動画の進行方向を1つの幾何学マークへ統合する。これによりStill／VideoおよびFilm／Digitalを同格に扱うUniversal Imaging Pipelineの製品境界と一致させる。
+
+graphite／gunmetalを基調に状態表示のcyanだけをaccentとする。platform別bitmapを直接修正せず、`assets/app-icon.svg`を正本としてTauri CLIからICNS、ICO、PNG、iOS AppIcon、Android launcher assetを再生成する。初期生成案は設計資料として保存するが、launcherで使うのは16–32 pxでの判別性を優先して整理したvector版とする。
+
+## ADR-061: Receiver checkpoint precedes every Apple asset chunk stream
+
+Status: Accepted (2026-08-31)
+
+Appleのsecure transfer taskではreceiverが`IndexedOriginalReceive::create_or_resume`を通してledgerとpart fileを検証した後、最初のwire messageとしてdurable `ResumeCheckpoint`を送る。fresh transferでもoffset 0と空prefixのSHA-256を送るため、senderはreceiver readinessを推測しない。
+
+senderは元file全体がManifest hashと一致することを再検査し、さらにcheckpoint位置までのprefix SHA-256を照合してから`EncryptedTransferSender`をそのoffsetで開く。不一致、別transfer ID、総byte超過、resume非交渉sessionはchunkを1 byteも送る前に拒否する。これで既存partialのoffset 0上書きは解消するが、socket切断後のpeer再発見、新しいephemeral handshake、同一transfer identityへの復帰は別の再接続state machineとして未完了である。
+
+## ADR-062: Transfer progress means receiver-durable bytes
+
+Status: Accepted (2026-08-31)
+
+Nearby UIのprogressはsenderがsocketへ書いたbyte数ではなく、receiverがfilesystemへ同期しDurableAckを返した連続offsetだけを表示する。native transfer taskとsnapshotの間は共有atomic stateを使い、TCP待機中にglobal Nearby mutexを保持しない。表示はbyte数と総量、割合を併記し、最終100%はreceiverのMedia Finalized証明後だけ確定する。
+
+cancelはUIだけを閉じず、共有cancel flagをtaskがchunk境界で検出して同じtransfer IDのwire Cancelを相手へ送る。重複cancelを無効化し、receiverは別transfer IDのCancelを拒否する。blocking socket receive中の即時interrupt、timeout／disconnect後の再試行は今後の非同期task／再接続state machineで扱う。
+
+## ADR-063: Reconnect reuses only the approved visibility-session transcript
+
+Status: Accepted (2026-08-31)
+
+X25519 ephemeral key pairの寿命を単一TCP socketではなく、利用者がNearby専用画面を開いている一時可視セッションとする。keyは検出停止、画面離脱、application終了で破棄し、永続device identityとして保存しない。同じ可視セッション内では、承認済みInvitation、Offer、transfer ID、Manifestが完全一致する切断再接続に限り、同じtranscriptからcodecを再導出できる。
+
+senderは接続中断後もPrepared Approvalとsource pathを保持し、明示retryで新しいTCP接続を作る。receiverは現在発見中の同じephemeral ID／public keyから届いた完全一致Offerだけを自動再承認する。双方とも新しい`TransferSession`をNegotiatingから作り直し、secure transport確立後はreceiverのdurable checkpointを最初に交換する。別Offer、別transfer ID、別peer key、期限切れInvitationは再接続として扱わない。
+
+同じkey／Manifest／offsetで再暗号化されるchunkは同じplaintextとnonce contextを持つ。checkpoint prefixが一致しない内容を同じoffsetで送らず、nonceはplaintext hashにもbindingされている。Invitation失効後、Nearby画面を閉じた後、mobile backgroundやnetwork interface変更をまたぐ再開は新しい承認フローとして今後定義する。
+
+## ADR-064: Retry eligibility is derived from a closed failure taxonomy
+
+Status: Accepted (2026-08-31)
+
+Nearby native stateは失敗をDisconnected、Timeout、Integrity、Storage、InvitationExpired、Cancelled、Protocolの閉じた分類としてsnapshotへ公開する。内部error文字列は診断用に保持するが、UIの判断や翻訳に使用しない。接続中断とtimeoutだけを同じ承認済みtranscriptからretry可能とし、Invitationが有効でcancel要求がない場合に限る。
+
+hash／prefix／AEAD／Manifest不一致を含むIntegrity、容量不足、期限切れ、利用者cancel、予期しないprotocol errorは自動retryしない。特にIntegrity failureをnetwork failureとして再送すると、破損partialや異なるsourceを正常なresumeとして扱う危険がある。UIは英語、日本語、简体中文の固定文言で、未公開、容量確保、新規確認codeなど必要な次動作を示す。partialの物理削除は別の明示discard操作として実装し、この分類だけで自動削除しない。
