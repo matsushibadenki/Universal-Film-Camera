@@ -51,5 +51,7 @@
 	<array>
 		<string>_ufcamera._tcp</string>
 	</array>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Photo library access is used only to save photos you explicitly export from the Media page.</string>
 </dict>
 </plist>

@@ -1,3 +1,4 @@
 NSCameraUsageDescription = "Camera access is required for professional photo and video capture.";
 NSMicrophoneUsageDescription = "Microphone access is required when recording video with sound.";
+NSPhotoLibraryAddUsageDescription = "Photo library access is used only to save photos you explicitly export from the Media page.";
 NSLocalNetworkUsageDescription = "Local network access is used to discover nearby users and transfer approved photos and videos securely.";

@@ -43,11 +43,11 @@ mod platform {
         AVCaptureDeviceTypeBuiltInTelephotoCamera, AVCaptureDeviceTypeBuiltInUltraWideCamera,
         AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureDeviceTypeExternalUnknown,
         AVCaptureExposureMode, AVCaptureFileOutput, AVCaptureFileOutputRecordingDelegate,
-        AVCaptureFocusMode, AVCaptureMovieFileOutput, AVCapturePhoto,
+        AVCaptureFocusMode, AVCaptureMovieFileOutput, AVCaptureOutput, AVCapturePhoto,
         AVCapturePhotoCaptureDelegate, AVCapturePhotoOutput, AVCapturePhotoSettings,
         AVCaptureSession, AVCaptureSessionPreset640x480, AVCaptureSessionPreset1280x720,
         AVCaptureSessionPreset1920x1080, AVCaptureSessionPresetInputPriority,
-        AVCaptureOutput, AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate,
+        AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate,
         AVCaptureVideoPreviewLayer, AVCaptureWhiteBalanceMode,
         AVCaptureWhiteBalanceTemperatureAndTintValues, AVLayerVideoGravityResizeAspectFill,
         AVMediaType, AVMediaTypeAudio, AVMediaTypeVideo,
@@ -58,11 +58,10 @@ mod platform {
     };
     use objc2_core_video::{
         CVPixelBufferGetBaseAddress, CVPixelBufferGetBaseAddressOfPlane,
-        CVPixelBufferGetBytesPerRow, CVPixelBufferGetBytesPerRowOfPlane,
-        CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType,
-        CVPixelBufferGetWidth, CVPixelBufferGetWidthOfPlane, CVPixelBufferIsPlanar,
-        CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
-        kCVPixelFormatType_32BGRA,
+        CVPixelBufferGetBytesPerRow, CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeight,
+        CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType, CVPixelBufferGetWidth,
+        CVPixelBufferGetWidthOfPlane, CVPixelBufferIsPlanar, CVPixelBufferLockBaseAddress,
+        CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress, kCVPixelFormatType_32BGRA,
     };
     use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol, NSString, NSURL};
     use std::{
@@ -85,6 +84,9 @@ mod platform {
         pub blue: Vec<u32>,
         pub audio_db: Vec<f32>,
         pub frame_received: bool,
+        pub preview_width: u32,
+        pub preview_height: u32,
+        pub preview_rgb: Vec<u8>,
     }
 
     impl Default for CameraMonitorSnapshot {
@@ -95,6 +97,9 @@ mod platform {
                 blue: vec![0; 32],
                 audio_db: Vec::new(),
                 frame_received: false,
+                preview_width: 0,
+                preview_height: 0,
+                preview_rgb: Vec::new(),
             }
         }
     }
@@ -118,18 +123,45 @@ mod platform {
                 sample_buffer: &CMSampleBuffer,
                 _connection: &AVCaptureConnection,
             ) {
-                let Some(buffer) = (unsafe { sample_buffer.image_buffer() }) else { return };
+                let Some(buffer) = (unsafe { sample_buffer.image_buffer() }) else {
+                    return;
+                };
                 let flags = CVPixelBufferLockFlags::ReadOnly;
-                if unsafe { CVPixelBufferLockBaseAddress(&buffer, flags) } != 0 { return; }
+                if unsafe { CVPixelBufferLockBaseAddress(&buffer, flags) } != 0 {
+                    return;
+                }
                 let planar = CVPixelBufferIsPlanar(&buffer);
-                let width = if planar { CVPixelBufferGetWidthOfPlane(&buffer, 0) } else { CVPixelBufferGetWidth(&buffer) };
-                let height = if planar { CVPixelBufferGetHeightOfPlane(&buffer, 0) } else { CVPixelBufferGetHeight(&buffer) };
-                let row_bytes = if planar { CVPixelBufferGetBytesPerRowOfPlane(&buffer, 0) } else { CVPixelBufferGetBytesPerRow(&buffer) };
-                let base = if planar { CVPixelBufferGetBaseAddressOfPlane(&buffer, 0) } else { CVPixelBufferGetBaseAddress(&buffer) } as *const u8;
+                let width = if planar {
+                    CVPixelBufferGetWidthOfPlane(&buffer, 0)
+                } else {
+                    CVPixelBufferGetWidth(&buffer)
+                };
+                let height = if planar {
+                    CVPixelBufferGetHeightOfPlane(&buffer, 0)
+                } else {
+                    CVPixelBufferGetHeight(&buffer)
+                };
+                let row_bytes = if planar {
+                    CVPixelBufferGetBytesPerRowOfPlane(&buffer, 0)
+                } else {
+                    CVPixelBufferGetBytesPerRow(&buffer)
+                };
+                let base = if planar {
+                    CVPixelBufferGetBaseAddressOfPlane(&buffer, 0)
+                } else {
+                    CVPixelBufferGetBaseAddress(&buffer)
+                } as *const u8;
                 let is_bgra = CVPixelBufferGetPixelFormatType(&buffer) == kCVPixelFormatType_32BGRA;
                 let mut red = vec![0u32; 32];
                 let mut green = vec![0u32; 32];
                 let mut blue = vec![0u32; 32];
+                const PREVIEW_WIDTH: usize = 360;
+                let preview_height = if width > 0 {
+                    (PREVIEW_WIDTH * height / width).max(1)
+                } else {
+                    0
+                };
+                let mut preview_rgb = vec![0u8; PREVIEW_WIDTH * preview_height * 3];
                 if !base.is_null() && width > 0 && height > 0 {
                     let step_x = (width / 160).max(1);
                     let step_y = (height / 90).max(1);
@@ -143,15 +175,59 @@ mod platform {
                                 red[usize::from(unsafe { *pixel.add(2) }) >> 3] += 1;
                             } else {
                                 let bin = usize::from(unsafe { *row.add(x) }) >> 3;
-                                red[bin] += 1; green[bin] += 1; blue[bin] += 1;
+                                red[bin] += 1;
+                                green[bin] += 1;
+                                blue[bin] += 1;
+                            }
+                        }
+                    }
+                    for target_y in 0..preview_height {
+                        let source_y = target_y * height / preview_height;
+                        for target_x in 0..PREVIEW_WIDTH {
+                            let source_x = target_x * width / PREVIEW_WIDTH;
+                            let destination = (target_y * PREVIEW_WIDTH + target_x) * 3;
+                            if is_bgra {
+                                let pixel =
+                                    unsafe { base.add(source_y * row_bytes + source_x * 4) };
+                                preview_rgb[destination] = unsafe { *pixel.add(2) };
+                                preview_rgb[destination + 1] = unsafe { *pixel.add(1) };
+                                preview_rgb[destination + 2] = unsafe { *pixel };
+                            } else {
+                                let y_value = unsafe { *base.add(source_y * row_bytes + source_x) };
+                                let (cb, cr) = if CVPixelBufferIsPlanar(&buffer)
+                                    && CVPixelBufferGetWidthOfPlane(&buffer, 1) > 0
+                                {
+                                    let chroma =
+                                        CVPixelBufferGetBaseAddressOfPlane(&buffer, 1) as *const u8;
+                                    let chroma_row = CVPixelBufferGetBytesPerRowOfPlane(&buffer, 1);
+                                    let uv = unsafe {
+                                        chroma.add((source_y / 2) * chroma_row + (source_x / 2) * 2)
+                                    };
+                                    (unsafe { *uv }, unsafe { *uv.add(1) })
+                                } else {
+                                    (128, 128)
+                                };
+                                let y = (f32::from(y_value) - 16.0).max(0.0) * 1.164;
+                                let cb = f32::from(cb) - 128.0;
+                                let cr = f32::from(cr) - 128.0;
+                                preview_rgb[destination] = (y + 1.596 * cr).clamp(0.0, 255.0) as u8;
+                                preview_rgb[destination + 1] =
+                                    (y - 0.392 * cb - 0.813 * cr).clamp(0.0, 255.0) as u8;
+                                preview_rgb[destination + 2] =
+                                    (y + 2.017 * cb).clamp(0.0, 255.0) as u8;
                             }
                         }
                     }
                 }
                 let _ = unsafe { CVPixelBufferUnlockBaseAddress(&buffer, flags) };
                 if let Ok(mut snapshot) = self.ivars().snapshot.lock() {
-                    snapshot.red = red; snapshot.green = green; snapshot.blue = blue;
+                    snapshot.red = red;
+                    snapshot.green = green;
+                    snapshot.blue = blue;
                     snapshot.frame_received = true;
+                    snapshot.preview_width = PREVIEW_WIDTH as u32;
+                    snapshot.preview_height = preview_height as u32;
+                    snapshot.preview_rgb = preview_rgb;
                 }
             }
         }
@@ -446,9 +522,28 @@ mod platform {
             unsafe { self.session.isRunning() }
         }
 
-        pub fn monitor_snapshot(&self) -> CameraMonitorSnapshot {
-            let mut snapshot = self.monitor_snapshot.lock().map(|value| value.clone()).unwrap_or_default();
-            if let Some(connection) = unsafe { self.movie_output.connectionWithMediaType(audio_media_type()) } {
+        pub fn monitor_snapshot(&self, include_preview: bool) -> CameraMonitorSnapshot {
+            let mut snapshot = self.monitor_snapshot.lock().map_or_else(
+                |_| CameraMonitorSnapshot::default(),
+                |value| CameraMonitorSnapshot {
+                    red: value.red.clone(),
+                    green: value.green.clone(),
+                    blue: value.blue.clone(),
+                    audio_db: value.audio_db.clone(),
+                    frame_received: value.frame_received,
+                    preview_width: value.preview_width,
+                    preview_height: value.preview_height,
+                    preview_rgb: if include_preview {
+                        value.preview_rgb.clone()
+                    } else {
+                        Vec::new()
+                    },
+                },
+            );
+            if let Some(connection) = unsafe {
+                self.movie_output
+                    .connectionWithMediaType(audio_media_type())
+            } {
                 snapshot.audio_db = unsafe { connection.audioChannels() }
                     .iter()
                     .map(|channel| unsafe { channel.averagePowerLevel() })
@@ -734,6 +829,22 @@ mod platform {
                 "preview",
             )?;
 
+            // The monitor frames feed the web overlay used for focus peaking
+            // and zebra. They must use the exact same rotation and mirroring
+            // as AVCaptureVideoPreviewLayer or the analysis will be drawn in
+            // a different coordinate system from the visible camera image.
+            let monitor = unsafe {
+                self._video_data_output
+                    .connectionWithMediaType(video_media_type())
+            }
+            .ok_or_else(|| CameraError("monitor output has no video connection".into()))?;
+            apply_connection_orientation(
+                &monitor,
+                orientation.rotation_degrees,
+                orientation.preview_mirrored,
+                "monitor",
+            )?;
+
             let photo_added = *self
                 .photo_output_added
                 .lock()
@@ -785,7 +896,24 @@ mod platform {
             Ok(())
         }
 
-        pub fn capture_photo(&self, destination: PathBuf) -> Result<PathBuf, CameraError> {
+        pub fn shutter_sound_suppression_supported(&self) -> bool {
+            #[cfg(target_os = "ios")]
+            {
+                // iOS 18+ exposes this capability dynamically and returns
+                // false where regional policy requires an audible shutter.
+                unsafe { self.photo_output.isShutterSoundSuppressionSupported() }
+            }
+            #[cfg(not(target_os = "ios"))]
+            {
+                false
+            }
+        }
+
+        pub fn capture_photo(
+            &self,
+            destination: PathBuf,
+            suppress_shutter_sound: bool,
+        ) -> Result<PathBuf, CameraError> {
             let _guard = self
                 .operation_lock
                 .lock()
@@ -798,6 +926,12 @@ mod platform {
             let (sender, receiver) = mpsc::channel();
             let delegate = PhotoCaptureDelegate::new(sender);
             let settings = unsafe { AVCapturePhotoSettings::photoSettings() };
+            #[cfg(not(target_os = "ios"))]
+            let _ = suppress_shutter_sound;
+            #[cfg(target_os = "ios")]
+            if suppress_shutter_sound && self.shutter_sound_suppression_supported() {
+                unsafe { settings.setShutterSoundSuppressionEnabled(true) };
+            }
             unsafe {
                 self.photo_output.capturePhotoWithSettings_delegate(
                     &settings,

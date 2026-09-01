@@ -1,6 +1,6 @@
 # Universal Imaging Camera Roadmap
 
-更新日: 2026-08-31
+更新日: 2026-09-01
 対象: macOS / iOS / Android / Windows / Linux  
 正本仕様: [`Universal Film & Color Imaging Engine.md`](Universal%20Film%20%26%20Color%20Imaging%20Engine.md)
 
@@ -89,7 +89,7 @@ Selected camera format
 - [Next] iOS実機でportrait／upside-down／front-camera mirror caseを検証
 - [Done] HEIF／RAW、codec／container／bitrate／audio channelの型付き能力モデルとbackend別出力組合せ
 - [Done] window close／background時の録画finalize、低頻度device切断監視、foreground再発見と共通復旧action
-- [Later] `AVCaptureVideoDataOutput → CVPixelBuffer → Metal texture`
+- [Next] `AVCaptureVideoDataOutput → CVPixelBuffer → Metal texture`のzero-copy preview renderer
 
 詳細: [`APPLE_CAMERA_BACKEND.md`](APPLE_CAMERA_BACKEND.md)
 
@@ -101,7 +101,10 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - [Done] 技術的・暗色・撮影画面優先のresponsive layout
 - [Done] 320／375／414／768／1280pxのlayout検証
 - [Done] right rail／bottom railで中央正円capture controlを維持
+- [Done] phone landscapeのブランド表示を廃止し、解像度表示幅とcapture周囲の操作禁止帯を確保した2×2 menu rail
+- [Done] 後日取込用のLUT／シャッター音project staging directoryと受入条件
 - [Done] scope／monitor tools menuをnative preview外へ配置
+- [Done] 3分割（3×3）／方眼／対角線guideと環境設定からの永続切替
 - [Done] 英語、日本語、简体中文の主要UI
 - [Done] 実機active formatとmanual control可否を表示
 - [Done] 対応組合せから生成するformat／FPS panel
@@ -109,7 +112,11 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - [Done] Still／Video別の撮影開始前容量検査、256 MiB安全予約、容量不足時の中央capture control無効化
 - [Done] Finalized／Incomplete／Failedを確認できる三言語Media画面
 - [Done] waveform、vectorscope、false color、focus peakingの決定論的BGRA8 CPU reference renderer
-- [Later] 上記monitor toolのnative／GPU renderer（CVPixelBuffer／AHardwareBuffer bridge実装後）
+- [Done] iOS live monitor frameを用いたSobel focus peaking、Rec.709／sRGB／Display P3 monitor transform、内蔵look／外部3D `.cube` LUTのライブ適用
+- [Done] iOSのdevice別format永続化／起動時復元と、画角を維持する透明focus-peaking overlay
+- [Done] 360px／10Hz CPU monitor fallback、約92 IRE Zebra、狭幅monitor tool label
+- [Done] LUT／カラープロファイル／ピーキング／ゼブラを統合したWebGL2 shader renderer、処理時最大約30Hz／非処理時10Hzの動的取得
+- [Next] iOSのCVPixelBuffer→Metal texture zero-copy rendererでWebView IPCとRGB CPU変換を廃止
 - [Done] foreground録画中の2秒間隔残容量監視と共通停止経路による安全な自動停止／Finalize
 - [Done] Android CameraX native容量monitor、onPause停止、Finalize結果保持
 - [Done] Apple AVFoundation sessionのWebView非依存容量monitorと単発stop要求
@@ -132,7 +139,12 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - [Done] asset詳細dialogとFailed／Incompleteの確認付きcleanup
 - [Done] root直下のorphanを自動削除せずFailedへ記録するreconciliation
 - [Done] Failed／Incompleteを非破壊probeする再検査とStill／Video再撮影導線
-- [Later] thumbnail／proxy生成、pagination、検索とfilter
+- [Done] Finalized写真をMedia Index ID／canonical captures検証付きpreview commandでMediaカードへ表示し、サムネイル／詳細表示を切替
+- [Done] サムネイルの長押し／右クリック／キーボードcontext menu、確認付き明示削除、iOS PhotosへのAdd Only書き出し
+- [Done] iOS app update時のdata container UUID変更を吸収するMedia resource再解決と、詳細リスト専用縦スクロール
+- [Done] 環境設定Media tabから完成済み写真をiOS Photosへ全件保存し、全件成功後だけアプリ内コピーを一括削除する確認付き移行
+- [Next] 原本JPEGのbase64 IPCを置換する永続縮小thumbnail生成とcache invalidation
+- [Later] video poster／proxy生成、pagination、検索
 
 詳細: [`MEDIA_INDEX_AND_MANIFEST.md`](MEDIA_INDEX_AND_MANIFEST.md)
 
@@ -273,8 +285,17 @@ Bluetooth LE / Bonjour / Nearby discovery
 - [Done] iOS native previewをWKWebView背面へ合成し、映像座標・メニュー・グリッドoverlayのz-orderを修正
 - [Done] WKWebView／内部scroll surfaceの透明化と、実camera frame由来32-bin histogram／実audio dB meter
 - [Done] iOS実レンズ切替、固定IRIS表示、段階式EI／SHUTTER／WB、判読性を上げたFPS format panel
+- [Done] 英語／日本語／简体中文のタブ式環境設定ページ、monitoring color space選択と端末内永続化
+- [Done] 環境設定LUTタブ、17種のgeneric film/process archetype catalog、選択永続化、検証付き外部3D `.cube` import
+- [Done] iOSの画面角度をAVFoundation角度へ変換（縦90°／横左0°／横右180°／逆さ縦270°）し、Preview／Still／Videoへ統一適用
+- [Done] iPhone portraitは下部rail、狭高さlandscapeは右side railへ切り替え、回転後のSafe Area／DOM確定後にnative previewを再配置
+- [Done] 撮影画面を100dvh内へ固定し、横向きright rail上のスワイプによるページ移動／rubber-bandを抑止
+- [Done] HistogramのHISTラベルを除去し、Audio level meterと高さ・50%透過monitor背景を統一
+- [Next] 選択LUTをnative preview／Still／Video rendererへ適用し、LUT ID・hash・domainをasset metadataへ保存
+- [Later] 測色データと正当なライセンスを持つ実在film stock別profile／LUT package
+- [Next] Rec.709／Display P3／sRGB設定をnative previewの実output transformと保存asset metadataへ接続
 - [Next] iPhone実機でpreview透過合成、histogram応答、audio meter応答を受け入れる
-- [Next] iPhone実機のpermission／Still／Video／orientationを受け入れる
+- [Next] iPhone実機で縦／横左／横右／逆さ縦のPreviewと保存JPEG／MOVが被写体上方向を維持することを受け入れる
 - [Next] narrow device、Safe Area、回転、background lifecycleをiPhone実機で受け入れる
 - [Done] Android CameraX permission／discovery／capability／PreviewView
 - [Done] Android CameraX ImageCapture／VideoCaptureと共通CapturedAsset finalize境界を実装しarm64 APKをbuild
@@ -284,7 +305,8 @@ Bluetooth LE / Bonjour / Nearby discovery
 - [Done] Android実機conformanceのinstall／snapshot harnessと必須試験matrixを作成
 - [Later] Androidの追加開発・実機受け入れ全般（iOS優先方針のため保留）
 - [Later] RAW、LOG、manual controlが必要な端末向けCamera2経路
-- [Later] CVPixelBuffer／AHardwareBufferのzero-copy GPU bridge
+- [Next] iOS CVPixelBuffer／Metal zero-copy GPU bridge
+- [Later] Android AHardwareBuffer／VulkanまたはOpenGL ES zero-copy GPU bridge（iOS優先方針のため保留）
 
 詳細: [`MOBILE_PLATFORM_BOOTSTRAP.md`](MOBILE_PLATFORM_BOOTSTRAP.md)
 Android実機受け入れ: [`ANDROID_CAMERA_CONFORMANCE.md`](ANDROID_CAMERA_CONFORMANCE.md)
@@ -322,8 +344,8 @@ Android実機受け入れ: [`ANDROID_CAMERA_CONFORMANCE.md`](ANDROID_CAMERA_CONF
 
 次の順序:
 
-1. [Done] UI姿勢をPreview／Photo／Movie connectionへ同期し、保存mirrorを分離する
-2. [Next] iOS実機でpermission、Preview、Still、音声Video、portrait／upside-down／front-camera mirrorを検証する
+1. [Done] Screen OrientationをAVFoundation角度へ変換し、Preview／Photo／Movie connectionへ同期して保存mirrorを分離する
+2. [Next] iOS実機でpermission、Preview、Still、音声Video、portrait／landscape-left／landscape-right／upside-down／front-camera mirrorを検証する
 3. [Done] CapturedAsset derivativeへrender snapshot／parent／engine version／seedを保存する
 4. [Done] Finalized／Incomplete／Failedを扱うMedia indexとatomic manifestを実装する
 5. [Done] Media一覧とFinalized／Incomplete／Failed filterを実装する
@@ -342,12 +364,12 @@ Nearby Peer Transferは上記3–5で`CapturedAsset`とMedia管理が成立し�
 
 ## Verification baseline
 
-2026-08-31時点:
+2026-09-01時点:
 
 ```text
 npm run check
   TypeScript / Vite production build: passed
-  Rust workspace tests: 95 passed, 0 failed
+  Rust workspace tests: 101 passed, 0 failed
 
 macOS native runtime
   camera preview: passed
@@ -369,6 +391,7 @@ mobile scaffold
   Android CameraX Still / audio Video / CapturedAsset bridge compile: passed
   Android strict ResolutionSelector / Camera2 FPS request compile: passed
   iOS permission localization en / ja / zh-Hans: passed
+  iOS Photos Add Only permission／native export link／signed device build: passed
   Android CAMERA / RECORD_AUDIO declaration: passed
 ```
 
@@ -378,6 +401,7 @@ mobile scaffold
 - [Done] 外部cameraの低頻度presence監視と切断時の安全停止／再発見経路
 - [Later] 外部camera hot plug／切断復旧の実機受け入れ（対応camera調達後）
 - [Later] 英語／简体中文OSでのpermission prompt実表示（該当localeの実機検証環境準備後）
+- [Next] iPhone実機でPhotos Add Only prompt、書き出し成功、拒否時案内を受け入れる
 - [Later] 4K60 performance budget（4K60対応実機とGPU frame bridge準備後）
 - [Done] monitor scope CPU reference conformance fixture
 - [Later] CPU／GPU画像同値conformance（GPU renderer実装後）
@@ -414,3 +438,13 @@ mobile scaffold
 3. 遠い構想は`[Later]`に置き、完了したように見せない。
 4. 実機依存項目はcompile成功だけで`[Done]`にしない。
 5. roadmap変更と同じturnで関連詳細文書も同期する。
+[Done] iOSピーキング／ゼブラ解析出力をネイティブプレビューと同じ回転・ミラー座標系へ統一
+[Done] 環境設定でピーキングカラーを6色から選択・保存し、ライブ解析表示へ即時反映
+[Done] 環境設定で通常・爽やか・一眼レフ風・無音のシャッター操作音を選択・保存
+[Done] 「無音」撮影時にiOS 18+の正式なシャッター音抑制APIを対応端末・地域で要求
+[Done] 外部シャッター音源（MP3／M4A／WAV／CAF）の読み込み・試聴・永続保存・選択
+[Done] アプリ全体を映像優先のWorkbenchへ再設計し、設定タブ・画面遷移・表示切替・撮影補助をアイコン中心へ簡略化
+[Done] 横位置の環境設定を左カテゴリ＋右編集ペイン、メディアを左フィルター＋右カタログの分割レイアウトへ再構成
+[Done] フォーマットの解像度表記を幅×高さだけに統一し、4K／UHD／1080p／720pの重複表記を廃止
+[Done] 縦向き下部railでスコープ・メディア・近距離共有をシャッター左側へ集約し、環境設定だけを右端に固定
+[Next] iPhone実機の横位置でSettings／Media分割表示、各ペインscroll、行き先menu自動closeを目視受け入れする

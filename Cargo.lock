@@ -2363,6 +2363,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-photos"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6ea9a706f18e32cf8a0723e99855af4f135282891e07259301bae9135ae3872"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "objc2",
+ "objc2-foundation",
+]
+
+[[package]]
 name = "objc2-quartz-core"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4068,13 +4080,18 @@ checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 name = "universal-film-camera"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "block2",
  "camera-apple",
  "camera-core",
+ "dispatch2",
  "film-core",
  "getrandom 0.2.17",
  "imaging-core",
  "libc",
  "mdns-sd",
+ "objc2-foundation",
+ "objc2-photos",
  "peer-transfer-core",
  "serde",
  "serde_json",

@@ -72,6 +72,9 @@ Portrait / narrow
 - touch targetは最低44px、coarse pointerでは48px
 - 960px以上でright rail、それ未満ではbottom rail
 - 横向きで高さが不足する場合は説明文とrail labelを省略し、previewを優先する
+- 横位置の上部情報バーはブランド表示を持たず、Lens、FPS、Shutter、Iris、EI、WB、解像度へ全幅を割り当てる
+- 横位置の右railは上段をPhoto／Video、中央を正円capture、下段をmonitor／destination入口とし、capture周囲を操作禁止帯として空ける
+- 横位置でmonitor／destination menuを開いた場合は上段を2×2 icon面へ置換し、native preview上へpopupを出さない
 
 ## 操作状態
 
@@ -81,7 +84,16 @@ macOSではAVFoundation native preview、JPEG still capture、音声付きMOV re
 
 native previewは公開APIでWKWebView上の`NSView`に配置するため、Web contentより前面に出る。現在はpreview内のHTML guide／timecode／histogram／audio meterを映像表示中だけ隠し、誤って表示済みと見せない。parameter stripとtool railはpreview外に保ち、引き続きWeb UIで操作する。次工程でoverlayをnative layerまたはMetal compositorへ移す。
 
-monitor tools menuもnative preview上へ重ねない。bottom railではmenuを独立した上段として展開してpreviewを縮め、right railでは中央の正円capture controlを避けて上下2個ずつ配置する。開閉時はResizeObserverに加えてnative preview frame同期を明示実行する。native `NSView`はCSS `z-index`で前後関係を変更できないため、HTML popupをpreview領域へ戻してはいけない。
+monitor tools menuもnative preview上へ重ねない。bottom railではmenuを独立した上段として展開してpreviewを縮め、phone landscapeのright railでは上段を2×2 menuへ置換する。中央の正円capture controlとは別grid rowにし、menu、capture、下段navigationの間に空白を残す。開閉時はResizeObserverに加えてnative preview frame同期を明示実行する。native `NSView`はCSS `z-index`で前後関係を変更できないため、HTML popupをpreview領域へ戻してはいけない。
+
+## Import staging directories
+
+後から提供される素材は、アプリへ同梱する前に次のproject内directoryへ配置する。
+
+- LUT原本: `assets/luts/`
+- シャッター音原本: `assets/shutter-sounds/`
+
+各directoryの`README.md`を受入条件の正本とする。配置だけではruntime catalogへ自動登録せず、形式検証、権利確認、音量／色変換検証を通してから組み込む。
 
 ## Roadmap
 

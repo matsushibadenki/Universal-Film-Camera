@@ -1,7 +1,8 @@
 #[cfg(target_os = "android")]
 mod android_camera;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod camera_settings;
+mod lut_catalog;
 mod nearby_discovery;
 
 #[cfg(not(target_os = "android"))]
@@ -15,15 +16,13 @@ use camera_apple::{ActiveCameraFormat, AppleCaptureSession, PreviewRect};
 #[cfg(not(target_os = "android"))]
 use camera_core::CameraBackend;
 use camera_core::{
-    CameraAuthorizationStatus, CameraCapabilities, CameraController, CameraDevice, CameraMode,
-    CameraState, CaptureOrientation, CapturedAsset, MediaIndex, MediaIndexEntry,
-    RecoverableCleanupCandidate,
+    AssetState, CameraAuthorizationStatus, CameraCapabilities, CameraController, CameraDevice,
+    CameraMode, CameraState, CaptureOrientation, CapturedAsset, CapturedMediaType, MediaIndex,
+    MediaIndexEntry, RecoverableCleanupCandidate,
 };
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
-use camera_core::{
-    CaptureMetadata, CapturedMediaType, RationalRate, SelectedCaptureFormat, probe_media_resource,
-};
-#[cfg(target_os = "macos")]
+use camera_core::{CaptureMetadata, RationalRate, SelectedCaptureFormat, probe_media_resource};
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use camera_settings::{StoredCameraFormat, load_format, save_format};
 use imaging_core::SignalDomain;
 use nearby_discovery::{
@@ -156,14 +155,27 @@ struct CameraMonitorSnapshot {
     blue: Vec<u32>,
     audio_db: Vec<f32>,
     frame_received: bool,
+    preview_width: u32,
+    preview_height: u32,
+    preview_rgb_base64: String,
 }
 
 #[tauri::command]
-fn get_camera_monitor_snapshot(state: tauri::State<'_, AppState>) -> CameraMonitorSnapshot {
+fn get_camera_monitor_snapshot(
+    state: tauri::State<'_, AppState>,
+    include_preview: bool,
+) -> CameraMonitorSnapshot {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
-        let snapshot = state.preview.lock().ok()
-            .and_then(|preview| preview.as_ref().map(|runtime| runtime.session.monitor_snapshot()))
+        let snapshot = state
+            .preview
+            .lock()
+            .ok()
+            .and_then(|preview| {
+                preview
+                    .as_ref()
+                    .map(|runtime| runtime.session.monitor_snapshot(include_preview))
+            })
             .unwrap_or_default();
         return CameraMonitorSnapshot {
             red: snapshot.red,
@@ -171,12 +183,27 @@ fn get_camera_monitor_snapshot(state: tauri::State<'_, AppState>) -> CameraMonit
             blue: snapshot.blue,
             audio_db: snapshot.audio_db,
             frame_received: snapshot.frame_received,
+            preview_width: snapshot.preview_width,
+            preview_height: snapshot.preview_height,
+            preview_rgb_base64: {
+                use base64::Engine as _;
+                base64::engine::general_purpose::STANDARD.encode(snapshot.preview_rgb)
+            },
         };
     }
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     {
         let _ = state;
-        CameraMonitorSnapshot { red: vec![], green: vec![], blue: vec![], audio_db: vec![], frame_received: false }
+        CameraMonitorSnapshot {
+            red: vec![],
+            green: vec![],
+            blue: vec![],
+            audio_db: vec![],
+            frame_received: false,
+            preview_width: 0,
+            preview_height: 0,
+            preview_rgb_base64: String::new(),
+        }
     }
 }
 
@@ -254,7 +281,7 @@ impl From<ActiveCameraFormat> for PreviewFormat {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn settings_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(app
         .path()
@@ -270,6 +297,33 @@ fn captures_directory(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Stri
         .app_data_dir()
         .map_err(|error| format!("failed to resolve app data directory: {error}"))?
         .join("captures"))
+}
+
+fn luts_directory(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("failed to resolve app data directory: {error}"))?
+        .join("luts"))
+}
+
+#[tauri::command]
+fn get_lut_catalog(app: tauri::AppHandle) -> Result<lut_catalog::LutCatalog, String> {
+    lut_catalog::catalog(&luts_directory(&app)?)
+}
+
+#[tauri::command]
+fn import_lut(
+    app: tauri::AppHandle,
+    file_name: String,
+    content: String,
+) -> Result<lut_catalog::LutEntry, String> {
+    lut_catalog::import(&luts_directory(&app)?, &file_name, &content)
+}
+
+#[tauri::command]
+fn get_lut_payload(app: tauri::AppHandle, id: String) -> Result<lut_catalog::LutPayload, String> {
+    lut_catalog::payload(&luts_directory(&app)?, &id)
 }
 
 #[tauri::command]
@@ -433,6 +487,205 @@ fn get_media_index(app: tauri::AppHandle) -> Result<Vec<MediaIndexEntry>, String
     MediaIndex::new(captures_directory(&app)?)
         .list()
         .map_err(|error| error.to_string())
+}
+
+#[derive(Serialize)]
+struct PhotoPreviewPayload {
+    id: String,
+    mime_type: String,
+    data_base64: String,
+}
+
+#[derive(Serialize)]
+struct BulkPhotoMigrationResult {
+    exported: usize,
+    deleted: usize,
+}
+
+fn finalized_photo_path(app: &tauri::AppHandle, id: &str) -> Result<std::path::PathBuf, String> {
+    let captures = captures_directory(app)?;
+    let index = MediaIndex::new(&captures);
+    let entry = index
+        .list()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|entry| entry.id == id)
+        .ok_or_else(|| "media entry was not found".to_string())?;
+    if entry.state != AssetState::Finalized || entry.media_type != CapturedMediaType::Photo {
+        return Err("only finalized photos can be exported".into());
+    }
+    index
+        .finalized_original_path(id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_media_photo_preview(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<PhotoPreviewPayload, String> {
+    use base64::Engine as _;
+
+    const MAX_PREVIEW_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
+    let resource = finalized_photo_path(&app, &id)?;
+    let container = resource
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let mime_type = match container.as_str() {
+        "jpeg" | "jpg" => "image/jpeg",
+        "png" => "image/png",
+        "heif" | "heic" => "image/heic",
+        _ => return Err(format!("photo container is not previewable: {container}")),
+    };
+    let metadata = std::fs::metadata(&resource)
+        .map_err(|error| format!("failed to inspect photo preview: {error}"))?;
+    if metadata.len() == 0 || metadata.len() > MAX_PREVIEW_SOURCE_BYTES {
+        return Err("photo preview source exceeds the supported size".into());
+    }
+    let bytes = std::fs::read(&resource)
+        .map_err(|error| format!("failed to read photo preview: {error}"))?;
+    Ok(PhotoPreviewPayload {
+        id,
+        mime_type: mime_type.into(),
+        data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+    })
+}
+
+#[tauri::command]
+fn delete_media_entry(app: tauri::AppHandle, id: String) -> Result<Vec<MediaIndexEntry>, String> {
+    let index = MediaIndex::new(captures_directory(&app)?);
+    index
+        .delete_finalized(&id)
+        .map_err(|error| error.to_string())?;
+    index.list().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn export_photo_to_library(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let path = finalized_photo_path(&app, &id)?;
+    #[cfg(target_os = "ios")]
+    {
+        return tauri::async_runtime::spawn_blocking(move || save_photo_to_ios_library(&path))
+            .await
+            .map_err(|error| format!("photo export task failed: {error}"))?;
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = path;
+        Err("saving to Apple Photos is available only on iOS".into())
+    }
+}
+
+#[tauri::command]
+async fn export_all_photos_and_delete(
+    app: tauri::AppHandle,
+) -> Result<BulkPhotoMigrationResult, String> {
+    let index = MediaIndex::new(captures_directory(&app)?);
+    let ids = index
+        .list()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|entry| {
+            entry.state == AssetState::Finalized && entry.media_type == CapturedMediaType::Photo
+        })
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return Ok(BulkPhotoMigrationResult {
+            exported: 0,
+            deleted: 0,
+        });
+    }
+    let paths = ids
+        .iter()
+        .map(|id| {
+            index
+                .finalized_original_path(id)
+                .map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    #[cfg(target_os = "ios")]
+    {
+        let exported = paths.len();
+        tauri::async_runtime::spawn_blocking(move || {
+            for path in &paths {
+                save_photo_to_ios_library(path)?;
+            }
+            Ok::<(), String>(())
+        })
+        .await
+        .map_err(|error| format!("bulk photo export task failed: {error}"))??;
+        // Deletion starts only after Photos accepted every asset.
+        index.delete_finalized_many(&ids).map_err(|error| {
+            format!("all photos were exported, but app cleanup stopped: {error}")
+        })?;
+        return Ok(BulkPhotoMigrationResult {
+            exported,
+            deleted: ids.len(),
+        });
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = paths;
+        Err("bulk migration to Apple Photos is available only on iOS".into())
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn save_photo_to_ios_library(path: &std::path::Path) -> Result<(), String> {
+    use block2::RcBlock;
+    use objc2_foundation::{NSString, NSURL};
+    use objc2_photos::{
+        PHAccessLevel, PHAssetCreationRequest, PHAuthorizationStatus, PHPhotoLibrary,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    };
+    use std::time::Duration;
+
+    let mut status =
+        unsafe { PHPhotoLibrary::authorizationStatusForAccessLevel(PHAccessLevel::AddOnly) };
+    if status == PHAuthorizationStatus::NotDetermined {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let handler = RcBlock::new(move |authorization: PHAuthorizationStatus| {
+            let _ = sender.send(authorization);
+        });
+        unsafe {
+            PHPhotoLibrary::requestAuthorizationForAccessLevel_handler(
+                PHAccessLevel::AddOnly,
+                &handler,
+            );
+        }
+        status = receiver
+            .recv_timeout(Duration::from_secs(60))
+            .map_err(|_| "photo library permission request timed out".to_string())?;
+    }
+    if status != PHAuthorizationStatus::Authorized && status != PHAuthorizationStatus::Limited {
+        return Err("photo library add permission was denied or restricted".into());
+    }
+
+    let path = path
+        .to_str()
+        .ok_or_else(|| "photo path is not valid UTF-8".to_string())?;
+    let url = NSURL::fileURLWithPath(&NSString::from_str(path));
+    let request_created = Arc::new(AtomicBool::new(false));
+    let request_created_in_block = Arc::clone(&request_created);
+    let changes = RcBlock::new(move || unsafe {
+        if PHAssetCreationRequest::creationRequestForAssetFromImageAtFileURL(&url).is_some() {
+            request_created_in_block.store(true, Ordering::Release);
+        }
+    });
+    let library = unsafe { PHPhotoLibrary::sharedPhotoLibrary() };
+    unsafe { library.performChangesAndWait_error(RcBlock::as_ptr(&changes)) }
+        .map_err(|error| error.localizedDescription().to_string())?;
+    if !request_created.load(Ordering::Acquire) {
+        return Err("Photos could not create an asset from this image".into());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -644,18 +897,13 @@ async fn apply_camera_format(
         .map_err(|error| format!("camera format task failed: {error}"))?
         .map_err(|error| error.to_string())?;
         let mut response: PreviewFormat = active.into();
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         {
             let settings_result = settings_path(&app).and_then(|path| {
                 save_format(&path, &device_id, StoredCameraFormat { width, height, fps })
             });
             response.settings_persisted = settings_result.is_ok();
             response.settings_warning = settings_result.err();
-        }
-        #[cfg(target_os = "ios")]
-        {
-            let _ = (app, device_id);
-            response.settings_persisted = false;
         }
         return Ok(response);
     }
@@ -996,16 +1244,16 @@ async fn start_camera_preview(
         tauri::async_runtime::spawn_blocking(move || start_session.start())
             .await
             .map_err(|error| format!("camera start task failed: {error}"))?;
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         let (stored_format, mut settings_warning) = match settings_path(window.app_handle())
             .and_then(|path| load_format(&path, &device_id))
         {
             Ok(format) => (format, None),
             Err(error) => (None, Some(error)),
         };
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         let mut format_restored = false;
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         let active_format = if let Some(stored) = stored_format {
             let restore_session = Arc::clone(&session);
             match tauri::async_runtime::spawn_blocking(move || {
@@ -1027,9 +1275,6 @@ async fn start_camera_preview(
         } else {
             session.active_format()
         };
-        #[cfg(target_os = "ios")]
-        let (active_format, format_restored, settings_warning) =
-            (session.active_format(), false, None);
         let orientation_session = Arc::clone(&session);
         let orientation = tauri::async_runtime::spawn_blocking(move || {
             orientation_session.set_capture_orientation(orientation)
@@ -1221,6 +1466,7 @@ async fn stop_camera_preview(
 async fn capture_photo(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
+    suppress_shutter_sound: Option<bool>,
 ) -> Result<CapturedAsset, String> {
     #[cfg(target_os = "android")]
     {
@@ -1319,7 +1565,10 @@ async fn capture_photo(
         let temporary = captures.join(".incomplete").join(format!("{id}.jpg"));
         let temporary_for_capture = temporary.clone();
         let path = tauri::async_runtime::spawn_blocking(move || {
-            session.capture_photo(temporary_for_capture)
+            session.capture_photo(
+                temporary_for_capture,
+                suppress_shutter_sound.unwrap_or(false),
+            )
         })
         .await
         .map_err(|error| format!("photo capture task failed: {error}"))?
@@ -1840,8 +2089,15 @@ pub fn run() {
             select_camera_mode,
             get_imaging_pipeline_contract,
             get_capture_output_presets,
+            get_lut_catalog,
+            import_lut,
+            get_lut_payload,
             get_capture_storage_status,
             get_media_index,
+            get_media_photo_preview,
+            delete_media_entry,
+            export_photo_to_library,
+            export_all_photos_and_delete,
             reconcile_media_index,
             cleanup_media_entry,
             get_recoverable_cleanup_candidates,

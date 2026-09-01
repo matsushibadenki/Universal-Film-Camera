@@ -1,5 +1,14 @@
 [
   {
+    "date": "2026-09-01",
+    "scope": "app",
+    "macrostructure": "Workbench + Master–Detail + Media Catalogue",
+    "theme": "design.md",
+    "theme_axes": "dark / technical-austere / cyan-blue / icon-first",
+    "enrichment": "native preview surface",
+    "brief": "App-wide live-image-priority redesign with landscape settings and media split panes"
+  },
+  {
     "date": "2026-08-27",
     "macrostructure": "Catalogue",
     "theme": "studied-DNA",

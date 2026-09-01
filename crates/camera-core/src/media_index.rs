@@ -247,6 +247,86 @@ impl MediaIndex {
         Ok(())
     }
 
+    /// Resolves the current sandbox path for a finalized original. Mobile OS
+    /// updates may relocate an app data container while preserving its files.
+    pub fn finalized_original_path(&self, id: &str) -> Result<PathBuf, CameraError> {
+        if !is_safe_record_id(id) {
+            return Err(CameraError("invalid media record ID".into()));
+        }
+        let entry = self
+            .list()?
+            .into_iter()
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| CameraError(format!("media record was not found: {id}")))?;
+        if entry.state != AssetState::Finalized {
+            return Err(CameraError("media record is not finalized".into()));
+        }
+        let asset = entry
+            .asset
+            .ok_or_else(|| CameraError("finalized media record has no asset".into()))?;
+        resolve_managed_resource(&self.captures_directory, &asset.original.path)
+    }
+
+    /// Permanently removes a finalized asset after an explicit user action.
+    /// All managed resources are validated before the first file is removed;
+    /// the manifest is removed last so interrupted deletion remains diagnosable.
+    pub fn delete_finalized(&self, id: &str) -> Result<(), CameraError> {
+        self.delete_finalized_many(&[id.to_owned()])
+    }
+
+    /// Permanently removes multiple finalized assets. Every record, managed
+    /// resource, and manifest is validated before the first removal starts.
+    pub fn delete_finalized_many(&self, ids: &[String]) -> Result<(), CameraError> {
+        let entries = self.list()?;
+        let mut targets = Vec::with_capacity(ids.len());
+        for id in ids {
+            if !is_safe_record_id(id) {
+                return Err(CameraError("invalid media record ID".into()));
+            }
+            let entry = entries
+                .iter()
+                .find(|entry| entry.id == *id)
+                .ok_or_else(|| CameraError(format!("media record was not found: {id}")))?;
+            if entry.state != AssetState::Finalized {
+                return Err(CameraError(
+                    "only finalized media can be removed by explicit deletion".into(),
+                ));
+            }
+            let asset = entry
+                .asset
+                .as_ref()
+                .ok_or_else(|| CameraError("finalized media record has no asset".into()))?;
+            let mut resources = asset
+                .derivatives
+                .iter()
+                .map(|derivative| {
+                    resolve_managed_resource(&self.captures_directory, &derivative.resource.path)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            resources.push(resolve_managed_resource(
+                &self.captures_directory,
+                &asset.original.path,
+            )?);
+            let manifest = self.manifests_directory().join(format!("{id}.json"));
+            ensure_contained_regular_file(&self.manifests_directory(), &manifest)?;
+            targets.push((resources, manifest));
+        }
+        for (resources, manifest) in targets {
+            for resource in resources {
+                fs::remove_file(&resource).map_err(|error| {
+                    CameraError(format!(
+                        "failed to remove finalized media resource {}: {error}",
+                        resource.display()
+                    ))
+                })?;
+            }
+            fs::remove_file(&manifest).map_err(|error| {
+                CameraError(format!("failed to remove media manifest: {error}"))
+            })?;
+        }
+        Ok(())
+    }
+
     /// Retention is advisory. Nothing is removed until the UI submits an
     /// explicit list of recoverable IDs through `cleanup_recoverable_many`.
     pub fn cleanup_candidates(
@@ -405,6 +485,29 @@ fn ensure_contained_regular_file(root: &Path, target: &Path) -> Result<(), Camer
         ));
     }
     Ok(())
+}
+
+fn resolve_managed_resource(root: &Path, recorded: &Path) -> Result<PathBuf, CameraError> {
+    if recorded.exists() {
+        ensure_contained_regular_file(root, recorded)?;
+        return fs::canonicalize(recorded)
+            .map_err(|error| CameraError(format!("failed to resolve media resource: {error}")));
+    }
+    let components = recorded.components().collect::<Vec<_>>();
+    let suffix = components
+        .iter()
+        .rposition(|component| component.as_os_str() == "captures")
+        .map(|index| components[index + 1..].iter().collect::<PathBuf>())
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| recorded.file_name().map(PathBuf::from))
+        .ok_or_else(|| CameraError("media resource has no managed relative path".into()))?;
+    let relocated = root.join(suffix);
+    ensure_contained_regular_file(root, &relocated)?;
+    fs::canonicalize(relocated).map_err(|error| {
+        CameraError(format!(
+            "failed to resolve relocated media resource: {error}"
+        ))
+    })
 }
 
 fn media_identity(path: &Path) -> Option<(String, CapturedMediaType)> {
@@ -642,6 +745,94 @@ mod tests {
         assert!(!failed.exists());
         assert!(!root.join(".manifests/failed-video.json").exists());
         assert_eq!(index.list().unwrap().len(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn explicit_deletion_removes_finalized_resource_and_manifest() {
+        let root = fixture_directory("delete-finalized");
+        let index = MediaIndex::new(&root);
+        let asset = finalized_asset(&root);
+        let resource = asset.original.path.clone();
+        index.persist_finalized(&asset).unwrap();
+
+        index.delete_finalized(&asset.id).unwrap();
+
+        assert!(!resource.exists());
+        assert!(!root.join(".manifests/asset-photo.json").exists());
+        assert!(index.list().unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bulk_deletion_preflights_every_asset_before_removing_any() {
+        let root = fixture_directory("bulk-delete-preflight");
+        let index = MediaIndex::new(&root);
+        let first = finalized_asset(&root);
+        index.persist_finalized(&first).unwrap();
+        let mut second = finalized_asset(&root);
+        second.id = "asset-photo-2".into();
+        second.original_resource_id = "asset-photo-2:original".into();
+        second.original.path = root.join("asset-photo-2.jpg");
+        fs::write(&second.original.path, b"jpeg fixture").unwrap();
+        index.persist_finalized(&second).unwrap();
+        fs::remove_file(&second.original.path).unwrap();
+
+        let error = index
+            .delete_finalized_many(&[first.id.clone(), second.id.clone()])
+            .unwrap_err();
+
+        assert!(!error.to_string().is_empty());
+        assert!(first.original.path.exists());
+        assert!(root.join(".manifests/asset-photo.json").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn explicit_deletion_rejects_recoverable_media() {
+        let root = fixture_directory("delete-recoverable");
+        let path = root.join(".incomplete/pending-photo.jpg");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"pending").unwrap();
+        let index = MediaIndex::new(&root);
+        index
+            .record_incomplete("pending-photo", CapturedMediaType::Photo, &path)
+            .unwrap();
+
+        let error = index.delete_finalized("pending-photo").unwrap_err();
+        assert!(error.to_string().contains("only finalized"));
+        assert!(path.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn finalized_resource_rebases_after_mobile_container_relocation() {
+        let root = fixture_directory("relocated-container");
+        let index = MediaIndex::new(&root);
+        let mut asset = finalized_asset(&root);
+        let current_path = asset.original.path.clone();
+        let stale_path = PathBuf::from("/private/var/mobile/Containers/Data/Application/OLD")
+            .join("Library/Application Support/app/captures/asset-photo.jpg");
+        asset.original.path = stale_path.clone();
+        index
+            .write_record(&MediaIndexEntry {
+                schema_version: MEDIA_RECORD_SCHEMA_VERSION,
+                id: asset.id.clone(),
+                state: AssetState::Finalized,
+                media_type: asset.media_type,
+                resource_path: stale_path,
+                asset: Some(asset.clone()),
+                error: None,
+                updated_at_utc: rfc3339_now(),
+            })
+            .unwrap();
+
+        assert_eq!(
+            index.finalized_original_path(&asset.id).unwrap(),
+            current_path.canonicalize().unwrap()
+        );
+        index.delete_finalized(&asset.id).unwrap();
+        assert!(!current_path.exists());
         fs::remove_dir_all(root).unwrap();
     }
 

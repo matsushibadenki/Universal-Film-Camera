@@ -1,6 +1,6 @@
 # Apple Camera Backend
 
-更新日: 2026-08-24
+更新日: 2026-09-01
 対象: macOS / iOS  
 実装: `crates/camera-apple`
 
@@ -31,18 +31,20 @@
 - [Done] Video開始時のPhotoOutput切離しとVideo→Still時の再接続
 - [Done] UI姿勢をPreview／Photo／Movie connectionへ同期し、front preview鏡像と非鏡像保存を分離
 - [Done] output再接続／format再適用後のrotation／mirror再設定
+- [Done] Webのportrait基準角度をAVFoundationへ変換し、縦90°／横左0°／横右180°／逆さ縦270°として保存まで統一
 - [Done] `vite.config.ts`でTauri `devUrl`と開発serverを127.0.0.1:1420へ固定
 - [Next] RAW photo format、HDR／LOG color spaceをformat単位で能力モデルへ追加
 - [Next] iPhone／iPad実機でportrait／upside-down／front-camera mirrorを検証
 - [Next] JPEG／HEIF／RAW選択、保存先選択、オリジナル＋処理済みasset管理
-- [Next] video connectionのrotation／orientation、codec、container、bitrate、audio channelを能力値と設定へ接続
+- [Next] video codec、container、bitrate、audio channelを能力値と設定へ接続
 - [Next] window close、sleep、background、device切断時のsession終了／復旧をイベント駆動にする
 - [Next] preview上のguide／scopeをnative overlayまたはMetal compositorへ移す
-- [Later] `AVCaptureVideoDataOutput` → CVPixelBuffer → Metal textureでImaging Pipelineへzero-copy接続
+- [Done] 360px RGB monitor frameをWebGL2 shaderへ渡し、LUT／color transform／peaking／zebraをGPU処理する暫定高速経路
+- [Next] `AVCaptureVideoDataOutput` → CVPixelBuffer → Metal textureでImaging Pipelineへzero-copy接続
 
 ## 実装境界
 
-`camera-apple`はcontrol planeとmacOS native previewを担当する。AVFoundation objectをWebViewへ渡さず、Tauri IPCにもpixel dataを流さない。
+`camera-apple`はcontrol planeとnative previewを担当する。AVFoundation objectはWebViewへ渡さない。現在はmonitoring専用fallbackとして幅360pxのRGB frameだけを要求時にTauri IPCへ渡すが、撮影原本やフル解像度frameは渡さない。最終production経路はCVPixelBufferをMetal textureへzero-copy接続し、このRGB IPCを削除する。
 
 ```text
 TypeScript UI
@@ -77,7 +79,9 @@ AppleCameraBackend
 
 `CameraController`はアプリ状態機械、`AppleCaptureSession`はAVFoundation lifecycleの正本である。start／stopはblocking workerで実行し、`operation_lock`で直列化する。NSViewとpreview layerのattach／resize／detachは`MainThreadMarker`を要求する。この条件を根拠にAVFoundation objectへ`Send + Sync`を付与しているため、新しいsession mutationを追加するときは必ず同じ直列化または専用serial queueへ載せること。
 
-`CaptureOrientation`は0／90／180／270度だけを受理する。UIのScreen Orientationを3つのvideo connectionへ同一角度で適用し、front cameraはpreviewだけmirror、Photo／Movieは既定で非mirrorとする。録画中の変更はtrack途中の表示変化を避けるためnative側で拒否し、停止後にUIが最新姿勢を再同期する。
+`CaptureOrientation`は0／90／180／270度だけを受理する。WebのScreen Orientationはportrait-upを0度とする一方、iPhone camera sensor／AVFoundation connectionはportrait-upに90度回転が必要なため、`(90 - screenAngle + 360) % 360`で変換する。結果は縦90度、横左0度、横右180度、逆さ縦270度である。Screen Orientation APIがないWKWebViewでは`window.orientation`をfallbackにする。
+
+変換後の角度をPreview／Photo／Movieの3 connectionへ同一に適用し、front cameraはpreviewだけmirror、Photo／Movieは既定で非mirrorとする。回転イベント直後は二重`requestAnimationFrame`と180 ms後の再同期でSafe Area／DOM layout確定後のnative preview frameも更新する。録画中の変更はtrack途中のtransform変更を避けるためnative側で拒否し、停止後にUIが最新姿勢を再同期する。
 
 macOS previewは公開APIだけでWKWebViewの上にnative viewを重ねる。private APIでWebViewを透過させて背面合成する方式は採用しない。このため現段階ではpreview内部のHTML guide、histogram、audio meterを映像表示中だけ隠す。上部parameter stripと右／下tool railはWeb UIのまま操作できる。
 

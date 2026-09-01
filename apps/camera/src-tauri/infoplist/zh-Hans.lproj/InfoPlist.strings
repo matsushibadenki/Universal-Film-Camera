@@ -1,3 +1,4 @@
 NSCameraUsageDescription = "专业照片和视频拍摄需要访问相机。";
 NSMicrophoneUsageDescription = "录制带声音的视频需要访问麦克风。";
+NSPhotoLibraryAddUsageDescription = "仅用于将你在媒体页面明确导出的照片保存到照片应用。";
 NSLocalNetworkUsageDescription = "本地网络用于发现附近用户并安全传输已获批准的照片和视频。";

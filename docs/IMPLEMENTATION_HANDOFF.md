@@ -1,11 +1,19 @@
 # Camera App Implementation Handoff
 
-更新日: 2026-08-31
+更新日: 2026-09-01
 対象: macOS / Windows / Linux / iOS / Android  
 UIシェル: Tauri 2 + TypeScript  
 共有コア: Rust
 
 プロジェクト全体の現在地と優先順位は [`ROADMAP.md`](ROADMAP.md) を正本とする。
+
+2026-09-01、iOS姿勢同期を修正した。Webのportrait-up 0度をAVFoundationへそのまま渡さず、縦90度、横左0度、横右180度、逆さ縦270度へ変換する。Preview／Photo／Movieは同じconnection角度を使用し、front cameraはpreviewだけ鏡像、保存物は非鏡像である。PhotoOutputの再接続とformat再適用後にも保持角度を再設定するため、JPEGとMOVの保存経路もPreviewと同じ被写体上方向になる。回転時はSafe AreaとDOMの確定を待ってnative preview frameを二段階再同期する。portraitでは下部rail、狭高さlandscapeでは右side railを使う。録画中の回転は単一MOV内の途中transform変更を避けて拒否し、停止直後に現在姿勢を反映する。実装／build完了と、実機で4姿勢のPreviewおよび保存JPEG／MOVを目視確認する受け入れは区別し、後者を`[Next]`に残す。
+
+同日、横向きright rail上のスワイプで撮影画面全体が移動する問題を修正した。`html/body`をviewportへ固定してoverflow／overscrollを止め、camera shellを`100dvh`内へ拘束し、スクロール不要なtool railには`touch-action: none`を指定した。Media／Nearby／環境設定は各section内部の既存`overflow-y: auto`を維持するため、長い一覧のスクロールは失わない。
+
+同日、撮影monitorのHistogramから冗長な`HIST`ラベルを除去し、HistogramとAudio level meterを4.5remの同一高さへ固定した。両panelはmonitor背景色50%＋2px backdrop blurへ統一し、撮影映像を透過させつつRGB波形、channel、dB表示の判読性を維持する。
+
+同日、Media CatalogueへFinalized写真の実画像previewとサムネイル／詳細表示切替を追加した。初版のTauri asset protocolはiOS実機で画像を解決できずplaceholderへfallbackしたため採用を取り消し、`get_media_photo_preview(id)`へ切り替えた。commandはUIからpathを受け取らずMedia Index IDだけを受理し、Finalized Photo、対応container、canonical captures配下の通常file、1 byte〜64 MiBを検証してからdata URL用base64を返す。サムネイル表示は写真中心の正方形grid、詳細表示は同じpreviewにファイル名、日時、寸法、duration、ID、診断、詳細dialog導線を併記する。動画、未完了、失敗、画像decode失敗は種類／状態placeholderへ安全にfallbackする。現在は原本JPEGを一度だけIPCへ通す暫定実装であり、永続縮小thumbnail生成と動画posterを次工程とする。
 
 2026-08-26、`CapturedAsset`をschema version 2へ更新した。originalとderivativeへ安定resource IDを与え、derivativeはparent、完全なrender snapshot、engine version、seedを保持する。追加時にFinalized状態、既存parent、一意ID、一意path、snapshot hash／順序を検証し、JSON往復testで再現情報を固定した。次工程はこの構造をatomic manifestへ保存し、Finalized／Incomplete／Failedを扱うMedia indexから復元することである。
 
@@ -441,7 +449,7 @@ Computer UseでiPhone 16e Simulatorを操作し、Homeによるbackground、fore
 
 カメラparameterの操作性を続けて修正した。Apple discoveryへUltra Wide／Wide／Telephotoの物理device typeを追加し、LENS selectorからpreview sessionを安全に交換する。IRISは選択可能な情報panelを開くが、iPhoneの物理絞りは固定なので単一の`ƒ/x.x · FIXED`だけを提示し、可変絞りを偽装しない。EIは現在露出時間を保持したAVFoundation custom ISOへ接続した。
 
-SHUTTERの1刻みrangeは廃止し、1/24、1/25、1/30、1/40、1/48、1/50、1/60から1/1000までの撮影用離散値へ変更した。EIも1/3段相当の代表値、WBも2000K〜10000Kの代表値へ止まるnative selectとした。FPS panelは狭幅で1列表示し、解像度を`1920 × 1080 · 1080p`、cadenceを`24 fps · CINEMA`、`25 fps · PAL`、`30 fps · NTSC`、50/60以上をHFRとして表示する。390×844 fixtureで全selector、値列、console無errorを確認した。
+SHUTTERの1刻みrangeは廃止し、1/24、1/25、1/30、1/40、1/48、1/50、1/60から1/1000までの撮影用離散値へ変更した。EIも1/3段相当の代表値、WBも2000K〜10000Kの代表値へ止まるnative selectとした。FPS panelは狭幅で1列表示し、解像度を`1920×1080`のような幅×高さだけで表示する。`4K`、`UHD`、`1080p`、`720p`などの重複する別名は付けない。cadenceは`24 fps · CINEMA`、`25 fps · PAL`、`30 fps · NTSC`、50/60以上をHFRとして表示する。390×844 fixtureで全selector、値列、console無errorを確認した。
 
 撮影画面が再び黒くなった原因は、WKWebView本体を透明化しても内部`UIScrollView`が不透明なまま、背面の`AVCaptureVideoPreviewLayer`を覆っていたことだった。iOS attach時に両方のbackground／opaqueをclearへ統一した。
 
@@ -450,6 +458,72 @@ SHUTTERの1刻みrangeは廃止し、1/24、1/25、1/30、1/40、1/48、1/50、1
 固定SVGだったhistogram／audio meterを実測値へ置換した。`AVCaptureVideoDataOutput`は遅延frameを破棄する専用serial queueで受け、端末内で約160×90点へ間引いて32-bin RGB histogramを生成する。BGRA以外のnative planar formatでは第1planeのlumaをRGB共通分布として扱う。WebViewへcamera pixelは渡さずbin集計だけを約150ms周期で取得する。audio meterは権限済みならpreview開始時からmicrophone inputをsessionへ追加し、AVFoundation audio channelの`averagePowerLevel`（dB）を表示する。権限なしではstill previewを失敗させず0表示とする。
 
 この変更はarm64 iOS camera crate check、本番Web build、workspace全95 test、署名済みarm64 IPA buildまで成功した。実機で被写体の明暗を変えたときのhistogram、発声時のmeter、preview透過合成を目視確認するまでは受け入れ完了ではない。
+
+環境設定を独立pageとして追加し、表示／撮影／カラーのtabへ分けた。カラーtabではmonitoring targetとしてRec.709、Display P3、sRGBを選択でき、WebViewのlocal storageへschema付きkeyで保存して次回起動時に復元する。撮影画面のmonitor labelにも即時反映する。内部working spaceは規範仕様どおりscene-linear ACEScg固定として読み取り専用表示する。
+
+この選択は現段階ではUI preference／monitor labelであり、native `AVCaptureVideoPreviewLayer`のpixelへODTを適用していない。Display P3やsRGBを選んだだけで実映像が変換済みだと扱ってはいけない。native preview output transform、Still／Video asset metadata、選択中のdevice formatが持つcolor space能力との照合はRoadmapの`[Next]`である。
+
+環境設定へLUT tabを追加した。内蔵catalogはClean、daylight／tungsten／pastel／consumer negative、neutral／vivid／warm reversal、warm／cool release print、bleach bypass、faded archive、panchromatic／orthochromatic monochromeの17項目で、実在film stock名を使わないgeneric archetypeである。測色データや現像条件のない実在銘柄を「再現」と表示してはいけない。
+
+外部LUTは3D `.cube`だけを受理する。最大4 MiB、`LUT_3D_SIZE` 2〜65、宣言した三乗個のRGB sample、有限値と許容範囲、TITLE長を検証し、1D LUTと破損／欠落sampleを拒否する。ユーザーfile nameは保存pathへ直接使わずASCII safe stemへ変換し、Application Supportの`luts` directoryへ`.partial`のflush／sync後renameで保存する。
+
+重要: 現在完了しているのはcatalog、選択、import、永続化である。選択LUTのnative preview／Still／Video pixelへの適用は未実装で、Roadmapの`[Next]`である。仕様どおりFilm Simulation全体をLUTと同一視せず、LUTはbaked approximationとしてdomain、input/output color space、hashをasset metadataへ残す必要がある。
+
+### 2026-09-01: Media context actions and iOS Photos export
+
+Media cardへ長押し、右クリック、Shift+F10／Context Menu keyで開く三言語context menuを追加した。pointer移動が10pxを超えると長押し判定を解除するため、縦スクロールを妨げない。menuはviewport端から16px内側へclampし、完成済み写真だけに「写真アプリに保存」を表示する。削除は写真／動画／復旧対象の全cardから選べるが、必ず別dialogで対象file名を示して再確認する。
+
+完成済みassetの削除は`MediaIndex::delete_finalized`へ集約した。originalと全derivativeおよびmanifestをIDから解決し、全resourceがcanonical captures directory内のregular fileであることを事前検査する。resourceを先に、manifestを最後に削除する。途中失敗時にmanifestを残して診断可能にする設計で、recoverable cleanupからFinalizedを削除できない既存境界は維持する。
+
+iOS Photos書き出しは`PHAccessLevelAddOnly`だけを要求し、libraryの読み取り権限は要求しない。Media IndexでFinalized Photoを確認し、canonical captures内のfileだけを`PHAssetCreationRequest`へ渡す。`NSPhotoLibraryAddUsageDescription`は英語、日本語、简体中文で追加済み。書き出しはcopyなので、成功後もアプリ内originalを保持する。Photos側の重複判定やalbum分類は現時点では行わない。
+
+検証はcamera-core Media Index 11 test、TypeScript／Vite production build、aarch64-apple-ios target checkに合格した。390×844 browser fixtureではcontext menuの「写真アプリに保存」「削除」、削除確認dialog、16px safe margin、console errorなしを確認した。実際のPhotos permission promptと保存結果は署名済みiPhoneでの手動受け入れ対象である。
+
+実機で削除が失敗した原因は、iOSのアプリ更新でdata container UUIDが変わっても、manifest内の絶対pathが撮影時のcontainerを指し続けていたためである。OSは撮影fileとmanifestを新containerへ移行していた。Media Indexは記録pathが存在しない場合だけ、`captures`以下の相対部分を現在のcanonical captures directoryへ再解決し、範囲内のregular fileであることを再検査する。削除、preview、Photos書き出しが同じ解決境界を使う。任意pathをIPCから受け取る設計にはしていない。
+
+詳細表示の一覧は外側containerの`overflow: clip`に閉じ込められていたため、Media grid自体を`min-height: 0`、`overflow-y: auto`、`touch-action: pan-y`の専用scroll regionへ変更した。390×844、13件のfixtureで`clientHeight 401 / scrollHeight 4069`、gesture後`scrollTop 0 → 495`、console errorなしを確認した。
+
+### 2026-09-01: framing guides and safe bulk migration to iOS Photos
+
+撮影guideは3分割（3×3）、20%間隔の方眼、四隅を結ぶ対角線の3形式をSVG overlayとして実装した。環境設定の撮影tabで選び、`ufc.guide-style.v1`へ保存する。撮影画面のguideボタンは表示／非表示、環境設定は線種の選択という独立した役割である。overlayはpointer eventを受けず、native previewより前面の既存monitor overlay層に置く。
+
+環境設定へMedia tabを追加した。「すべて保存してアプリ内コピーを削除」はMedia Indexの`Finalized + Photo`だけを対象とし、動画、Incomplete、Failedには触れない。件数と不可逆削除を別dialogで再確認し、iOS PhotosのAdd Only APIへ全写真を順番に保存する。1件でもPhotos保存に失敗した場合、アプリ内削除は1件も開始しない。
+
+Photosへの全件保存後、`MediaIndex::delete_finalized_many`が全ID、original、derivative、manifestを最初にpreflightしてから削除を開始する。これにより後半assetの欠落や不正pathが原因で先頭assetだけ消える事態を防ぐ。filesystem削除そのものはtransactionではないため、実削除中のI/O障害ではPhotos側copyをrollbackできず、アプリ内cleanupが部分完了する可能性は残る。エラー時はPhotos側copyを維持し、残ったアプリ内assetを再試行可能にする。再試行時のPhotos重複排除は未実装である。
+
+390×844 browser fixtureで3形式の切替、12写真の件数表示、最終確認dialogを検証した。長い日本語actionが横にはみ出したため、一括移行dialogのactionを縦積みにし、44pt以上のtouch targetと自然な折返しを確保した。検証では最終確定を押しておらず、実機の利用者写真は転送も削除もしていない。実機でのPhotos permission、全件保存、成功後cleanupは手動受け入れ対象である。
+
+### 2026-09-01: live focus peaking and monitor color processing
+
+従来のFocusボタンはcentre markしか切り替えておらず、LUT選択もcatalog preferenceに留まっていた。Appleの既存`AVCaptureVideoDataOutput` delegateで、histogramと同じcamera frameからaspect ratioを保った240px幅RGB monitor frameを生成する。BGRAは直接RGBへ変換し、iOSのbi-planar YCbCrはluma／chroma planeからvideo-range変換する。camera原寸pixelや撮影原本はIPCへ渡さない。
+
+Web monitor layerは縮小RGB frameにSobel edge detectionを行い、閾値を超える輪郭をcyanで表示する。Focusボタンを有効にするとprocessed canvasがnative preview前面へ出て、無効にすると通常の高品質`AVCaptureVideoPreviewLayer`へ戻る。これは240px／約6.7fps telemetryのCPU monitor pathであり、4K60の収録処理やGPU zero-copy pathではない。
+
+環境設定Color tabへ「カラープロファイルとLUTをライブ表示へ適用」を追加した。明示的に有効化した場合だけ、Rec.709 transfer、sRGB、Display P3 matrix monitor transformと、選択LUTをprocessed previewへ適用する。内蔵lookはgeneric film/process archetypeの決定論的変換で、測色済み実在stock再現ではない。外部3D `.cube`は管理directory内のcanonical fileだけをIDから再解決し、DOMAINとsampleを読み、RGB cubeをtrilinear interpolationする。
+
+この処理はmonitoring専用で、Still／Video original、asset metadata、histogram入力を変更しない。LUT適用中の収録assetへmonitor look IDをsidecar記録する処理は未実装である。次世代経路は`CVPixelBuffer → Metal texture → 3D texture LUT／peaking kernel → MTKView`とし、現在のCPU pathをreference／fallbackとして残す。
+
+390×844 browser検証ではColor tabの明示toggle、Bleach Bypass選択、撮影画面Focus操作、processed canvas表示、Safe Area内のbottom railを確認し、browser console error／warningは0件だった。Browser fixtureにはnative camera frameがないため、実際の輪郭追従、色、frame cadence、熱／電力は署名済みiPhoneでの手動受け入れ対象である。
+
+実機確認でFocus有効時に画角が変わった原因は、ピーキング単独でも240px monitor frameを全面opaque表示し、`AVCaptureVideoPreviewLayer`を置換していたことだった。Focus単独時はcanvasの非edge pixelを完全透明にし、cyan edgeだけをnative previewへ重ねる。monitor color／LUTを明示的に有効化した場合だけprocessed frameを全面表示する。canvasはalpha contextとし、各frameでclearして過去のedgeを残さない。
+
+iOSでformat適用後に「保存できませんでした: unknown」と出た原因は、`apply_camera_format`がiOSだけ永続化を明示的に無効化し、`settings_persisted=false`かつ`settings_warning=None`を返していたことだった。`camera_settings` module、app-data settings path、save／restoreをiOSにも有効化した。選択formatはdevice ID単位で`camera-format-v1.json`へatomic保存し、次回preview開始時に復元する。保存失敗時は実際のI/O／schema errorを表示し、`unknown`へ落とさない。
+
+実機画像ではピーキング輪郭が実映像より粗く、動きに対して遅れて見えた。monitor sampleを240px／150msから360px／100msへ変更し、Sobel閾値を92から180へ上げた。これにより拡大時の1 sampleあたりの線幅、過剰検出、最大表示遅延を抑える。CPU／IPC fallbackであるため、素早いパン時の完全同期はMetal zero-copy版まで保証しない。
+
+4つのmonitor toolは左からFocus Peaking、Zebra、Frame Guides、Scopesである。従来ZebraはUI stateしか切り替えず描画がなかった。現在はmonitor lumaが235/255（約92 IRE）以上のpixelへ半透明の白黒斜線を描く。Focus／Zebraは同時表示でき、monitor look無効時は該当overlay pixel以外を透明に保つ。狭いiPhoneの展開menuにも三言語labelを常時表示し、iconだけに意味を依存しない。
+
+縦向きの下部撮影railは7列の対称gridとし、Scopes、Media、Nearbyを中央シャッターの左側、Settingsだけを右端へ配置する。中央の固定3.5rem列と左右3列ずつを対称にするため、シャッターの幾何学的中心と正円を維持できる。22rem以下では44pt級の操作領域を同一行へ安全に収められないため、既存の複数段fallbackを使う。横向きは撮影映像を優先する右side railを維持する。
+
+### 2026-09-01: WebGL2 LUT preview acceleration
+
+従来のlive lookは幅360pxのRGB frameを100msごとに取得し、JavaScriptのpixel loopで外部3D LUTの三線形補間、monitor color transform、Sobel peaking、zebraを順番に処理していた。この経路は約10HzのCPU reference／fallbackであり、LUTを有効にするとWebView main threadの負荷と表示遅延が増える。
+
+高速経路としてWebGL2 fragment shaderを追加した。RGB source texture、RGBA8 3D LUT texture、Rec.709／sRGB／Display P3変換、Sobel peaking、約92 IRE zebraを1 passへ統合する。内蔵lookは選択時に33³ textureへ一度compileし、外部`.cube`は読み込んだgridをtexture layoutへ並べ替えてcacheする。画面のaspect-fill cropはshaderのtexture座標で行い、native previewと同じ画角を維持する。WebGL2が利用できない場合は既存Canvas 2D CPU rendererへ自動fallbackする。
+
+monitoring処理中はsnapshot要求を最大約30Hz、無効時はhistogram／audio用の10Hzへ動的に切り替える。`get_camera_monitor_snapshot(include_preview)`は非処理時にRGB vectorのcloneとbase64化を行わない。Browserの合成fixtureではWebGL2経路、358×693 canvas、target 30fpsに対して観測約24.5fps、console error／warning 0件を確認した。これは静止fixtureとdesktop WebViewの値で、iPhone camera frameでのfps／frame latency／thermalは別途実測が必要である。
+
+この改善でも`CVPixelBuffer → CPU RGB縮小 → base64 → Tauri IPC → WebGL texture upload`は残る。他のプロ向けcamera appと同等の30／60fps、低遅延、低発熱へ到達する最終経路は`CVPixelBuffer → CVMetalTextureCache → Metal 3D texture／kernel → native drawable`である。RoadmapではiOS Metal zero-copyを`[Next]`へ昇格し、現在のWebGL2／Canvas 2Dをreference／fallbackとして残す。
 
 ## 未確定事項（実装前に決める）
 
@@ -479,3 +553,48 @@ SHUTTERの1刻みrangeは廃止し、1/24、1/25、1/30、1/40、1/48、1/50、1
 - [Apple: AVCaptureMovieFileOutput](https://developer.apple.com/documentation/avfoundation/avcapturemoviefileoutput)
 - [Android: Capture an image with CameraX](https://developer.android.com/media/camera/camerax/take-photo)
 - [Android: CameraX video capture](https://developer.android.com/media/camera/camerax/video-capture)
+### Peaking / zebra coordinate alignment (2026-09-01)
+
+- The native preview layer already received the current device rotation and front-camera mirroring, but `AVCaptureVideoDataOutput`, which supplies analysis frames, did not. This made peaking and zebra use a different coordinate system from the visible image.
+- `apply_orientation_locked` now applies the preview rotation and `preview_mirrored` value to the monitor output connection as well. Preview, peaking, and zebra therefore share the same orientation before the common aspect-fill crop is applied.
+- Regression checks should cover portrait, both landscape directions, rear camera, and front camera. A monitor overlay must never use `capture_mirrored`; it must follow `preview_mirrored` because it is composited over the preview rather than written to the captured file.
+### Configurable peaking color (2026-09-01)
+
+- Settings > Display provides cyan, red, green, yellow, magenta, and white peaking colors with a visible swatch.
+- The selection is persisted as `ufc.peaking-color.v1` and is applied immediately by the CPU peaking renderer. Cyan remains the fallback for absent or invalid stored values.
+- Labels and save confirmation are localized in English, Japanese, and Simplified Chinese.
+### Shutter feedback sound (2026-09-01)
+
+- Settings > Capture offers `standard`, `fresh`, `dslr`, and `silent`; the selection is stored in `ufc.shutter-sound.v1` and is previewed when changed.
+- Sounds are generated locally with Web Audio, avoiding bundled third-party audio and licensing/provenance concerns. The selected feedback plays only for still capture, not video record start/stop.
+- `silent` suppresses the app-generated feedback only. It cannot and must not attempt to bypass a mandatory iOS system shutter sound imposed by device or regional policy; the localized UI states this limitation.
+### Native shutter suppression correction (2026-09-01)
+
+- The earlier `silent` setting suppressed only Web Audio feedback. Still capture now passes `suppressShutterSound` through Tauri to `AVCapturePhotoSettings.shutterSoundSuppressionEnabled` on iOS.
+- The property is set only when `AVCapturePhotoOutput.shutterSoundSuppressionSupported` is true. Apple documents that iOS returns false in jurisdictions where shutter sound production cannot be disabled; forcing the setting while unsupported throws an exception and is therefore intentionally avoided.
+- Consequently `silent` is best-effort through Apple's public API, not a bypass. Unsupported devices/regions retain the system shutter sound, and the localized Settings copy explains this accurately.
+### Imported shutter sound files (2026-09-01)
+
+- Settings > Capture accepts MP3, M4A, WAV, CAF, and other iOS/WebKit-decodable `audio/*` files up to 5 MiB. Import immediately selects and previews the sound.
+- The copied `Blob` and original filename are persisted in IndexedDB database `ufc-shutter-sounds-v1`, object store `sounds`, key `custom`; the source file is not referenced after import.
+- The selected `custom` value remains in `ufc.shutter-sound.v1`. On startup the custom blob is restored before applying the selection. Re-import replaces the single managed custom sound and revokes the previous object URL.
+- Audio decoding ultimately depends on the installed iOS/WebKit version. Playback failures are surfaced in the localized settings status instead of silently falling back.
+### Icon-first interface redesign (2026-09-01)
+
+- `design.md` now locks the app-wide system: professional Workbench, live-image priority, dark technical canvas, cyan navigation state, and icon-first navigation.
+- The exposure strip overlays the live image with a restrained translucent technical surface instead of consuming a separate monitor row. In landscape the utility rail is reduced to 4.5rem so the camera viewport receives more area.
+- Settings tabs, back/refresh actions, media view switching, monitor tools, capture mode, and destination navigation are visually icon-only. Localized `aria-label`, `title`, or visually hidden text remains; essential values, form labels, warnings, filenames, and destructive confirmations remain textual.
+- Settings panels are flatter and internally scrollable. This avoids card-within-card density while retaining the existing five-tab information architecture and all behavior.
+
+### Landscape Settings and Media split panes (2026-09-01)
+
+- 横位置のSettingsは`Master–Detail`構成である。左側に表示／撮影／カラー／LUT／メディアのカテゴリをアイコン＋名称で固定し、右側の選択パネルだけを縦スクロールさせる。縦位置では従来どおり5個のアイコンタブへ戻すため、狭いiPhoneでカテゴリ名が横幅を消費しない。
+- 横位置のMediaは`Catalogue`構成である。左側にAll／Finalized／Incomplete／Failed filterと件数、右側に表示切替、状態、サムネイル／詳細gridを置く。実体のcollection/project機能は未実装なので、参考画像にある架空project sidebarは追加していない。
+- 844×390級の横位置では左ペインを9.5〜12rem、右ペインを`minmax(0, 1fr)`とし、thumbnailは3列、detailsは2列とする。90rem以上ではthumbnail 5列、details 4列まで拡張する。
+- 撮影画面の右アプリrail、中央シャッター、Safe Area、44pt以上のtouch targetは維持する。Settings panelとMedia gridがそれぞれscroll ownerであり、ページ全体を二重scrollにしない。
+- 横位置で展開する行き先menuは、Media／Nearby／Settingsへの遷移完了時に必ず閉じる。遷移後も`is-open`を残すと右下で内容ペインへ重なるため、`closeDestinationMenu()`を画面遷移境界から外さない。
+- アプリrailからセクション間を直接移動できる。Media／Nearbyのopen境界も、既に表示中のSettingsまたは別ライブラリを先に閉じる。複数の主要sectionを同じgrid cellへ同時表示しない。
+- Mediaのfilterまたはthumbnail／details表示を切り替えたときは`mediaGrid.scrollTop = 0`へ戻す。旧layoutのscroll offsetを保持すると、件数の少ないfilterで先頭cardが途中から見える。
+- 30rem以下ではCamera／Media／Nearby／Settingsの固定`min-height`を解除する。320×568では下部tool railが168pxまで二段化されるため、25rem固定の作業面を残すと32px重なる。作業面をgridの残り高さへ縮め、各内部scroll regionで内容へ到達させる。
+- Browser QAは844×390のSettings／Media、320×568、375×667、414×896、768×1024で実施した。全viewportでhorizontal overflow 0、44pt未満の可視button 0、主要面とtool railの間隔8px、console error／warning 0を確認した。Settings panelは`scrollTop 0 → 176`、Media detailsは`scrollTop 0 → 260`で独立scrollし、filter後は0へ復帰した。
+- `npm run check`はWeb production buildとRust workspace 101 testに合格した。Development Team `3WH28SSRZC`でarm64 debug IPAを再生成し、接続中の`littlebuddha's iPhone13`へ`app.universalfilm.camera`をinstall／launchした。横位置の実画面による最終目視は利用者受け入れ対象である。

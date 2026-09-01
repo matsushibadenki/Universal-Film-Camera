@@ -5,7 +5,10 @@ import "./style.css";
 type CameraMode = "still" | "video";
 type Locale = "en" | "ja" | "zh-CN";
 type Tool = "focus" | "zebra" | "guides" | "scope";
-type CameraMonitorSnapshot = { red: number[]; green: number[]; blue: number[]; audio_db: number[]; frame_received: boolean };
+type CameraMonitorSnapshot = { red: number[]; green: number[]; blue: number[]; audio_db: number[]; frame_received: boolean; preview_width: number; preview_height: number; preview_rgb_base64: string };
+type LutPayload = { size: number; samples: [number, number, number][]; domain_min: [number, number, number]; domain_max: [number, number, number] };
+type LutEntry = { id: string; name: string; category: string; source: "built_in" | "imported"; size: number };
+type LutCatalog = { built_in: LutEntry[]; imported: LutEntry[] };
 type CameraAuthorization = "not_determined" | "restricted" | "denied" | "authorized" | "unavailable";
 type CameraDevice = { id: string; label: string; position: "front" | "back" | "external" | "unspecified" };
 type CameraDiscovery = { authorization: CameraAuthorization; devices: CameraDevice[] };
@@ -104,6 +107,9 @@ type MediaIndexEntry = {
 };
 type RecoverableCleanupCandidate = { entry: MediaIndexEntry; age_seconds: number; retention_expired: boolean };
 type MediaFilter = "all" | MediaState;
+type MediaView = "thumbnails" | "details";
+type PhotoPreviewPayload = { id: string; mime_type: string; data_base64: string };
+type BulkPhotoMigrationResult = { exported: number; deleted: number };
 type CaptureOutputPreset = {
   id: string;
   media_type: "photo" | "video";
@@ -171,6 +177,65 @@ type Copy = {
   pipeline: string;
   media: string;
   settings: string;
+  settingsTitle: string;
+  settingsSubtitle: string;
+  settingsBack: string;
+  settingsDisplay: string;
+  settingsCapture: string;
+  settingsColor: string;
+  monitoringColorSpace: string;
+  workingColorSpace: string;
+  workingColorSpaceDetail: string;
+  colorSpaceSaved: string;
+  monitorLook: string;
+  monitorLookDetail: string;
+  settingsDisplayDetail: string;
+  peakingColor: string;
+  peakingColorSaved: string;
+  colorCyan: string;
+  colorRed: string;
+  colorGreen: string;
+  colorYellow: string;
+  colorMagenta: string;
+  colorWhite: string;
+  settingsCaptureDetail: string;
+  shutterSound: string;
+  shutterSoundStandard: string;
+  shutterSoundFresh: string;
+  shutterSoundDslr: string;
+  shutterSoundSilent: string;
+  shutterSoundDetail: string;
+  shutterSoundSaved: string;
+  shutterSoundImport: string;
+  shutterSoundImportHint: string;
+  shutterSoundCustom: string;
+  shutterSoundImported: string;
+  shutterSoundImportFailed: string;
+  settingsLut: string;
+  settingsMedia: string;
+  settingsMediaDetail: string;
+  guideStyle: string;
+  guideThirds: string;
+  guideGrid: string;
+  guideDiagonal: string;
+  bulkPhotoTitle: string;
+  bulkPhotoDetail: string;
+  bulkPhotoAction: string;
+  bulkPhotoEmpty: string;
+  bulkPhotoConfirmTitle: string;
+  bulkPhotoConfirm: string;
+  bulkPhotoCancel: string;
+  bulkPhotoRunning: string;
+  bulkPhotoComplete: string;
+  bulkPhotoFailed: string;
+  lutSelection: string;
+  lutImport: string;
+  lutImportHint: string;
+  lutImported: string;
+  lutImportFailed: string;
+  lutBuiltIn: string;
+  lutExternal: string;
+  lutAccuracyNote: string;
   focus: string;
   zebra: string;
   guides: string;
@@ -205,6 +270,9 @@ type Copy = {
   mediaLoadFailed: string;
   mediaBack: string;
   mediaRefresh: string;
+  mediaView: string;
+  mediaThumbnails: string;
+  mediaDetailed: string;
   mediaPhoto: string;
   mediaVideo: string;
   mediaDuration: string;
@@ -226,6 +294,15 @@ type Copy = {
   mediaRecapture: string;
   mediaCleanupExpired: string;
   mediaCleanupExpiredPrompt: string;
+  mediaMenu: string;
+  mediaDelete: string;
+  mediaDeleteTitle: string;
+  mediaDeletePrompt: string;
+  mediaDeleteFailed: string;
+  mediaSavePhotos: string;
+  mediaSavingPhotos: string;
+  mediaSavedPhotos: string;
+  mediaSavePhotosFailed: string;
   output: string;
   outputPreset: string;
   storageRemaining: string;
@@ -289,7 +366,29 @@ const copy: Record<Locale, Copy> = {
     backendMessage: "Camera access is required for native preview.", nativePreview: "Native camera preview",
     record: "Record", stop: "Stop recording", capture: "Capture photo", captured: "Photo saved", captureFailed: "Photo capture failed",
     videoSaved: "Video saved", recordingFailed: "Video recording failed", microphoneDenied: "Microphone access is required for video recording.",
-    pipeline: "Pipeline", media: "Media", settings: "Settings", focus: "Focus assist",
+    pipeline: "Pipeline", media: "Media", settings: "Settings", settingsTitle: "Settings",
+    settingsSubtitle: "Camera, monitoring, and color management", settingsBack: "Back to camera",
+    settingsDisplay: "Display", settingsCapture: "Capture", settingsColor: "Color",
+    monitoringColorSpace: "Monitoring color space", workingColorSpace: "Internal working space",
+    workingColorSpaceDetail: "Scene-linear ACEScg · fixed by the imaging pipeline", colorSpaceSaved: "Color-space preference saved",
+    monitorLook: "Apply color profile and LUT to live preview", monitorLookDetail: "Monitoring only · captured originals are unchanged",
+    settingsDisplayDetail: "Dark technical interface · monitoring overlays are controlled from the camera screen",
+    peakingColor: "Peaking color", peakingColorSaved: "Peaking color saved",
+    colorCyan: "Cyan", colorRed: "Red", colorGreen: "Green", colorYellow: "Yellow", colorMagenta: "Magenta", colorWhite: "White",
+    settingsCaptureDetail: "Photo and video remain equal capture modes · format is configured on the camera screen",
+    shutterSound: "Shutter sound", shutterSoundStandard: "Standard shutter", shutterSoundFresh: "Fresh", shutterSoundDslr: "DSLR", shutterSoundSilent: "Silent",
+    shutterSoundDetail: "Silent requests the official iOS suppression mode. A mandatory system shutter still sounds on unsupported devices or in restricted regions.", shutterSoundSaved: "Shutter sound saved",
+    shutterSoundImport: "Import sound file", shutterSoundImportHint: "MP3, M4A, WAV, or CAF · up to 5 MiB", shutterSoundCustom: "Custom", shutterSoundImported: "Shutter sound imported", shutterSoundImportFailed: "Could not import shutter sound",
+    settingsLut: "LUT", settingsMedia: "Media", settingsMediaDetail: "Move all finalized photos to Apple Photos, then remove their app copies.",
+    guideStyle: "Guide style", guideThirds: "3 × 3 thirds", guideGrid: "Grid", guideDiagonal: "Diagonals",
+    bulkPhotoTitle: "Move all photos to Apple Photos", bulkPhotoDetail: "Videos and recovery files are not affected. App copies are deleted only after every photo is saved successfully.",
+    bulkPhotoAction: "Save all and delete app copies", bulkPhotoEmpty: "There are no finalized photos to move.",
+    bulkPhotoConfirmTitle: "Move and delete all app photos?", bulkPhotoConfirm: "Save every finalized photo to Apple Photos, then permanently delete all transferred copies from this app.",
+    bulkPhotoCancel: "Cancel", bulkPhotoRunning: "Saving photos… Keep the app open.", bulkPhotoComplete: "All photos were saved and app copies were deleted.", bulkPhotoFailed: "Migration stopped. App copies were retained unless all exports had completed.",
+    lutSelection: "Film-look LUT", lutImport: "Import .cube LUT", lutImportHint: "3D .cube · 2–65 grid · up to 4 MiB",
+    lutImported: "LUT imported", lutImportFailed: "LUT import failed", lutBuiltIn: "Built-in film archetypes", lutExternal: "Imported LUTs",
+    lutAccuracyNote: "Built-ins represent generic film/process families, not measured reproductions of named film stocks.",
+    focus: "Focus peaking",
     zebra: "Zebra", guides: "Frame guides", scopes: "Scopes", close: "Close", adjust: "Adjust",
     allowCamera: "Allow camera access", requesting: "Requesting camera access…",
     denied: "Camera access is denied. Enable it in System Settings.",
@@ -303,6 +402,7 @@ const copy: Record<Locale, Copy> = {
     mediaIncomplete: "Incomplete", mediaFailed: "Failed", mediaEmpty: "No captured media",
     mediaEmptyDetail: "Photos and videos appear here after their manifest is safely stored.", mediaLoading: "Loading media…",
     mediaLoadFailed: "The media index could not be read.", mediaBack: "Back to camera", mediaRefresh: "Refresh media",
+    mediaView: "Media view", mediaThumbnails: "Thumbnails", mediaDetailed: "Details",
     mediaPhoto: "Photo", mediaVideo: "Video", mediaDuration: "Duration", mediaAwaiting: "Awaiting validation",
     mediaValidationFailed: "Validation failed", mediaDetails: "View details", mediaPath: "Resource path",
     mediaUpdated: "Updated", mediaState: "State", mediaCleanup: "Clean up recoverable file",
@@ -310,6 +410,11 @@ const copy: Record<Locale, Copy> = {
     mediaCleanupConfirm: "Remove file", mediaCleanupCancel: "Keep file", mediaCleanupFailed: "The recoverable media could not be removed.",
     mediaReinspect: "Reinspect file", mediaReinspecting: "Reinspecting media…", mediaReinspectFailed: "The media could not be reinspected.",
     mediaRecapture: "Recapture", mediaCleanupExpired: "Review expired recovery files", mediaCleanupExpiredPrompt: "Remove all selected recovery files older than 7 days? Finalized media is protected."
+    , mediaMenu: "Media actions", mediaDelete: "Delete", mediaDeleteTitle: "Delete this media?",
+    mediaDeletePrompt: "This permanently removes the original media, its derivatives, and media record from this app.",
+    mediaDeleteFailed: "The media could not be deleted.", mediaSavePhotos: "Save to Photos",
+    mediaSavingPhotos: "Saving to Photos…", mediaSavedPhotos: "Saved to Photos.",
+    mediaSavePhotosFailed: "The photo could not be saved to Photos. Check Photos access in Settings."
     , output: "Output", outputPreset: "Output preset", storageRemaining: "Storage remaining",
     estimatedCapacity: "Estimated capacity", photosRemaining: "photos", minutesRemaining: "minutes", storageUnavailable: "Storage information unavailable", storageLow: "Not enough free space", storageAutoStop: "Recording stopped safely because storage is low",
     nearby: "Nearby", nearbyTitle: "Nearby Share", nearbySubtitle: "Discover nearby Universal Film Camera users",
@@ -344,7 +449,29 @@ const copy: Record<Locale, Copy> = {
     backendMessage: "ネイティブプレビューにはカメラへのアクセスが必要です。", nativePreview: "ネイティブカメラプレビュー",
     record: "録画", stop: "録画停止", capture: "写真撮影", captured: "写真を保存しました", captureFailed: "写真撮影に失敗しました",
     videoSaved: "動画を保存しました", recordingFailed: "動画収録に失敗しました", microphoneDenied: "動画収録にはマイクへのアクセスが必要です。",
-    pipeline: "パイプライン", media: "メディア", settings: "設定", focus: "フォーカス",
+    pipeline: "パイプライン", media: "メディア", settings: "環境設定", settingsTitle: "環境設定",
+    settingsSubtitle: "カメラ・モニター・カラー管理", settingsBack: "カメラへ戻る",
+    settingsDisplay: "表示", settingsCapture: "撮影", settingsColor: "カラー",
+    monitoringColorSpace: "モニタリングカラースペース", workingColorSpace: "内部作業色空間",
+    workingColorSpaceDetail: "Scene-linear ACEScg・Imaging Pipelineで固定", colorSpaceSaved: "カラースペース設定を保存しました",
+    monitorLook: "カラープロファイルとLUTをライブ表示へ適用", monitorLookDetail: "モニタリング専用・撮影原本は変更しません",
+    settingsDisplayDetail: "技術的なダークUI・モニター表示は撮影画面から操作します",
+    peakingColor: "ピーキングカラー", peakingColorSaved: "ピーキングカラーを保存しました",
+    colorCyan: "シアン", colorRed: "赤", colorGreen: "緑", colorYellow: "黄", colorMagenta: "マゼンタ", colorWhite: "白",
+    settingsCaptureDetail: "写真と動画を同等に扱います・フォーマットは撮影画面から設定します",
+    shutterSound: "シャッター音", shutterSoundStandard: "通常のシャッター音", shutterSoundFresh: "爽やかな音", shutterSoundDslr: "一眼レフカメラ", shutterSoundSilent: "無音",
+    shutterSoundDetail: "「無音」ではiOSの正式な消音機能も要求します。非対応端末や消音が制限される地域では、システムシャッター音が鳴ります。", shutterSoundSaved: "シャッター音を保存しました",
+    shutterSoundImport: "音源ファイルを読み込む", shutterSoundImportHint: "MP3・M4A・WAV・CAF、最大5 MiB", shutterSoundCustom: "カスタム", shutterSoundImported: "シャッター音を読み込みました", shutterSoundImportFailed: "シャッター音を読み込めませんでした",
+    settingsLut: "LUT", settingsMedia: "メディア", settingsMediaDetail: "完成済み写真をすべて写真アプリへ移し、転送後にアプリ内のコピーを削除します。",
+    guideStyle: "グリッド形式", guideThirds: "3分割（3×3）", guideGrid: "方眼（格子線）", guideDiagonal: "対角線",
+    bulkPhotoTitle: "すべての写真を写真アプリへ移行", bulkPhotoDetail: "動画と復旧対象ファイルには影響しません。全写真の保存成功後にだけアプリ内コピーを削除します。",
+    bulkPhotoAction: "すべて保存してアプリ内コピーを削除", bulkPhotoEmpty: "移行できる完成済み写真はありません。",
+    bulkPhotoConfirmTitle: "すべての写真を移行して削除しますか？", bulkPhotoConfirm: "完成済み写真をすべて写真アプリへ保存し、転送済みのアプリ内コピーを完全に削除します。",
+    bulkPhotoCancel: "キャンセル", bulkPhotoRunning: "写真を保存しています。アプリを開いたままにしてください…", bulkPhotoComplete: "すべての写真を保存し、アプリ内コピーを削除しました。", bulkPhotoFailed: "移行を中止しました。全件の書き出しが完了していない場合、アプリ内コピーは保持されています。",
+    lutSelection: "フィルム調LUT", lutImport: ".cube LUTを読み込む", lutImportHint: "3D .cube・2〜65グリッド・最大4 MiB",
+    lutImported: "LUTを読み込みました", lutImportFailed: "LUTを読み込めませんでした", lutBuiltIn: "内蔵フィルム調アーキタイプ", lutExternal: "読み込んだLUT",
+    lutAccuracyNote: "内蔵LUTは一般的なフィルム／現像系統の色調で、実在銘柄の測色再現ではありません。",
+    focus: "ピーキング",
     zebra: "ゼブラ", guides: "ガイド", scopes: "スコープ", close: "閉じる", adjust: "調整",
     allowCamera: "カメラへのアクセスを許可", requesting: "カメラ権限を確認しています…",
     denied: "カメラへのアクセスが拒否されています。システム設定で許可してください。",
@@ -358,6 +485,7 @@ const copy: Record<Locale, Copy> = {
     mediaIncomplete: "未完了", mediaFailed: "失敗", mediaEmpty: "撮影素材はありません",
     mediaEmptyDetail: "写真と動画は、安全にマニフェストを保存した後でここに表示されます。", mediaLoading: "メディアを読み込んでいます…",
     mediaLoadFailed: "メディアインデックスを読み込めませんでした。", mediaBack: "カメラへ戻る", mediaRefresh: "メディアを更新",
+    mediaView: "メディア表示", mediaThumbnails: "サムネイル", mediaDetailed: "詳細",
     mediaPhoto: "写真", mediaVideo: "動画", mediaDuration: "長さ", mediaAwaiting: "検証待ち",
     mediaValidationFailed: "検証失敗", mediaDetails: "詳細を表示", mediaPath: "リソースパス",
     mediaUpdated: "更新日時", mediaState: "状態", mediaCleanup: "復旧対象ファイルを削除",
@@ -365,6 +493,11 @@ const copy: Record<Locale, Copy> = {
     mediaCleanupConfirm: "ファイルを削除", mediaCleanupCancel: "ファイルを残す", mediaCleanupFailed: "復旧対象メディアを削除できませんでした。",
     mediaReinspect: "ファイルを再検査", mediaReinspecting: "メディアを再検査しています…", mediaReinspectFailed: "メディアを再検査できませんでした。",
     mediaRecapture: "再撮影", mediaCleanupExpired: "期限切れ復旧ファイルを確認", mediaCleanupExpiredPrompt: "7日を超えた復旧ファイルをすべて削除しますか？完了済みメディアは保護されます。"
+    , mediaMenu: "メディア操作", mediaDelete: "削除", mediaDeleteTitle: "このメディアを削除しますか？",
+    mediaDeletePrompt: "このアプリ内の原本メディア、派生データ、メディア記録を完全に削除します。",
+    mediaDeleteFailed: "メディアを削除できませんでした。", mediaSavePhotos: "写真アプリに保存",
+    mediaSavingPhotos: "写真アプリに保存しています…", mediaSavedPhotos: "写真アプリに保存しました。",
+    mediaSavePhotosFailed: "写真アプリに保存できませんでした。設定で写真へのアクセスを確認してください。"
     , output: "出力", outputPreset: "出力プリセット", storageRemaining: "残容量",
     estimatedCapacity: "推定撮影可能量", photosRemaining: "枚", minutesRemaining: "分", storageUnavailable: "残容量を取得できません", storageLow: "空き容量が不足しています", storageAutoStop: "空き容量が少ないため安全に録画を停止しました",
     nearby: "近距離共有", nearbyTitle: "近距離共有", nearbySubtitle: "近くのUniversal Film Cameraユーザーを検出",
@@ -399,7 +532,29 @@ const copy: Record<Locale, Copy> = {
     backendMessage: "原生预览需要相机访问权限。", nativePreview: "原生相机预览",
     record: "录制", stop: "停止录制", capture: "拍照", captured: "照片已保存", captureFailed: "拍照失败",
     videoSaved: "视频已保存", recordingFailed: "视频录制失败", microphoneDenied: "视频录制需要麦克风访问权限。",
-    pipeline: "成像管线", media: "媒体", settings: "设置", focus: "对焦",
+    pipeline: "成像管线", media: "媒体", settings: "设置", settingsTitle: "环境设置",
+    settingsSubtitle: "相机、监看与色彩管理", settingsBack: "返回相机",
+    settingsDisplay: "显示", settingsCapture: "拍摄", settingsColor: "色彩",
+    monitoringColorSpace: "监看色彩空间", workingColorSpace: "内部工作色彩空间",
+    workingColorSpaceDetail: "Scene-linear ACEScg・由成像管线固定", colorSpaceSaved: "色彩空间设置已保存",
+    monitorLook: "将色彩配置与 LUT 应用于实时预览", monitorLookDetail: "仅用于监看・不会更改拍摄原片",
+    settingsDisplayDetail: "技术型深色界面・监看叠加层可在拍摄画面中控制",
+    peakingColor: "峰值对焦颜色", peakingColorSaved: "峰值对焦颜色已保存",
+    colorCyan: "青色", colorRed: "红色", colorGreen: "绿色", colorYellow: "黄色", colorMagenta: "品红色", colorWhite: "白色",
+    settingsCaptureDetail: "照片与视频为同等拍摄模式・格式可在拍摄画面中设置",
+    shutterSound: "快门声音", shutterSoundStandard: "标准快门", shutterSoundFresh: "清爽音效", shutterSoundDslr: "单反相机", shutterSoundSilent: "静音",
+    shutterSoundDetail: "“静音”也会请求 iOS 官方静音功能。在不支持的设备或受限制地区，系统快门声仍会响起。", shutterSoundSaved: "快门声音已保存",
+    shutterSoundImport: "导入声音文件", shutterSoundImportHint: "MP3、M4A、WAV 或 CAF・最大 5 MiB", shutterSoundCustom: "自定义", shutterSoundImported: "快门声音已导入", shutterSoundImportFailed: "无法导入快门声音",
+    settingsLut: "LUT", settingsMedia: "媒体", settingsMediaDetail: "将所有已完成照片移到 Apple 照片，然后删除应用内副本。",
+    guideStyle: "网格样式", guideThirds: "三分法（3×3）", guideGrid: "方格线", guideDiagonal: "对角线",
+    bulkPhotoTitle: "将所有照片移到 Apple 照片", bulkPhotoDetail: "视频和恢复文件不受影响。仅在所有照片成功保存后删除应用内副本。",
+    bulkPhotoAction: "全部保存并删除应用副本", bulkPhotoEmpty: "没有可移动的已完成照片。",
+    bulkPhotoConfirmTitle: "移动并删除所有应用照片？", bulkPhotoConfirm: "将所有已完成照片保存到 Apple 照片，然后永久删除应用内已传输副本。",
+    bulkPhotoCancel: "取消", bulkPhotoRunning: "正在保存照片，请保持应用打开…", bulkPhotoComplete: "所有照片已保存，应用内副本已删除。", bulkPhotoFailed: "迁移已停止。若未完成全部导出，应用内副本会保留。",
+    lutSelection: "胶片风格 LUT", lutImport: "导入 .cube LUT", lutImportHint: "3D .cube・2–65 网格・最大 4 MiB",
+    lutImported: "LUT 已导入", lutImportFailed: "无法导入 LUT", lutBuiltIn: "内置胶片风格原型", lutExternal: "已导入 LUT",
+    lutAccuracyNote: "内置 LUT 表现通用胶片与冲印风格，并非对特定胶片型号的测色复刻。",
+    focus: "峰值对焦",
     zebra: "斑马纹", guides: "参考线", scopes: "示波器", close: "关闭", adjust: "调整",
     allowCamera: "允许访问相机", requesting: "正在请求相机权限…",
     denied: "相机访问已被拒绝。请在系统设置中启用。", restricted: "此设备限制了相机访问。",
@@ -413,6 +568,7 @@ const copy: Record<Locale, Copy> = {
     mediaIncomplete: "未完成", mediaFailed: "失败", mediaEmpty: "暂无拍摄素材",
     mediaEmptyDetail: "照片和视频会在清单安全保存后显示在这里。", mediaLoading: "正在加载媒体…",
     mediaLoadFailed: "无法读取媒体索引。", mediaBack: "返回相机", mediaRefresh: "刷新媒体",
+    mediaView: "媒体视图", mediaThumbnails: "缩略图", mediaDetailed: "详细信息",
     mediaPhoto: "照片", mediaVideo: "视频", mediaDuration: "时长", mediaAwaiting: "等待验证",
     mediaValidationFailed: "验证失败", mediaDetails: "查看详情", mediaPath: "资源路径",
     mediaUpdated: "更新时间", mediaState: "状态", mediaCleanup: "清理可恢复文件",
@@ -420,6 +576,11 @@ const copy: Record<Locale, Copy> = {
     mediaCleanupConfirm: "删除文件", mediaCleanupCancel: "保留文件", mediaCleanupFailed: "无法删除可恢复媒体。",
     mediaReinspect: "重新检查文件", mediaReinspecting: "正在重新检查媒体…", mediaReinspectFailed: "无法重新检查媒体。",
     mediaRecapture: "重新拍摄", mediaCleanupExpired: "检查过期恢复文件", mediaCleanupExpiredPrompt: "删除所有超过7天的恢复文件吗？已完成媒体会受到保护。"
+    , mediaMenu: "媒体操作", mediaDelete: "删除", mediaDeleteTitle: "删除此媒体？",
+    mediaDeletePrompt: "这会永久删除此应用中的原始媒体、衍生文件和媒体记录。",
+    mediaDeleteFailed: "无法删除媒体。", mediaSavePhotos: "保存到照片",
+    mediaSavingPhotos: "正在保存到照片…", mediaSavedPhotos: "已保存到照片。",
+    mediaSavePhotosFailed: "无法保存到照片。请在设置中检查照片访问权限。"
     , output: "输出", outputPreset: "输出预设", storageRemaining: "剩余容量",
     estimatedCapacity: "预计可拍摄量", photosRemaining: "张照片", minutesRemaining: "分钟", storageUnavailable: "无法获取存储信息", storageLow: "可用存储空间不足", storageAutoStop: "存储空间不足，已安全停止录制",
     nearby: "附近共享", nearbyTitle: "附近共享", nearbySubtitle: "发现附近的 Universal Film Camera 用户",
@@ -468,8 +629,17 @@ function icon(name: string): string {
     scope: '<path d="M3 16h3l2-7 3 9 3-12 3 10h4"/>',
     pipeline: '<circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 6h10M6 8l5 8M18 8l-5 8"/>',
     media: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="m10 9 6 3-6 3z"/>',
+    thumbnails: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    details: '<rect x="3" y="4" width="6" height="6" rx="1"/><path d="M12 6h9M12 9h7"/><rect x="3" y="14" width="6" height="6" rx="1"/><path d="M12 16h9M12 19h7"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
     nearby: '<path d="M5 8.5a10 10 0 0 1 14 0M8 12a6 6 0 0 1 8 0M11 15.5a2 2 0 0 1 2 0"/><circle cx="12" cy="19" r="1"/>',
+    display: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/>',
+    captureSettings: '<circle cx="12" cy="12" r="7"/><path d="M12 5v14M5 12h14M7 7l10 10M17 7 7 17"/>',
+    color: '<circle cx="12" cy="12" r="8"/><path d="M12 4v8l7 4M12 12l-7 4"/>',
+    lut: '<path d="M4 18c4 0 4-12 8-12s4 12 8 12"/><path d="M4 21h16"/>',
+    refresh: '<path d="M20 6v5h-5M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.5-2.6L20 11M4 13l2.4 4.6A7 7 0 0 0 18 15"/>',
+    output: '<path d="M5 7h14M5 12h14M5 17h14"/><circle cx="8" cy="7" r="1"/><circle cx="16" cy="12" r="1"/><circle cx="10" cy="17" r="1"/>',
+    import: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/>',
     close: '<path d="m6 6 12 12M18 6 6 18"/>'
   };
   return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths[name]}</svg>`;
@@ -506,7 +676,6 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
   <main class="camera-shell">
     <section class="monitor" aria-label="${t.nativePreview}">
       <div class="parameter-strip" aria-label="Exposure controls">
-        <div class="brand-lockup"><span class="brand-mark">UF</span><span>${t.camera}</span></div>
         ${parameters.map((parameter) => `
           <button class="parameter${parameter.active ? " is-selected" : ""}" data-parameter="${parameter.key}" aria-pressed="${parameter.active ? "true" : "false"}">
             <span>${parameter.label}</span><strong>${parameter.value}</strong>
@@ -527,7 +696,12 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       </div>
 
       <div class="preview-surface">
-        <div class="safe-frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <canvas class="processed-preview" id="processed-preview" aria-hidden="true"></canvas>
+        <svg class="guide-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <g data-guide-lines="thirds"><path d="M33.333 0V100M66.667 0V100M0 33.333H100M0 66.667H100"/></g>
+          <g data-guide-lines="grid"><path d="M20 0V100M40 0V100M60 0V100M80 0V100M0 20H100M0 40H100M0 60H100M0 80H100"/></g>
+          <g data-guide-lines="diagonal"><path d="M0 0L100 100M100 0L0 100"/></g>
+        </svg>
         <div class="centre-mark" aria-hidden="true"></div>
         <div class="preview-empty">
           <span class="signal-mark"></span>
@@ -544,7 +718,6 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
             <path id="hist-green" class="hist-green" d="M2 41H130V41Z"/>
             <path id="hist-blue" class="hist-blue" d="M2 41H130V41Z"/>
           </svg>
-          <span>HIST</span>
         </section>
 
         <section class="audio-meter" aria-label="Audio meters">
@@ -565,7 +738,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         </div>
         <div class="media-header-actions">
           <button id="media-cleanup-expired" type="button" hidden>${icon("close")}<span>${t.mediaCleanupExpired}</span></button>
-          <button id="media-refresh" type="button" aria-label="${t.mediaRefresh}">${icon("media")}<span>${t.mediaRefresh}</span></button>
+          <button id="media-refresh" type="button" aria-label="${t.mediaRefresh}" title="${t.mediaRefresh}">${icon("refresh")}<span>${t.mediaRefresh}</span></button>
           <button id="media-back" type="button" aria-label="${t.mediaBack}">${icon("close")}<span>${t.mediaBack}</span></button>
         </div>
       </header>
@@ -577,12 +750,21 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <button data-media-filter="failed" aria-pressed="false"><span>${t.mediaFailed}</span><strong data-media-count="failed">0</strong></button>
       </nav>
 
+      <div class="media-view-switch" role="group" aria-label="${t.mediaView}">
+        <button class="is-active" data-media-view="thumbnails" aria-pressed="true">${icon("thumbnails")}<span>${t.mediaThumbnails}</span></button>
+        <button data-media-view="details" aria-pressed="false">${icon("details")}<span>${t.mediaDetailed}</span></button>
+      </div>
+
       <div class="media-status" id="media-status" role="status" aria-live="polite"></div>
       <div class="media-grid" id="media-grid"></div>
       <div class="media-empty" id="media-empty" hidden>
         ${icon("media")}
         <strong>${t.mediaEmpty}</strong>
         <p>${t.mediaEmptyDetail}</p>
+      </div>
+      <div class="media-context-menu" id="media-context-menu" role="menu" aria-label="${t.mediaMenu}" hidden>
+        <button id="media-context-save" type="button" role="menuitem">${t.mediaSavePhotos}</button>
+        <button class="is-destructive" id="media-context-delete" type="button" role="menuitem">${t.mediaDelete}</button>
       </div>
     </section>
 
@@ -593,7 +775,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
           <p>${t.nearbySubtitle}</p>
         </div>
         <div class="media-header-actions">
-          <button id="nearby-refresh" type="button" aria-label="${t.nearbyRefresh}">${icon("nearby")}<span>${t.nearbyRefresh}</span></button>
+          <button id="nearby-refresh" type="button" aria-label="${t.nearbyRefresh}" title="${t.nearbyRefresh}">${icon("refresh")}<span>${t.nearbyRefresh}</span></button>
           <button id="nearby-back" type="button" aria-label="${t.nearbyBack}">${icon("close")}<span>${t.nearbyBack}</span></button>
         </div>
       </header>
@@ -612,6 +794,66 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         ${icon("nearby")}
         <strong>${t.nearbyEmpty}</strong>
         <p>${t.nearbyEmptyDetail}</p>
+      </div>
+    </section>
+
+    <section class="settings-page" id="settings-page" aria-labelledby="settings-title" hidden>
+      <header class="media-header">
+        <div><h1 id="settings-title">${t.settingsTitle}</h1><p>${t.settingsSubtitle}</p></div>
+        <div class="media-header-actions">
+          <button id="settings-back" type="button" aria-label="${t.settingsBack}">${icon("close")}<span>${t.settingsBack}</span></button>
+        </div>
+      </header>
+      <nav class="settings-tabs" role="tablist" aria-label="${t.settingsTitle}">
+        <button id="settings-tab-display" role="tab" aria-label="${t.settingsDisplay}" title="${t.settingsDisplay}" aria-selected="false" aria-controls="settings-panel-display" tabindex="-1" data-settings-tab="display">${icon("display")}<span>${t.settingsDisplay}</span></button>
+        <button id="settings-tab-capture" role="tab" aria-label="${t.settingsCapture}" title="${t.settingsCapture}" aria-selected="false" aria-controls="settings-panel-capture" tabindex="-1" data-settings-tab="capture">${icon("captureSettings")}<span>${t.settingsCapture}</span></button>
+        <button id="settings-tab-color" role="tab" aria-label="${t.settingsColor}" title="${t.settingsColor}" aria-selected="true" aria-controls="settings-panel-color" data-settings-tab="color">${icon("color")}<span>${t.settingsColor}</span></button>
+        <button id="settings-tab-lut" role="tab" aria-label="${t.settingsLut}" title="${t.settingsLut}" aria-selected="false" aria-controls="settings-panel-lut" tabindex="-1" data-settings-tab="lut">${icon("lut")}<span>${t.settingsLut}</span></button>
+        <button id="settings-tab-media" role="tab" aria-label="${t.settingsMedia}" title="${t.settingsMedia}" aria-selected="false" aria-controls="settings-panel-media" tabindex="-1" data-settings-tab="media">${icon("media")}<span>${t.settingsMedia}</span></button>
+      </nav>
+      <div class="settings-panel" id="settings-panel-display" role="tabpanel" aria-labelledby="settings-tab-display" hidden>
+        <h2 class="settings-panel-title">${t.settingsDisplay}</h2>
+        <div class="settings-readonly"><span>${t.settingsDisplay}</span><strong>UI · DARK</strong><small>${t.settingsDisplayDetail}</small></div>
+        <label class="settings-field peaking-color-field" for="peaking-color"><span>${t.peakingColor}</span><span class="peaking-color-control"><i id="peaking-color-swatch" aria-hidden="true"></i><select id="peaking-color"><option value="cyan">${t.colorCyan}</option><option value="red">${t.colorRed}</option><option value="green">${t.colorGreen}</option><option value="yellow">${t.colorYellow}</option><option value="magenta">${t.colorMagenta}</option><option value="white">${t.colorWhite}</option></select></span></label>
+        <p class="settings-status" id="display-settings-status" role="status" aria-live="polite"></p>
+      </div>
+      <div class="settings-panel" id="settings-panel-capture" role="tabpanel" aria-labelledby="settings-tab-capture" hidden>
+        <h2 class="settings-panel-title">${t.settingsCapture}</h2>
+        <div class="settings-readonly"><span>${t.settingsCapture}</span><strong>PHOTO + VIDEO</strong><small>${t.settingsCaptureDetail}</small></div>
+        <label class="settings-field" for="shutter-sound"><span>${t.shutterSound}</span>
+          <select id="shutter-sound"><option value="standard">${t.shutterSoundStandard}</option><option value="fresh">${t.shutterSoundFresh}</option><option value="dslr">${t.shutterSoundDslr}</option><option value="silent">${t.shutterSoundSilent}</option></select>
+        </label>
+        <label class="lut-import" for="shutter-sound-file" aria-label="${t.shutterSoundImport}" title="${t.shutterSoundImport} · ${t.shutterSoundImportHint}">${icon("import")}<span>${t.shutterSoundImport}</span><small>${t.shutterSoundImportHint}</small></label>
+        <input id="shutter-sound-file" type="file" accept="audio/*,.mp3,.m4a,.wav,.caf" hidden>
+        <p class="settings-status" id="shutter-sound-status" role="status" aria-live="polite"></p>
+        <p class="settings-note">${t.shutterSoundDetail}</p>
+        <label class="settings-field" for="guide-style"><span>${t.guideStyle}</span>
+          <select id="guide-style"><option value="thirds">${t.guideThirds}</option><option value="grid">${t.guideGrid}</option><option value="diagonal">${t.guideDiagonal}</option></select>
+        </label>
+      </div>
+      <div class="settings-panel" id="settings-panel-color" role="tabpanel" aria-labelledby="settings-tab-color">
+        <h2 class="settings-panel-title">${t.settingsColor}</h2>
+        <label class="settings-field" for="monitoring-color-space"><span>${t.monitoringColorSpace}</span>
+          <select id="monitoring-color-space"><option value="rec709">Rec.709</option><option value="display-p3">Display P3</option><option value="srgb">sRGB</option></select>
+        </label>
+        <label class="settings-toggle" for="monitor-look-enabled"><input id="monitor-look-enabled" type="checkbox"><span>${t.monitorLook}<small>${t.monitorLookDetail}</small></span></label>
+        <div class="settings-readonly"><span>${t.workingColorSpace}</span><strong>ACEScg</strong><small>${t.workingColorSpaceDetail}</small></div>
+        <p class="settings-status" id="settings-status" role="status" aria-live="polite"></p>
+      </div>
+      <div class="settings-panel" id="settings-panel-lut" role="tabpanel" aria-labelledby="settings-tab-lut" hidden>
+        <h2 class="settings-panel-title">${t.settingsLut}</h2>
+        <label class="settings-field" for="lut-selection"><span>${t.lutSelection}</span><select id="lut-selection"></select></label>
+        <p class="settings-note">${t.lutAccuracyNote}</p>
+        <label class="lut-import" for="lut-import-file" aria-label="${t.lutImport}" title="${t.lutImport} · ${t.lutImportHint}">${icon("import")}<span>${t.lutImport}</span><small>${t.lutImportHint}</small></label>
+        <input id="lut-import-file" type="file" accept=".cube,text/plain" hidden>
+        <p class="settings-status" id="lut-status" role="status" aria-live="polite"></p>
+      </div>
+      <div class="settings-panel settings-media-panel" id="settings-panel-media" role="tabpanel" aria-labelledby="settings-tab-media" hidden>
+        <h2 class="settings-panel-title">${t.settingsMedia}</h2>
+        <div class="settings-readonly"><span>${t.bulkPhotoTitle}</span><strong id="bulk-photo-count">—</strong><small>${t.settingsMediaDetail}</small></div>
+        <p class="settings-note">${t.bulkPhotoDetail}</p>
+        <button id="bulk-photo-start" type="button">${t.bulkPhotoAction}</button>
+        <p class="settings-status" id="bulk-photo-status" role="status" aria-live="polite"></p>
       </div>
     </section>
 
@@ -666,6 +908,26 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       </div>
     </dialog>
 
+    <dialog class="media-dialog media-confirm-dialog" id="media-delete-dialog" aria-labelledby="media-delete-title">
+      <h2 id="media-delete-title">${t.mediaDeleteTitle}</h2>
+      <p>${t.mediaDeletePrompt}</p>
+      <strong id="media-delete-name"></strong>
+      <div>
+        <button id="media-delete-cancel" type="button">${t.mediaCleanupCancel}</button>
+        <button class="media-cleanup-confirm" id="media-delete-confirm" type="button" data-state="default">${t.mediaDelete}</button>
+      </div>
+    </dialog>
+
+    <dialog class="media-dialog media-confirm-dialog" id="bulk-photo-dialog" aria-labelledby="bulk-photo-dialog-title">
+      <h2 id="bulk-photo-dialog-title">${t.bulkPhotoConfirmTitle}</h2>
+      <p>${t.bulkPhotoConfirm}</p>
+      <strong id="bulk-photo-dialog-count">—</strong>
+      <div>
+        <button id="bulk-photo-cancel" type="button">${t.bulkPhotoCancel}</button>
+        <button class="media-cleanup-confirm" id="bulk-photo-confirm" type="button" data-state="default">${t.bulkPhotoAction}</button>
+      </div>
+    </dialog>
+
     <dialog class="media-dialog output-dialog" id="output-dialog" aria-labelledby="output-title">
       <header>
         <h2 id="output-title">${t.output}</h2>
@@ -696,14 +958,16 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <button id="capture" class="shutter" aria-label="${t.capture}" data-state="default"><span></span></button>
 
       <div class="rail-trailing">
-        <button class="output-status" id="output-status" type="button" aria-label="${t.output}"><span>${t.output} · —</span></button>
+        <button class="output-status" id="output-status" type="button" aria-label="${t.output}" title="${t.output}">${icon("output")}<span>${t.output} · —</span></button>
         <button class="monitor-tools-toggle" id="monitor-tools-toggle" aria-expanded="false" aria-controls="monitor-tools-panel" aria-label="${t.scopes}">${icon("scope")}<span>${t.scopes}</span></button>
 
-        <nav class="destination-tools" aria-label="Application sections">
+        <button class="destination-tools-toggle" id="destination-tools-toggle" aria-expanded="false" aria-controls="destination-tools" aria-label="${t.camera}" title="${t.camera}">${icon("pipeline")}<span>${t.camera}</span></button>
+
+        <nav class="destination-tools" id="destination-tools" aria-label="Application sections">
           <button class="is-active" aria-label="${t.pipeline}">${icon("pipeline")}<span>${t.pipeline}</span></button>
           <button id="open-media" aria-label="${t.media}" aria-controls="media-library" aria-pressed="false">${icon("media")}<span>${t.media}</span></button>
           <button id="open-nearby" aria-label="${t.nearby}" aria-controls="nearby-library" aria-pressed="false">${icon("nearby")}<span>${t.nearby}</span></button>
-          <button aria-label="${t.settings}">${icon("settings")}<span>${t.settings}</span></button>
+          <button id="open-settings" aria-label="${t.settings}" aria-controls="settings-page" aria-pressed="false">${icon("settings")}<span>${t.settings}</span></button>
         </nav>
       </div>
     </aside>
@@ -735,6 +999,26 @@ const mediaButton = document.querySelector<HTMLButtonElement>("#open-media")!;
 const mediaRefresh = document.querySelector<HTMLButtonElement>("#media-refresh")!;
 const mediaCleanupExpired = document.querySelector<HTMLButtonElement>("#media-cleanup-expired")!;
 const nearbyLibrary = document.querySelector<HTMLElement>("#nearby-library")!;
+const settingsPage = document.querySelector<HTMLElement>("#settings-page")!;
+const settingsButton = document.querySelector<HTMLButtonElement>("#open-settings")!;
+const monitoringColorSpace = document.querySelector<HTMLSelectElement>("#monitoring-color-space")!;
+const monitorLookEnabled = document.querySelector<HTMLInputElement>("#monitor-look-enabled")!;
+const settingsStatus = document.querySelector<HTMLElement>("#settings-status")!;
+const peakingColor = document.querySelector<HTMLSelectElement>("#peaking-color")!;
+const peakingColorSwatch = document.querySelector<HTMLElement>("#peaking-color-swatch")!;
+const displaySettingsStatus = document.querySelector<HTMLElement>("#display-settings-status")!;
+const lutSelection = document.querySelector<HTMLSelectElement>("#lut-selection")!;
+const lutImportFile = document.querySelector<HTMLInputElement>("#lut-import-file")!;
+const lutStatus = document.querySelector<HTMLElement>("#lut-status")!;
+const guideStyle = document.querySelector<HTMLSelectElement>("#guide-style")!;
+const shutterSound = document.querySelector<HTMLSelectElement>("#shutter-sound")!;
+const shutterSoundFile = document.querySelector<HTMLInputElement>("#shutter-sound-file")!;
+const shutterSoundStatus = document.querySelector<HTMLElement>("#shutter-sound-status")!;
+const bulkPhotoCount = document.querySelector<HTMLElement>("#bulk-photo-count")!;
+const bulkPhotoStart = document.querySelector<HTMLButtonElement>("#bulk-photo-start")!;
+const bulkPhotoStatus = document.querySelector<HTMLElement>("#bulk-photo-status")!;
+const bulkPhotoDialog = document.querySelector<HTMLDialogElement>("#bulk-photo-dialog")!;
+const bulkPhotoConfirm = document.querySelector<HTMLButtonElement>("#bulk-photo-confirm")!;
 const nearbyButton = document.querySelector<HTMLButtonElement>("#open-nearby")!;
 const nearbyToggle = document.querySelector<HTMLButtonElement>("#nearby-toggle")!;
 const nearbyRefresh = document.querySelector<HTMLButtonElement>("#nearby-refresh")!;
@@ -753,6 +1037,11 @@ const mediaReinspect = document.querySelector<HTMLButtonElement>("#media-reinspe
 const mediaRecapture = document.querySelector<HTMLButtonElement>("#media-recapture")!;
 const mediaCleanupDialog = document.querySelector<HTMLDialogElement>("#media-cleanup-dialog")!;
 const mediaCleanupConfirm = document.querySelector<HTMLButtonElement>("#media-cleanup-confirm")!;
+const mediaContextMenu = document.querySelector<HTMLElement>("#media-context-menu")!;
+const mediaContextSave = document.querySelector<HTMLButtonElement>("#media-context-save")!;
+const mediaContextDelete = document.querySelector<HTMLButtonElement>("#media-context-delete")!;
+const mediaDeleteDialog = document.querySelector<HTMLDialogElement>("#media-delete-dialog")!;
+const mediaDeleteConfirm = document.querySelector<HTMLButtonElement>("#media-delete-confirm")!;
 const outputStatus = document.querySelector<HTMLButtonElement>("#output-status")!;
 const outputDialog = document.querySelector<HTMLDialogElement>("#output-dialog")!;
 let nativePreviewRunning = false;
@@ -763,12 +1052,624 @@ let activeDevicePosition: CameraDevice["position"] | undefined;
 let lastOrientationKey: string | undefined;
 let mediaEntries: MediaIndexEntry[] = [];
 let mediaFilter: MediaFilter = "all";
+let mediaView: MediaView = "thumbnails";
 let selectedMediaEntry: MediaIndexEntry | undefined;
+let contextMediaEntry: MediaIndexEntry | undefined;
+let mediaLongPressTimer: number | undefined;
 let pendingBulkCleanupIds: string[] = [];
 let bulkCleanupRequested = false;
 let nearbySnapshot: NearbyDiscoverySnapshot = { active: false, local_peer: null, peers: [], last_error: null };
 let nearbyPollId: number | undefined;
 let selectedNearbyPeerId: string | undefined;
+const monitoringColorSpaceKey = "ufc.monitoring-color-space.v1";
+const monitorLookEnabledKey = "ufc.monitor-look-enabled.v1";
+const selectedLutKey = "ufc.selected-lut.v1";
+const guideStyleKey = "ufc.guide-style.v1";
+const peakingColorKey = "ufc.peaking-color.v1";
+const shutterSoundKey = "ufc.shutter-sound.v1";
+type ShutterSound = "standard" | "fresh" | "dslr" | "silent" | "custom";
+const shutterSoundDatabase = "ufc-shutter-sounds-v1";
+let customShutterSoundUrl: string | undefined;
+let customShutterSoundName: string | undefined;
+const peakingColors: Record<string, [number, number, number]> = {
+  cyan: [0, 225, 255], red: [255, 48, 48], green: [70, 255, 105],
+  yellow: [255, 224, 32], magenta: [255, 64, 224], white: [255, 255, 255]
+};
+const builtInLuts: LutEntry[] = [
+  ["none", "Clean / No LUT", "neutral"], ["negative-daylight-soft", "Daylight Negative · Soft", "negative"],
+  ["negative-daylight-rich", "Daylight Negative · Rich", "negative"], ["negative-tungsten", "Tungsten Negative", "negative"],
+  ["negative-pastel", "Pastel Negative", "negative"], ["negative-warm-consumer", "Warm Consumer Negative", "negative"],
+  ["negative-cool-consumer", "Cool Consumer Negative", "negative"], ["reversal-neutral", "Daylight Reversal · Neutral", "reversal"],
+  ["reversal-vivid", "Daylight Reversal · Vivid", "reversal"], ["reversal-warm", "Warm Reversal", "reversal"],
+  ["print-warm", "Warm Release Print", "print"], ["print-cool", "Cool Release Print", "print"],
+  ["bleach-bypass", "Bleach Bypass", "process"], ["archive-faded", "Faded Archive", "process"],
+  ["bw-panchromatic-soft", "B&W Panchromatic · Soft", "monochrome"], ["bw-panchromatic-hard", "B&W Panchromatic · Hard", "monochrome"],
+  ["bw-orthochromatic", "B&W Orthochromatic", "monochrome"]
+].map(([id, name, category]) => ({ id, name, category, source: "built_in", size: 33 }));
+
+function storedPreference(key: string, fallback: string): string {
+  try { return window.localStorage.getItem(key) ?? fallback; } catch { return fallback; }
+}
+
+function applyGuideStyle(value: string): void {
+  const selected = ["thirds", "grid", "diagonal"].includes(value) ? value : "thirds";
+  guideStyle.value = selected;
+  document.body.dataset.guideStyle = selected;
+}
+
+function applyPeakingColor(value: string): void {
+  const selected = value in peakingColors ? value : "cyan";
+  peakingColor.value = selected;
+  const [red, green, blue] = peakingColors[selected];
+  peakingColorSwatch.style.backgroundColor = `rgb(${red} ${green} ${blue})`;
+}
+
+function applyShutterSound(value: string): void {
+  const supported = ["standard", "fresh", "dslr", "silent", ...(customShutterSoundUrl ? ["custom"] : [])];
+  shutterSound.value = supported.includes(value) ? value : "standard";
+}
+
+function openShutterSoundDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(shutterSoundDatabase, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("sounds");
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function storeCustomShutterSound(file: File): Promise<void> {
+  const database = await openShutterSoundDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction("sounds", "readwrite");
+    transaction.objectStore("sounds").put({ blob: file, name: file.name }, "custom");
+    transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error);
+  });
+  database.close();
+}
+
+async function loadCustomShutterSound(): Promise<void> {
+  const database = await openShutterSoundDatabase();
+  const stored = await new Promise<{ blob: Blob; name: string } | undefined>((resolve, reject) => {
+    const request = database.transaction("sounds").objectStore("sounds").get("custom");
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+  });
+  database.close();
+  if (!stored?.blob) return;
+  if (customShutterSoundUrl) URL.revokeObjectURL(customShutterSoundUrl);
+  customShutterSoundUrl = URL.createObjectURL(stored.blob);
+  customShutterSoundName = stored.name;
+  let option = shutterSound.querySelector<HTMLOptionElement>('option[value="custom"]');
+  if (!option) { option = document.createElement("option"); option.value = "custom"; shutterSound.append(option); }
+  option.textContent = `${t.shutterSoundCustom} · ${stored.name}`;
+}
+
+function playShutterSound(kind = shutterSound.value as ShutterSound): void {
+  if (kind === "silent") return;
+  if (kind === "custom" && customShutterSoundUrl) {
+    const audio = new Audio(customShutterSoundUrl); audio.volume = 1;
+    void audio.play().catch(() => { shutterSoundStatus.textContent = t.shutterSoundImportFailed; shutterSoundStatus.dataset.state = "error"; });
+    return;
+  }
+  const AudioContextClass = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextClass) return;
+  const context = new AudioContextClass();
+  const start = context.currentTime;
+  const noise = (at: number, duration: number, gainValue: number, cutoff: number) => {
+    const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+    const samples = buffer.getChannelData(0);
+    for (let index = 0; index < samples.length; index++) samples[index] = Math.random() * 2 - 1;
+    const source = context.createBufferSource(); source.buffer = buffer;
+    const filter = context.createBiquadFilter(); filter.type = "lowpass"; filter.frequency.value = cutoff;
+    const gain = context.createGain(); gain.gain.setValueAtTime(gainValue, start + at); gain.gain.exponentialRampToValueAtTime(0.001, start + at + duration);
+    source.connect(filter).connect(gain).connect(context.destination); source.start(start + at); source.stop(start + at + duration);
+  };
+  const tone = (at: number, frequency: number, duration: number, gainValue: number) => {
+    const oscillator = context.createOscillator(); const gain = context.createGain();
+    oscillator.type = "sine"; oscillator.frequency.setValueAtTime(frequency, start + at);
+    gain.gain.setValueAtTime(gainValue, start + at); gain.gain.exponentialRampToValueAtTime(0.001, start + at + duration);
+    oscillator.connect(gain).connect(context.destination); oscillator.start(start + at); oscillator.stop(start + at + duration);
+  };
+  if (kind === "fresh") { tone(0, 1320, .09, .16); tone(.055, 1760, .16, .11); }
+  else if (kind === "dslr") { noise(0, .055, .28, 1800); noise(.075, .075, .32, 1200); noise(.18, .055, .2, 1600); }
+  else { noise(0, .045, .22, 2400); noise(.065, .055, .18, 1800); }
+  window.setTimeout(() => void context.close(), 500);
+}
+
+async function refreshBulkPhotoCount(): Promise<number> {
+  try {
+    const entries = recoveryFixtureEnabled
+      ? recoveryFixtureEntries()
+      : await invoke<MediaIndexEntry[]>("get_media_index");
+    const count = entries.filter((entry) => entry.state === "finalized" && entry.media_type === "photo").length;
+    bulkPhotoCount.textContent = `${count} ${t.mediaPhoto}`;
+    bulkPhotoStart.disabled = count === 0;
+    bulkPhotoStatus.textContent = count === 0 ? t.bulkPhotoEmpty : "";
+    return count;
+  } catch (error) {
+    bulkPhotoCount.textContent = "—";
+    bulkPhotoStart.disabled = true;
+    bulkPhotoStatus.textContent = String(error);
+    bulkPhotoStatus.dataset.state = "error";
+    return 0;
+  }
+}
+
+function populateLutSelection(catalog: LutCatalog): void {
+  const selected = storedPreference(selectedLutKey, "none");
+  const builtIn = document.createElement("optgroup");
+  builtIn.label = t.lutBuiltIn;
+  builtIn.append(...catalog.built_in.map((lut) => new Option(lut.name, lut.id)));
+  const groups: HTMLOptGroupElement[] = [builtIn];
+  if (catalog.imported.length) {
+    const imported = document.createElement("optgroup");
+    imported.label = t.lutExternal;
+    imported.append(...catalog.imported.map((lut) => new Option(`${lut.name} · ${lut.size}³`, lut.id)));
+    groups.push(imported);
+  }
+  lutSelection.replaceChildren(...groups);
+  lutSelection.value = [...lutSelection.options].some((option) => option.value === selected) ? selected : "none";
+}
+
+async function loadLutCatalog(): Promise<void> {
+  try { populateLutSelection(await invoke<LutCatalog>("get_lut_catalog")); }
+  catch { populateLutSelection({ built_in: builtInLuts, imported: [] }); }
+  await loadSelectedLutPayload();
+}
+
+function loadMonitoringColorSpace(): string {
+  try {
+    const stored = window.localStorage.getItem(monitoringColorSpaceKey);
+    return ["rec709", "display-p3", "srgb"].includes(stored ?? "") ? stored! : "rec709";
+  } catch { return "rec709"; }
+}
+
+function colorSpaceLabel(value: string): string {
+  if (value === "display-p3") return "Display P3";
+  if (value === "srgb") return "sRGB";
+  return "Rec.709";
+}
+
+function applyMonitoringColorSpace(value: string): void {
+  monitoringColorSpace.value = value;
+  document.querySelector<HTMLElement>(".monitor-status span:first-child")!.textContent = colorSpaceLabel(value);
+}
+
+let activeLutPayload: LutPayload | undefined;
+let processedPreview = document.querySelector<HTMLCanvasElement>("#processed-preview")!;
+let processedContext: CanvasRenderingContext2D | undefined;
+const sampleCanvas = document.createElement("canvas");
+const sampleContext = sampleCanvas.getContext("2d", { alpha: true })!;
+
+function syncMonitorProcessing(): void {
+  document.body.classList.toggle("monitor-processing", monitorLookEnabled.checked || document.body.classList.contains("tool-focus") || document.body.classList.contains("tool-zebra"));
+}
+
+async function loadSelectedLutPayload(): Promise<void> {
+  activeLutPayload = undefined;
+  if (!lutSelection.value.startsWith("imported:")) return;
+  try { activeLutPayload = await invoke<LutPayload>("get_lut_payload", { id: lutSelection.value }); }
+  catch (error) { lutStatus.textContent = `${t.lutImportFailed}: ${String(error)}`; lutStatus.dataset.state = "error"; }
+}
+
+function builtInLook(id: string, r: number, g: number, b: number): [number, number, number] {
+  if (id === "none") return [r, g, b];
+  const monochrome = id.startsWith("bw-");
+  const vivid = id.includes("vivid") || id.includes("hard") || id === "bleach-bypass";
+  const soft = id.includes("soft") || id.includes("pastel") || id === "archive-faded";
+  const warm = id.includes("warm") || id === "negative-tungsten" || id === "print-warm";
+  const cool = id.includes("cool") || id === "print-cool";
+  const contrast = vivid ? 1.22 : soft ? 0.84 : 1.05;
+  const saturation = monochrome ? 0 : id === "bleach-bypass" ? 0.48 : soft ? 0.82 : vivid ? 1.18 : 1.02;
+  const lift = soft || id === "archive-faded" ? 0.035 : 0;
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const grade = (value: number, gain: number) => Math.max(0, Math.min(1, ((luma + (value - luma) * saturation - 0.5) * contrast + 0.5 + lift) * gain));
+  let output: [number, number, number] = [grade(r, warm ? 1.055 : cool ? 0.955 : 1), grade(g, 1), grade(b, warm ? 0.925 : cool ? 1.06 : 1)];
+  if (id === "bw-orthochromatic") { const gray = Math.max(0, Math.min(1, r * 0.15 + g * 0.85)); output = [gray, gray, gray]; }
+  return output;
+}
+
+function applyMonitoringProfile(color: [number, number, number]): [number, number, number] {
+  const decodeSrgb = (value: number) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  const encodeSrgb = (value: number) => value <= 0.0031308 ? 12.92 * value : 1.055 * Math.max(0, value) ** (1 / 2.4) - 0.055;
+  if (monitoringColorSpace.value === "rec709") {
+    const encode709 = (value: number) => value < 0.018 ? 4.5 * value : 1.099 * Math.max(0, value) ** 0.45 - 0.099;
+    return color.map(value => Math.max(0, Math.min(1, encode709(decodeSrgb(value))))) as [number, number, number];
+  }
+  if (monitoringColorSpace.value === "display-p3") {
+    const [r, g, b] = color.map(decodeSrgb);
+    const p3 = [0.8226 * r + 0.1775 * g, 0.0332 * r + 0.9668 * g, 0.0171 * r + 0.0724 * g + 0.9105 * b];
+    return p3.map(value => Math.max(0, Math.min(1, encodeSrgb(value)))) as [number, number, number];
+  }
+  return color;
+}
+
+function sampleExternalLut(payload: LutPayload, r: number, g: number, b: number): [number, number, number] {
+  const n = payload.size;
+  const axis = (value: number, channel: number) => Math.max(0, Math.min(n - 1, ((value - payload.domain_min[channel]) / (payload.domain_max[channel] - payload.domain_min[channel])) * (n - 1)));
+  const x = axis(r, 0), y = axis(g, 1), z = axis(b, 2);
+  const x0 = Math.floor(x), y0 = Math.floor(y), z0 = Math.floor(z), x1 = Math.min(n - 1, x0 + 1), y1 = Math.min(n - 1, y0 + 1), z1 = Math.min(n - 1, z0 + 1);
+  const index = (ri: number, gi: number, bi: number) => ri * n * n + gi * n + bi;
+  const result: [number, number, number] = [0, 0, 0];
+  for (let ri = 0; ri < 2; ri++) for (let gi = 0; gi < 2; gi++) for (let bi = 0; bi < 2; bi++) {
+    const weight = (ri ? x - x0 : 1 - (x - x0)) * (gi ? y - y0 : 1 - (y - y0)) * (bi ? z - z0 : 1 - (z - z0));
+    const sample = payload.samples[index(ri ? x1 : x0, gi ? y1 : y0, bi ? z1 : z0)];
+    for (let channel = 0; channel < 3; channel++) result[channel] += sample[channel] * weight;
+  }
+  return result.map(value => Math.max(0, Math.min(1, value))) as [number, number, number];
+}
+
+function decodePreviewRgb(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const source = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) source[index] = binary.charCodeAt(index);
+  return source;
+}
+
+function compileMonitorShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
+  const shader = gl.createShader(type);
+  if (!shader) throw new Error("unable to allocate monitor shader");
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const message = gl.getShaderInfoLog(shader) ?? "monitor shader compilation failed";
+    gl.deleteShader(shader);
+    throw new Error(message);
+  }
+  return shader;
+}
+
+function monitorLutTexture(id: string, payload?: LutPayload): { size: number; data: Uint8Array; domainMin: number[]; domainMax: number[]; key: string } {
+  const imported = id.startsWith("imported:") && payload;
+  const size = imported ? payload.size : id === "none" ? 2 : 33;
+  const data = new Uint8Array(size * size * size * 4);
+  const scale = Math.max(1, size - 1);
+  for (let blue = 0; blue < size; blue++) for (let green = 0; green < size; green++) for (let red = 0; red < size; red++) {
+    const input: [number, number, number] = [red / scale, green / scale, blue / scale];
+    const sourceIndex = red * size * size + green * size + blue;
+    const color = imported ? payload.samples[sourceIndex] : builtInLook(id, ...input);
+    const output = ((blue * size + green) * size + red) * 4;
+    data[output] = Math.round(Math.max(0, Math.min(1, color[0])) * 255);
+    data[output + 1] = Math.round(Math.max(0, Math.min(1, color[1])) * 255);
+    data[output + 2] = Math.round(Math.max(0, Math.min(1, color[2])) * 255);
+    data[output + 3] = 255;
+  }
+  return {
+    size,
+    data,
+    domainMin: imported ? [...payload.domain_min] : [0, 0, 0],
+    domainMax: imported ? [...payload.domain_max] : [1, 1, 1],
+    key: imported ? `${id}:${payload.size}:${payload.samples.length}` : id,
+  };
+}
+
+class GpuMonitorRenderer {
+  private readonly gl: WebGL2RenderingContext;
+  private readonly program: WebGLProgram;
+  private readonly sourceTexture: WebGLTexture;
+  private readonly lutTexture: WebGLTexture;
+  private readonly uniforms: Record<string, WebGLUniformLocation>;
+  private sourceWidth = 0;
+  private sourceHeight = 0;
+  private lutKey = "";
+
+  constructor(private readonly canvas: HTMLCanvasElement) {
+    const gl = canvas.getContext("webgl2", {
+      alpha: true,
+      antialias: false,
+      depth: false,
+      stencil: false,
+      premultipliedAlpha: false,
+      preserveDrawingBuffer: false,
+      powerPreference: "high-performance",
+    });
+    if (!gl) throw new Error("WebGL2 is unavailable");
+    this.gl = gl;
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    const vertex = compileMonitorShader(gl, gl.VERTEX_SHADER, `#version 300 es
+      in vec2 a_position;
+      in vec2 a_texCoord;
+      uniform vec2 u_texScale;
+      uniform vec2 u_texOffset;
+      out vec2 v_texCoord;
+      void main() {
+        gl_Position = vec4(a_position, 0.0, 1.0);
+        v_texCoord = u_texOffset + a_texCoord * u_texScale;
+      }
+    `);
+    const fragment = compileMonitorShader(gl, gl.FRAGMENT_SHADER, `#version 300 es
+      precision highp float;
+      precision highp sampler3D;
+      uniform sampler2D u_source;
+      uniform sampler3D u_lut;
+      uniform vec3 u_domainMin;
+      uniform vec3 u_domainMax;
+      uniform vec3 u_peakingColor;
+      uniform vec2 u_texel;
+      uniform int u_applyLook;
+      uniform int u_focus;
+      uniform int u_zebra;
+      uniform int u_colorSpace;
+      in vec2 v_texCoord;
+      out vec4 outColor;
+
+      float decodeSrgb(float value) {
+        return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4);
+      }
+      float encodeSrgb(float value) {
+        value = max(0.0, value);
+        return value <= 0.0031308 ? 12.92 * value : 1.055 * pow(value, 1.0 / 2.4) - 0.055;
+      }
+      float encode709(float value) {
+        value = max(0.0, value);
+        return value < 0.018 ? 4.5 * value : 1.099 * pow(value, 0.45) - 0.099;
+      }
+      vec3 monitoringProfile(vec3 color) {
+        if (u_colorSpace == 2) return color;
+        vec3 linear = vec3(decodeSrgb(color.r), decodeSrgb(color.g), decodeSrgb(color.b));
+        if (u_colorSpace == 0) {
+          return clamp(vec3(encode709(linear.r), encode709(linear.g), encode709(linear.b)), 0.0, 1.0);
+        }
+        vec3 p3 = vec3(
+          0.8226 * linear.r + 0.1775 * linear.g,
+          0.0332 * linear.r + 0.9668 * linear.g,
+          0.0171 * linear.r + 0.0724 * linear.g + 0.9105 * linear.b
+        );
+        return clamp(vec3(encodeSrgb(p3.r), encodeSrgb(p3.g), encodeSrgb(p3.b)), 0.0, 1.0);
+      }
+      float luma255(vec2 coordinate) {
+        return dot(texture(u_source, coordinate).rgb, vec3(54.0, 183.0, 19.0));
+      }
+      void main() {
+        vec3 original = texture(u_source, v_texCoord).rgb;
+        vec3 color = original;
+        float alpha = 0.0;
+        if (u_applyLook == 1) {
+          vec3 span = max(u_domainMax - u_domainMin, vec3(0.000001));
+          color = texture(u_lut, clamp((original - u_domainMin) / span, 0.0, 1.0)).rgb;
+          color = monitoringProfile(color);
+          alpha = 1.0;
+        }
+        if (u_zebra == 1 && dot(original, vec3(0.2126, 0.7152, 0.0722)) >= 0.9216) {
+          float stripe = mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 12.0) < 6.0 ? 1.0 : 0.047;
+          color = vec3(stripe);
+          alpha = 0.745;
+        }
+        if (u_focus == 1) {
+          float tl = luma255(v_texCoord + u_texel * vec2(-1.0, -1.0));
+          float tc = luma255(v_texCoord + u_texel * vec2( 0.0, -1.0));
+          float tr = luma255(v_texCoord + u_texel * vec2( 1.0, -1.0));
+          float ml = luma255(v_texCoord + u_texel * vec2(-1.0,  0.0));
+          float mr = luma255(v_texCoord + u_texel * vec2( 1.0,  0.0));
+          float bl = luma255(v_texCoord + u_texel * vec2(-1.0,  1.0));
+          float bc = luma255(v_texCoord + u_texel * vec2( 0.0,  1.0));
+          float br = luma255(v_texCoord + u_texel * vec2( 1.0,  1.0));
+          float gx = -tl + tr - 2.0 * ml + 2.0 * mr - bl + br;
+          float gy = -tl - 2.0 * tc - tr + bl + 2.0 * bc + br;
+          if (length(vec2(gx, gy)) > 180.0) {
+            color = u_peakingColor;
+            alpha = 1.0;
+          }
+        }
+        outColor = vec4(color, alpha);
+      }
+    `);
+    const program = gl.createProgram();
+    if (!program) throw new Error("unable to allocate monitor shader program");
+    gl.attachShader(program, vertex);
+    gl.attachShader(program, fragment);
+    gl.linkProgram(program);
+    gl.deleteShader(vertex);
+    gl.deleteShader(fragment);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      const message = gl.getProgramInfoLog(program) ?? "monitor shader link failed";
+      gl.deleteProgram(program);
+      throw new Error(message);
+    }
+    this.program = program;
+    gl.useProgram(program);
+    const buffer = gl.createBuffer();
+    if (!buffer) throw new Error("unable to allocate monitor vertex buffer");
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1, 0, 1,  1, -1, 1, 1,  -1, 1, 0, 0,
+      -1, 1, 0, 0,   1, -1, 1, 1,   1, 1, 1, 0,
+    ]), gl.STATIC_DRAW);
+    const position = gl.getAttribLocation(program, "a_position");
+    const texCoord = gl.getAttribLocation(program, "a_texCoord");
+    gl.enableVertexAttribArray(position);
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(texCoord);
+    gl.vertexAttribPointer(texCoord, 2, gl.FLOAT, false, 16, 8);
+    const uniform = (name: string) => {
+      const location = gl.getUniformLocation(program, name);
+      if (!location) throw new Error(`missing monitor shader uniform ${name}`);
+      return location;
+    };
+    this.uniforms = Object.fromEntries([
+      "u_texScale", "u_texOffset", "u_domainMin", "u_domainMax", "u_peakingColor", "u_texel",
+      "u_applyLook", "u_focus", "u_zebra", "u_colorSpace",
+    ].map((name) => [name, uniform(name)]));
+    const sourceTexture = gl.createTexture();
+    const lutTexture = gl.createTexture();
+    if (!sourceTexture || !lutTexture) throw new Error("unable to allocate monitor textures");
+    this.sourceTexture = sourceTexture;
+    this.lutTexture = lutTexture;
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.uniform1i(gl.getUniformLocation(program, "u_source"), 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_3D, lutTexture);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+    gl.uniform1i(gl.getUniformLocation(program, "u_lut"), 1);
+    this.updateLut("none", undefined);
+  }
+
+  private updateLut(id: string, payload?: LutPayload): void {
+    const compiled = monitorLutTexture(id, payload);
+    if (compiled.key === this.lutKey) return;
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_3D, this.lutTexture);
+    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, compiled.size, compiled.size, compiled.size, 0, gl.RGBA, gl.UNSIGNED_BYTE, compiled.data);
+    gl.uniform3fv(this.uniforms.u_domainMin, compiled.domainMin);
+    gl.uniform3fv(this.uniforms.u_domainMax, compiled.domainMax);
+    this.lutKey = compiled.key;
+  }
+
+  render(snapshot: CameraMonitorSnapshot, source: Uint8Array): void {
+    const gl = this.gl;
+    const bounds = this.canvas.getBoundingClientRect();
+    const width = Math.max(1, Math.round(bounds.width));
+    const height = Math.max(1, Math.round(bounds.height));
+    if (this.canvas.width !== width || this.canvas.height !== height) {
+      this.canvas.width = width;
+      this.canvas.height = height;
+    }
+    gl.viewport(0, 0, width, height);
+    gl.useProgram(this.program);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.sourceTexture);
+    if (snapshot.preview_width !== this.sourceWidth || snapshot.preview_height !== this.sourceHeight) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, snapshot.preview_width, snapshot.preview_height, 0, gl.RGB, gl.UNSIGNED_BYTE, source);
+      this.sourceWidth = snapshot.preview_width;
+      this.sourceHeight = snapshot.preview_height;
+    } else {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, snapshot.preview_width, snapshot.preview_height, gl.RGB, gl.UNSIGNED_BYTE, source);
+    }
+    const applyLook = monitorLookEnabled.checked;
+    if (applyLook) this.updateLut(lutSelection.value, activeLutPayload);
+    const sourceAspect = snapshot.preview_width / snapshot.preview_height;
+    const destinationAspect = width / height;
+    const scale = sourceAspect > destinationAspect
+      ? [destinationAspect / sourceAspect, 1]
+      : [1, sourceAspect / destinationAspect];
+    gl.uniform2f(this.uniforms.u_texScale, scale[0], scale[1]);
+    gl.uniform2f(this.uniforms.u_texOffset, (1 - scale[0]) / 2, (1 - scale[1]) / 2);
+    gl.uniform2f(this.uniforms.u_texel, 1 / snapshot.preview_width, 1 / snapshot.preview_height);
+    gl.uniform1i(this.uniforms.u_applyLook, applyLook ? 1 : 0);
+    gl.uniform1i(this.uniforms.u_focus, document.body.classList.contains("tool-focus") ? 1 : 0);
+    gl.uniform1i(this.uniforms.u_zebra, document.body.classList.contains("tool-zebra") ? 1 : 0);
+    gl.uniform1i(this.uniforms.u_colorSpace, monitoringColorSpace.value === "rec709" ? 0 : monitoringColorSpace.value === "display-p3" ? 1 : 2);
+    const [red, green, blue] = peakingColors[peakingColor.value] ?? peakingColors.cyan;
+    gl.uniform3f(this.uniforms.u_peakingColor, red / 255, green / 255, blue / 255);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+}
+
+let gpuMonitorRenderer: GpuMonitorRenderer | undefined;
+let monitorFramesRendered = 0;
+let monitorStatsStartedAt = performance.now();
+function recordMonitorFrame(): void {
+  monitorFramesRendered += 1;
+  const now = performance.now();
+  const elapsed = now - monitorStatsStartedAt;
+  if (elapsed < 1000) return;
+  processedPreview.dataset.observedFps = ((monitorFramesRendered * 1000) / elapsed).toFixed(1);
+  monitorFramesRendered = 0;
+  monitorStatsStartedAt = now;
+}
+
+function activateCanvas2dMonitorRenderer(replaceCanvas = false): CanvasRenderingContext2D {
+  if (replaceCanvas) {
+    const replacement = processedPreview.cloneNode(false) as HTMLCanvasElement;
+    processedPreview.replaceWith(replacement);
+    processedPreview = replacement;
+  }
+  const context = processedPreview.getContext("2d", { alpha: true });
+  if (!context) throw new Error("Canvas 2D monitor renderer is unavailable");
+  processedContext = context;
+  processedPreview.dataset.renderer = "canvas2d";
+  processedPreview.dataset.targetFps = "10";
+  return context;
+}
+
+try {
+  gpuMonitorRenderer = new GpuMonitorRenderer(processedPreview);
+  processedPreview.dataset.renderer = "webgl2";
+  processedPreview.dataset.targetFps = "30";
+} catch {
+  activateCanvas2dMonitorRenderer();
+}
+
+function renderProcessedPreviewCpu(snapshot: CameraMonitorSnapshot, source: Uint8Array): void {
+  const pixels = new Uint8ClampedArray(snapshot.preview_width * snapshot.preview_height * 4);
+  const luma = new Float32Array(snapshot.preview_width * snapshot.preview_height);
+  const applyLook = monitorLookEnabled.checked;
+  for (let index = 0, output = 0; index < source.length; index += 3, output += 4) {
+    const original: [number, number, number] = [source[index] / 255, source[index + 1] / 255, source[index + 2] / 255];
+    const looked = applyLook ? (activeLutPayload ? sampleExternalLut(activeLutPayload, ...original) : builtInLook(lutSelection.value, ...original)) : original;
+    const color = applyLook ? applyMonitoringProfile(looked) : looked;
+    pixels[output] = color[0] * 255; pixels[output + 1] = color[1] * 255; pixels[output + 2] = color[2] * 255; pixels[output + 3] = applyLook ? 255 : 0;
+    luma[output / 4] = original[0] * 54 + original[1] * 183 + original[2] * 19;
+  }
+  const focusActive = document.body.classList.contains("tool-focus");
+  const zebraActive = document.body.classList.contains("tool-zebra");
+  if (focusActive || zebraActive) {
+    const width = snapshot.preview_width, height = snapshot.preview_height;
+    if (zebraActive) {
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        const p = y * width + x;
+        if (luma[p] < 235) continue;
+        const o = p * 4;
+        const brightStripe = ((x + y) % 12) < 6;
+        pixels[o] = brightStripe ? 255 : 12;
+        pixels[o + 1] = brightStripe ? 255 : 12;
+        pixels[o + 2] = brightStripe ? 255 : 12;
+        pixels[o + 3] = 190;
+      }
+    }
+    if (focusActive) {
+    for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
+      const p = y * width + x;
+      const gx = -luma[p - width - 1] + luma[p - width + 1] - 2 * luma[p - 1] + 2 * luma[p + 1] - luma[p + width - 1] + luma[p + width + 1];
+      const gy = -luma[p - width - 1] - 2 * luma[p - width] - luma[p - width + 1] + luma[p + width - 1] + 2 * luma[p + width] + luma[p + width + 1];
+      if (Math.hypot(gx, gy) > 180) {
+        const o = p * 4;
+        const [red, green, blue] = peakingColors[peakingColor.value] ?? peakingColors.cyan;
+        pixels[o] = red; pixels[o + 1] = green; pixels[o + 2] = blue; pixels[o + 3] = 255;
+      }
+    }
+    }
+  }
+  sampleCanvas.width = snapshot.preview_width; sampleCanvas.height = snapshot.preview_height;
+  sampleContext.putImageData(new ImageData(pixels, snapshot.preview_width, snapshot.preview_height), 0, 0);
+  const bounds = processedPreview.getBoundingClientRect();
+  const width = Math.max(1, Math.round(bounds.width)), height = Math.max(1, Math.round(bounds.height));
+  if (processedPreview.width !== width || processedPreview.height !== height) { processedPreview.width = width; processedPreview.height = height; }
+  const scale = Math.max(width / sampleCanvas.width, height / sampleCanvas.height);
+  const drawWidth = sampleCanvas.width * scale, drawHeight = sampleCanvas.height * scale;
+  const context = processedContext ?? activateCanvas2dMonitorRenderer();
+  context.clearRect(0, 0, width, height);
+  context.drawImage(sampleCanvas, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+}
+
+function renderProcessedPreview(snapshot: CameraMonitorSnapshot): void {
+  if (!snapshot.preview_rgb_base64 || !snapshot.preview_width || !snapshot.preview_height) return;
+  const source = decodePreviewRgb(snapshot.preview_rgb_base64);
+  if (gpuMonitorRenderer) {
+    try {
+      gpuMonitorRenderer.render(snapshot, source);
+      recordMonitorFrame();
+      return;
+    } catch {
+      gpuMonitorRenderer = undefined;
+      activateCanvas2dMonitorRenderer(true);
+    }
+  }
+  renderProcessedPreviewCpu(snapshot, source);
+  recordMonitorFrame();
+}
 
 function setNativePreviewCompositing(active: boolean): void {
   document.documentElement.classList.toggle("has-native-preview", active);
@@ -791,15 +1692,24 @@ function audioLevelPercent(db: number | undefined): string {
   return `${Math.max(0, Math.min(100, ((db + 60) / 60) * 100)).toFixed(1)}%`;
 }
 
+let lastMonitorTelemetryAt = 0;
 async function updateMonitorTelemetry(): Promise<void> {
-  if (!nativePreviewRunning || monitorTelemetryPending || document.hidden) return;
+  if ((!nativePreviewRunning && !controlFixtureEnabled) || monitorTelemetryPending || document.hidden) return;
+  const processing = monitorLookEnabled.checked || document.body.classList.contains("tool-focus") || document.body.classList.contains("tool-zebra");
+  const interval = processing && gpuMonitorRenderer ? 32 : 100;
+  const now = performance.now();
+  if (now - lastMonitorTelemetryAt < interval) return;
+  lastMonitorTelemetryAt = now;
   monitorTelemetryPending = true;
   try {
-    const snapshot = await invoke<CameraMonitorSnapshot>("get_camera_monitor_snapshot");
+    const snapshot = controlFixtureEnabled
+      ? controlMonitorFixture
+      : await invoke<CameraMonitorSnapshot>("get_camera_monitor_snapshot", { includePreview: processing });
     if (snapshot.frame_received) {
       document.querySelector<SVGPathElement>("#hist-red")!.setAttribute("d", histogramPath(snapshot.red));
       document.querySelector<SVGPathElement>("#hist-green")!.setAttribute("d", histogramPath(snapshot.green));
       document.querySelector<SVGPathElement>("#hist-blue")!.setAttribute("d", histogramPath(snapshot.blue));
+      if (processing) renderProcessedPreview(snapshot);
     }
     const channels = snapshot.audio_db.length === 1
       ? [snapshot.audio_db[0], snapshot.audio_db[0]]
@@ -813,7 +1723,7 @@ async function updateMonitorTelemetry(): Promise<void> {
   }
 }
 
-window.setInterval(() => void updateMonitorTelemetry(), 150);
+window.setInterval(() => void updateMonitorTelemetry(), 16);
 const devQuery = new URLSearchParams(window.location.search);
 const recoveryFixtureEnabled = import.meta.env.DEV && devQuery.get("recovery-fixture") === "1";
 const controlFixtureEnabled = import.meta.env.DEV && devQuery.get("control-fixture") === "1";
@@ -826,8 +1736,43 @@ const nearbyFailureFixtureKind = nearbyFixtureEnabled && ["disconnected", "timeo
   : nearbyRetryFixtureEnabled ? "disconnected" : undefined;
 const nearbyIncomingFixtureEnabled = nearbyFixtureEnabled && devQuery.get("nearby-incoming") === "1";
 
+const controlMonitorFixture: CameraMonitorSnapshot = (() => {
+  const width = 64;
+  const height = 36;
+  const rgb = new Uint8Array(width * height * 3);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const offset = (y * width + x) * 3;
+    rgb[offset] = Math.round((x / (width - 1)) * 255);
+    rgb[offset + 1] = Math.round((y / (height - 1)) * 255);
+    rgb[offset + 2] = Math.round(((x + y) / (width + height - 2)) * 255);
+  }
+  let binary = "";
+  for (const value of rgb) binary += String.fromCharCode(value);
+  const histogram = Array.from({ length: 32 }, (_, index) => Math.round(Math.sin((index / 31) * Math.PI) * 100));
+  return {
+    red: histogram,
+    green: [...histogram].reverse(),
+    blue: histogram.map((value, index) => Math.round(value * (0.55 + index / 64))),
+    audio_db: [-24, -18],
+    frame_received: true,
+    preview_width: width,
+    preview_height: height,
+    preview_rgb_base64: btoa(binary),
+  };
+})();
+
 function recoveryFixtureEntries(): MediaIndexEntry[] {
-  return [{
+  const photoFixtures: MediaIndexEntry[] = Array.from({ length: 12 }, (_, index) => ({
+    schema_version: 1,
+    id: `UFC-photo-fixture-${index + 1}`,
+    state: "finalized",
+    media_type: "photo",
+    resource_path: `/captures/UFC-photo-fixture-${index + 1}.jpg`,
+    asset: null,
+    error: null,
+    updated_at_utc: new Date(Date.UTC(2026, 7, 31, 0, index)).toISOString()
+  }));
+  return [...photoFixtures, {
     schema_version: 1,
     id: "UFC-recovery-fixture",
     state: "failed",
@@ -947,14 +1892,86 @@ function appendMediaText(parent: HTMLElement, className: string, value: string):
   return element;
 }
 
+async function loadMediaPhotoPreview(entry: MediaIndexEntry, visual: HTMLElement): Promise<void> {
+  try {
+    const preview = await invoke<PhotoPreviewPayload>("get_media_photo_preview", { id: entry.id });
+    if (!visual.isConnected || preview.id !== entry.id) return;
+    const image = document.createElement("img");
+    image.className = "media-card-thumbnail";
+    image.alt = mediaFileName(entry.resource_path);
+    image.decoding = "async";
+    image.addEventListener("load", () => visual.classList.add("has-thumbnail"), { once: true });
+    image.addEventListener("error", () => image.remove(), { once: true });
+    image.src = `data:${preview.mime_type};base64,${preview.data_base64}`;
+    visual.prepend(image);
+  } catch {
+    // Keep the explicit photo/state placeholder when preview decoding fails.
+  }
+}
+
+function closeMediaContextMenu(): void {
+  mediaContextMenu.hidden = true;
+  contextMediaEntry = undefined;
+}
+
+function openMediaContextMenu(entry: MediaIndexEntry, x: number, y: number): void {
+  contextMediaEntry = entry;
+  const canSave = entry.state === "finalized" && entry.media_type === "photo";
+  mediaContextSave.hidden = !canSave;
+  mediaContextMenu.hidden = false;
+  mediaContextMenu.style.left = "16px";
+  mediaContextMenu.style.top = "16px";
+  const bounds = mediaContextMenu.getBoundingClientRect();
+  const left = Math.max(16, Math.min(x, window.innerWidth - bounds.width - 16));
+  const top = Math.max(16, Math.min(y, window.innerHeight - bounds.height - 16));
+  mediaContextMenu.style.left = `${left}px`;
+  mediaContextMenu.style.top = `${top}px`;
+  (canSave ? mediaContextSave : mediaContextDelete).focus();
+}
+
+function attachMediaContextMenu(card: HTMLElement, entry: MediaIndexEntry): void {
+  card.tabIndex = 0;
+  card.setAttribute("aria-haspopup", "menu");
+  card.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    openMediaContextMenu(entry, event.clientX, event.clientY);
+  });
+  let originX = 0;
+  let originY = 0;
+  card.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse") return;
+    originX = event.clientX;
+    originY = event.clientY;
+    window.clearTimeout(mediaLongPressTimer);
+    mediaLongPressTimer = window.setTimeout(() => openMediaContextMenu(entry, originX, originY), 550);
+  });
+  card.addEventListener("pointermove", (event) => {
+    if (Math.hypot(event.clientX - originX, event.clientY - originY) > 10) window.clearTimeout(mediaLongPressTimer);
+  });
+  for (const eventName of ["pointerup", "pointercancel", "pointerleave"] as const) {
+    card.addEventListener(eventName, () => window.clearTimeout(mediaLongPressTimer));
+  }
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      event.preventDefault();
+      const bounds = card.getBoundingClientRect();
+      openMediaContextMenu(entry, bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+    }
+  });
+}
+
 function renderMediaCard(entry: MediaIndexEntry): HTMLElement {
   const card = document.createElement("article");
   card.className = `media-card is-${entry.state}`;
   card.dataset.mediaId = entry.id;
+  attachMediaContextMenu(card, entry);
 
   const visual = document.createElement("div");
   visual.className = "media-card-visual";
   visual.innerHTML = icon(entry.media_type === "photo" ? "photo" : "video");
+  if (entry.media_type === "photo" && entry.state === "finalized" && "__TAURI_INTERNALS__" in window) {
+    void loadMediaPhotoPreview(entry, visual);
+  }
   appendMediaText(visual, "media-kind", entry.media_type === "photo" ? t.mediaPhoto : t.mediaVideo);
   appendMediaText(visual, "media-state", mediaStateLabel(entry.state));
 
@@ -1038,12 +2055,21 @@ function openMediaDetail(entry: MediaIndexEntry): void {
 
 function renderMediaIndex(): void {
   const filtered = mediaEntries.filter((entry) => mediaFilter === "all" || entry.state === mediaFilter);
+  mediaGrid.dataset.view = mediaView;
   mediaGrid.replaceChildren(...filtered.map(renderMediaCard));
   mediaEmpty.hidden = filtered.length !== 0;
   document.querySelectorAll<HTMLElement>("[data-media-count]").forEach((count) => {
     const state = count.dataset.mediaCount as MediaFilter;
     count.textContent = String(state === "all" ? mediaEntries.length : mediaEntries.filter((entry) => entry.state === state).length);
   });
+}
+
+function closeDestinationMenu(): void {
+  const toggle = document.querySelector<HTMLButtonElement>("#destination-tools-toggle")!;
+  const destinations = document.querySelector<HTMLElement>(".destination-tools")!;
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.classList.remove("is-active");
+  destinations.classList.remove("is-open");
 }
 
 async function refreshCleanupCandidateCount(): Promise<void> {
@@ -1089,6 +2115,8 @@ async function loadMediaIndex(): Promise<void> {
 
 async function openMediaLibrary(): Promise<void> {
   if (recording || !mediaLibrary.hidden) return;
+  if (!settingsPage.hidden) await closeSettingsPage();
+  if (!nearbyLibrary.hidden) await closeNearbyLibrary();
   mediaButton.disabled = true;
   mediaButton.dataset.state = "loading";
   if (nativePreviewRunning) {
@@ -1112,6 +2140,7 @@ async function openMediaLibrary(): Promise<void> {
   mediaButton.setAttribute("aria-pressed", "true");
   mediaButton.dataset.state = "default";
   mediaButton.disabled = false;
+  closeDestinationMenu();
   await loadMediaIndex();
 }
 
@@ -1124,6 +2153,58 @@ async function closeMediaLibrary(): Promise<void> {
   document.querySelector<HTMLButtonElement>(".destination-tools button:first-child")?.classList.add("is-active");
   mediaButton.setAttribute("aria-pressed", "false");
   mediaStatus.removeAttribute("data-state");
+  await refreshCameraDiscovery();
+  window.requestAnimationFrame(syncNativePreviewFrame);
+}
+
+function selectSettingsTab(name: string): void {
+  document.querySelectorAll<HTMLButtonElement>("[data-settings-tab]").forEach((button) => {
+    const active = button.dataset.settingsTab === name;
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll<HTMLElement>(".settings-panel").forEach((panel) => {
+    panel.hidden = panel.id !== `settings-panel-${name}`;
+  });
+}
+
+async function openSettingsPage(): Promise<void> {
+  if (recording || !settingsPage.hidden) return;
+  if (!mediaLibrary.hidden) await closeMediaLibrary();
+  if (!nearbyLibrary.hidden) await closeNearbyLibrary();
+  settingsButton.disabled = true;
+  if (nativePreviewRunning) {
+    try {
+      await invoke("stop_camera_preview");
+      nativePreviewRunning = false;
+      setNativePreviewCompositing(false);
+    } catch (error) {
+      feedback.textContent = String(error);
+      feedback.classList.add("is-visible");
+      settingsButton.disabled = false;
+      return;
+    }
+  }
+  monitor.hidden = true;
+  settingsPage.hidden = false;
+  document.body.classList.add("section-settings");
+  document.querySelectorAll<HTMLButtonElement>(".destination-tools button").forEach((button) => button.classList.remove("is-active"));
+  settingsButton.classList.add("is-active");
+  settingsButton.setAttribute("aria-pressed", "true");
+  settingsButton.disabled = false;
+  closeDestinationMenu();
+  selectSettingsTab("color");
+  await Promise.all([loadLutCatalog(), refreshBulkPhotoCount()]);
+}
+
+async function closeSettingsPage(): Promise<void> {
+  if (settingsPage.hidden) return;
+  settingsPage.hidden = true;
+  monitor.hidden = false;
+  document.body.classList.remove("section-settings");
+  settingsButton.classList.remove("is-active");
+  settingsButton.setAttribute("aria-pressed", "false");
+  document.querySelector<HTMLButtonElement>(".destination-tools button:first-child")?.classList.add("is-active");
   await refreshCameraDiscovery();
   window.requestAnimationFrame(syncNativePreviewFrame);
 }
@@ -1353,6 +2434,7 @@ async function setNearbyDiscovery(active: boolean): Promise<void> {
 async function openNearbyLibrary(): Promise<void> {
   if (recording || !nearbyLibrary.hidden) return;
   if (!mediaLibrary.hidden) await closeMediaLibrary();
+  if (!settingsPage.hidden) await closeSettingsPage();
   nearbyButton.disabled = true;
   if (nativePreviewRunning) {
     try {
@@ -1373,6 +2455,7 @@ async function openNearbyLibrary(): Promise<void> {
   nearbyButton.classList.add("is-active");
   nearbyButton.setAttribute("aria-pressed", "true");
   nearbyButton.disabled = false;
+  closeDestinationMenu();
   await setNearbyDiscovery(true);
   await loadNearbyAssets();
   nearbyPollId = window.setInterval(() => void loadNearbyDiscovery(), 1500);
@@ -1399,8 +2482,17 @@ function previewViewport(): PreviewViewport {
 }
 
 function captureOrientation(position = activeDevicePosition): CaptureOrientation {
-  const angle = screen.orientation?.angle ?? 0;
-  const normalized = ((Math.round(angle / 90) * 90) % 360 + 360) % 360 as 0 | 90 | 180 | 270;
+  const legacyAngle = (window as Window & { orientation?: number }).orientation;
+  const angle = Number.isFinite(screen.orientation?.angle)
+    ? screen.orientation.angle
+    : Number.isFinite(legacyAngle)
+      ? legacyAngle!
+      : 0;
+  const screenAngle = ((Math.round(angle / 90) * 90) % 360 + 360) % 360;
+  // CSS/Screen Orientation uses portrait-up as 0°, while the iPhone camera
+  // sensor's native landscape orientation needs a 90° clockwise connection
+  // rotation for portrait-up output.
+  const normalized = ((90 - screenAngle + 360) % 360) as 0 | 90 | 180 | 270;
   return {
     rotation_degrees: normalized,
     preview_mirrored: position === "front",
@@ -1429,11 +2521,6 @@ async function syncNativeOrientation(): Promise<void> {
 }
 
 function resolutionLabel(width: number, height: number): string {
-  if (width === 3840 && height === 2160) return "UHD";
-  if (width === 4096 && height === 2160) return "DCI 4K";
-  if (height === 2160) return "4K";
-  if (height === 1080) return "1080p";
-  if (height === 720) return "720p";
   return `${width}×${height}`;
 }
 
@@ -1463,7 +2550,7 @@ function populateFormatPanel(capabilities: CameraCapabilities): void {
   formatResolution.replaceChildren(...formats.map((format) => {
     const option = document.createElement("option");
     option.value = `${format.width}x${format.height}`;
-    option.textContent = `${format.width} × ${format.height} · ${resolutionLabel(format.width, format.height)}`;
+    option.textContent = resolutionLabel(format.width, format.height);
     return option;
   }));
   populateFrameRates();
@@ -1604,6 +2691,7 @@ async function refreshCameraDiscovery(): Promise<void> {
       manual_white_balance: true, current_white_balance_kelvin: 5600,
       raw_photo: false, log_video: false, hdr_video: false
     });
+    applyActiveFormat({ width: 1920, height: 1080, fps: 30, settings_persisted: true, settings_warning: null });
     return;
   }
   try {
@@ -1650,8 +2738,21 @@ function syncNativePreviewFrame(): void {
 
 new ResizeObserver(syncNativePreviewFrame).observe(previewSurface);
 window.addEventListener("resize", syncNativePreviewFrame);
-screen.orientation?.addEventListener("change", () => void syncNativeOrientation());
-window.addEventListener("orientationchange", () => void syncNativeOrientation());
+let orientationSettleTimer: number | undefined;
+function scheduleOrientationSync(): void {
+  if (orientationSettleTimer !== undefined) window.clearTimeout(orientationSettleTimer);
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+    void syncNativeOrientation();
+    syncNativePreviewFrame();
+  }));
+  orientationSettleTimer = window.setTimeout(() => {
+    orientationSettleTimer = undefined;
+    void syncNativeOrientation();
+    syncNativePreviewFrame();
+  }, 180);
+}
+screen.orientation?.addEventListener("change", scheduleOrientationSync);
+window.addEventListener("orientationchange", scheduleOrientationSync);
 
 window.addEventListener("beforeunload", () => {
   if (nearbySnapshot.active) void invoke("stop_nearby_discovery");
@@ -1846,6 +2947,128 @@ nearbyButton.addEventListener("click", () => void openNearbyLibrary());
 nearbyToggle.addEventListener("click", () => void setNearbyDiscovery(!nearbySnapshot.active));
 nearbyRefresh.addEventListener("click", () => void loadNearbyDiscovery());
 document.querySelector<HTMLButtonElement>("#nearby-back")!.addEventListener("click", () => void closeNearbyLibrary());
+settingsButton.addEventListener("click", () => void openSettingsPage());
+document.querySelector<HTMLButtonElement>("#settings-back")!.addEventListener("click", () => void closeSettingsPage());
+document.querySelectorAll<HTMLButtonElement>("[data-settings-tab]").forEach((button) => {
+  button.addEventListener("click", () => {
+    selectSettingsTab(button.dataset.settingsTab!);
+    if (button.dataset.settingsTab === "media") void refreshBulkPhotoCount();
+  });
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-settings-tab]")];
+    const index = tabs.indexOf(button);
+    const next = tabs[(index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+    selectSettingsTab(next.dataset.settingsTab!);
+    next.focus();
+  });
+});
+monitoringColorSpace.addEventListener("change", () => {
+  try { window.localStorage.setItem(monitoringColorSpaceKey, monitoringColorSpace.value); } catch { /* keep session preference */ }
+  applyMonitoringColorSpace(monitoringColorSpace.value);
+  settingsStatus.textContent = t.colorSpaceSaved;
+});
+monitorLookEnabled.addEventListener("change", () => {
+  try { window.localStorage.setItem(monitorLookEnabledKey, String(monitorLookEnabled.checked)); } catch { /* keep session preference */ }
+  syncMonitorProcessing();
+});
+guideStyle.addEventListener("change", () => {
+  try { window.localStorage.setItem(guideStyleKey, guideStyle.value); } catch { /* keep session preference */ }
+  applyGuideStyle(guideStyle.value);
+});
+peakingColor.addEventListener("change", () => {
+  try { window.localStorage.setItem(peakingColorKey, peakingColor.value); } catch { /* keep session preference */ }
+  applyPeakingColor(peakingColor.value);
+  displaySettingsStatus.textContent = t.peakingColorSaved;
+});
+shutterSound.addEventListener("change", () => {
+  try { window.localStorage.setItem(shutterSoundKey, shutterSound.value); } catch { /* keep session preference */ }
+  applyShutterSound(shutterSound.value);
+  playShutterSound();
+});
+shutterSoundFile.addEventListener("change", async () => {
+  const file = shutterSoundFile.files?.[0];
+  if (!file) return;
+  shutterSoundStatus.dataset.state = "";
+  try {
+    if (file.size === 0 || file.size > 5 * 1024 * 1024) throw new Error(t.shutterSoundImportHint);
+    await storeCustomShutterSound(file);
+    await loadCustomShutterSound();
+    applyShutterSound("custom");
+    window.localStorage.setItem(shutterSoundKey, "custom");
+    shutterSoundStatus.textContent = `${t.shutterSoundImported} · ${customShutterSoundName}`;
+    playShutterSound("custom");
+  } catch (error) {
+    shutterSoundStatus.textContent = `${t.shutterSoundImportFailed}: ${String(error)}`;
+    shutterSoundStatus.dataset.state = "error";
+  } finally { shutterSoundFile.value = ""; }
+});
+lutSelection.addEventListener("change", async () => {
+  try { window.localStorage.setItem(selectedLutKey, lutSelection.value); } catch { /* keep session preference */ }
+  lutStatus.textContent = lutSelection.options[lutSelection.selectedIndex]?.textContent ?? "";
+  await loadSelectedLutPayload();
+});
+lutImportFile.addEventListener("change", async () => {
+  const file = lutImportFile.files?.[0];
+  if (!file) return;
+  lutStatus.textContent = "";
+  try {
+    if (file.size > 4 * 1024 * 1024) throw new Error(t.lutImportHint);
+    const imported = await invoke<LutEntry>("import_lut", { fileName: file.name, content: await file.text() });
+    await loadLutCatalog();
+    lutSelection.value = imported.id;
+    try { window.localStorage.setItem(selectedLutKey, imported.id); } catch { /* keep session preference */ }
+    lutStatus.textContent = `${t.lutImported}: ${imported.name} · ${imported.size}³`;
+    await loadSelectedLutPayload();
+  } catch (error) {
+    lutStatus.textContent = `${t.lutImportFailed}: ${String(error)}`;
+    lutStatus.dataset.state = "error";
+  } finally {
+    lutImportFile.value = "";
+  }
+});
+applyMonitoringColorSpace(loadMonitoringColorSpace());
+applyGuideStyle(storedPreference(guideStyleKey, "thirds"));
+applyPeakingColor(storedPreference(peakingColorKey, "cyan"));
+void loadCustomShutterSound().then(() => applyShutterSound(storedPreference(shutterSoundKey, "standard"))).catch(() => applyShutterSound("standard"));
+monitorLookEnabled.checked = storedPreference(monitorLookEnabledKey, "false") === "true";
+syncMonitorProcessing();
+void loadLutCatalog();
+bulkPhotoStart.addEventListener("click", async () => {
+  const count = await refreshBulkPhotoCount();
+  if (count === 0) return;
+  document.querySelector<HTMLElement>("#bulk-photo-dialog-count")!.textContent = `${count} ${t.mediaPhoto}`;
+  bulkPhotoConfirm.dataset.state = "default";
+  bulkPhotoDialog.showModal();
+});
+document.querySelector<HTMLButtonElement>("#bulk-photo-cancel")!.addEventListener("click", () => bulkPhotoDialog.close());
+bulkPhotoDialog.addEventListener("click", (event) => {
+  if (event.target === bulkPhotoDialog) bulkPhotoDialog.close();
+});
+bulkPhotoConfirm.addEventListener("click", async () => {
+  bulkPhotoConfirm.disabled = true;
+  bulkPhotoConfirm.dataset.state = "loading";
+  bulkPhotoStart.disabled = true;
+  bulkPhotoStatus.textContent = t.bulkPhotoRunning;
+  bulkPhotoStatus.dataset.state = "loading";
+  try {
+    const result = await invoke<BulkPhotoMigrationResult>("export_all_photos_and_delete");
+    bulkPhotoDialog.close();
+    await refreshBulkPhotoCount();
+    bulkPhotoStatus.textContent = result.exported === 0
+      ? t.bulkPhotoEmpty
+      : `${t.bulkPhotoComplete} ${result.deleted}/${result.exported}`;
+    bulkPhotoStatus.dataset.state = "success";
+  } catch (error) {
+    bulkPhotoDialog.close();
+    await refreshBulkPhotoCount();
+    bulkPhotoStatus.textContent = `${t.bulkPhotoFailed} ${String(error)}`;
+    bulkPhotoStatus.dataset.state = "error";
+  } finally {
+    bulkPhotoConfirm.disabled = false;
+  }
+});
 nearbyAsset.addEventListener("change", updateNearbyPrepareState);
 nearbyPrepare.addEventListener("click", () => void prepareNearbyApproval());
 document.querySelector<HTMLButtonElement>("#nearby-approval-close")!.addEventListener("click", () => nearbyApprovalDialog.close());
@@ -1964,8 +3187,81 @@ document.querySelectorAll<HTMLButtonElement>("[data-media-filter]").forEach((but
       item.setAttribute("aria-pressed", String(active));
     });
     renderMediaIndex();
+    mediaGrid.scrollTop = 0;
   });
 });
+document.querySelectorAll<HTMLButtonElement>("[data-media-view]").forEach((button) => {
+  button.addEventListener("click", () => {
+    mediaView = button.dataset.mediaView as MediaView;
+    document.querySelectorAll<HTMLButtonElement>("[data-media-view]").forEach((item) => {
+      const active = item === button;
+      item.classList.toggle("is-active", active);
+      item.setAttribute("aria-pressed", String(active));
+    });
+    renderMediaIndex();
+    mediaGrid.scrollTop = 0;
+  });
+});
+
+mediaContextSave.addEventListener("click", async () => {
+  const entry = contextMediaEntry;
+  if (!entry || entry.state !== "finalized" || entry.media_type !== "photo") return;
+  closeMediaContextMenu();
+  mediaStatus.textContent = t.mediaSavingPhotos;
+  mediaStatus.dataset.state = "loading";
+  try {
+    await invoke("export_photo_to_library", { id: entry.id });
+    mediaStatus.textContent = t.mediaSavedPhotos;
+    mediaStatus.dataset.state = "success";
+  } catch (error) {
+    mediaStatus.textContent = `${t.mediaSavePhotosFailed} ${String(error)}`;
+    mediaStatus.dataset.state = "error";
+  }
+});
+mediaContextDelete.addEventListener("click", () => {
+  const entry = contextMediaEntry;
+  if (!entry) return;
+  selectedMediaEntry = entry;
+  closeMediaContextMenu();
+  document.querySelector<HTMLElement>("#media-delete-name")!.textContent = mediaFileName(entry.resource_path);
+  mediaDeleteConfirm.dataset.state = "default";
+  mediaDeleteDialog.showModal();
+});
+document.querySelector<HTMLButtonElement>("#media-delete-cancel")!.addEventListener("click", () => mediaDeleteDialog.close());
+mediaDeleteDialog.addEventListener("click", (event) => {
+  if (event.target === mediaDeleteDialog) mediaDeleteDialog.close();
+});
+mediaDeleteConfirm.addEventListener("click", async () => {
+  if (!selectedMediaEntry) return;
+  const entry = selectedMediaEntry;
+  mediaDeleteConfirm.disabled = true;
+  mediaDeleteConfirm.dataset.state = "loading";
+  try {
+    mediaEntries = entry.state === "finalized"
+      ? await invoke<MediaIndexEntry[]>("delete_media_entry", { id: entry.id })
+      : await invoke<MediaIndexEntry[]>("cleanup_media_entry", { id: entry.id });
+    mediaEntries.sort((a, b) => b.updated_at_utc.localeCompare(a.updated_at_utc));
+    mediaDeleteDialog.close();
+    selectedMediaEntry = undefined;
+    mediaStatus.textContent = "";
+    mediaStatus.dataset.state = "default";
+    renderMediaIndex();
+  } catch (error) {
+    mediaDeleteDialog.close();
+    mediaStatus.textContent = `${t.mediaDeleteFailed} ${String(error)}`;
+    mediaStatus.dataset.state = "error";
+  } finally {
+    mediaDeleteConfirm.disabled = false;
+  }
+});
+document.addEventListener("pointerdown", (event) => {
+  if (!mediaContextMenu.hidden && !mediaContextMenu.contains(event.target as Node)) closeMediaContextMenu();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !mediaContextMenu.hidden) closeMediaContextMenu();
+});
+window.addEventListener("resize", closeMediaContextMenu);
+mediaLibrary.addEventListener("scroll", closeMediaContextMenu, { passive: true });
 
 document.querySelector<HTMLButtonElement>("#media-detail-close")!.addEventListener("click", () => mediaDetailDialog.close());
 mediaDetailDialog.addEventListener("click", (event) => {
@@ -2061,6 +3357,7 @@ document.querySelectorAll<HTMLButtonElement>("[data-tool]").forEach((button) => 
     button.classList.toggle("is-active", active);
     const tool = button.dataset.tool as Tool;
     document.body.classList.toggle(`tool-${tool}`, active);
+    if (tool === "focus" || tool === "zebra") syncMonitorProcessing();
   });
 });
 
@@ -2069,10 +3366,36 @@ document.querySelector<HTMLButtonElement>("#monitor-tools-toggle")!.addEventList
   const tools = document.querySelector<HTMLElement>(".monitor-tools")!;
   const rail = document.querySelector<HTMLElement>(".tool-rail")!;
   const open = toggle.getAttribute("aria-expanded") !== "true";
+  if (open) {
+    const destinationToggle = document.querySelector<HTMLButtonElement>("#destination-tools-toggle")!;
+    destinationToggle.setAttribute("aria-expanded", "false");
+    destinationToggle.classList.remove("is-active");
+    document.querySelector<HTMLElement>(".destination-tools")!.classList.remove("is-open");
+    rail.classList.remove("is-destination-open");
+  }
   toggle.setAttribute("aria-expanded", String(open));
   toggle.classList.toggle("is-active", open);
   tools.classList.toggle("is-open", open);
   rail.classList.toggle("is-menu-open", open);
+  syncNativePreviewFrame();
+});
+
+document.querySelector<HTMLButtonElement>("#destination-tools-toggle")!.addEventListener("click", (event) => {
+  const toggle = event.currentTarget as HTMLButtonElement;
+  const destinations = document.querySelector<HTMLElement>(".destination-tools")!;
+  const rail = document.querySelector<HTMLElement>(".tool-rail")!;
+  const open = toggle.getAttribute("aria-expanded") !== "true";
+  if (open) {
+    const monitorToggle = document.querySelector<HTMLButtonElement>("#monitor-tools-toggle")!;
+    monitorToggle.setAttribute("aria-expanded", "false");
+    monitorToggle.classList.remove("is-active");
+    document.querySelector<HTMLElement>(".monitor-tools")!.classList.remove("is-open");
+    rail.classList.remove("is-menu-open");
+  }
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.classList.toggle("is-active", open);
+  destinations.classList.toggle("is-open", open);
+  rail.classList.toggle("is-destination-open", open);
   syncNativePreviewFrame();
 });
 
@@ -2245,7 +3568,8 @@ captureButton.addEventListener("click", async () => {
   captureButton.disabled = true;
   captureButton.dataset.state = "loading";
   try {
-    const asset = await invoke<CaptureAsset>("capture_photo");
+    playShutterSound();
+    const asset = await invoke<CaptureAsset>("capture_photo", { suppressShutterSound: shutterSound.value === "silent" });
     captureButton.dataset.state = "success";
     const path = asset.original.path;
     const warning = asset.validation.status === "warning" ? ` · ${t.assetMetadataWarning}` : "";
