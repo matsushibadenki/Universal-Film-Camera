@@ -66,6 +66,13 @@ pub struct CameraDevice {
     pub id: String,
     pub label: String,
     pub position: CameraPosition,
+    /// True when the platform exposes one logical camera backed by multiple
+    /// physical lenses (for example AVFoundation's Triple Camera).
+    #[serde(default)]
+    pub is_virtual: bool,
+    /// Preferred device when the user has not explicitly selected a lens.
+    #[serde(default)]
+    pub is_default: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,11 +91,28 @@ pub struct CameraFormatCapability {
     pub frame_rates: Vec<u32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CameraZoomCapability {
+    pub minimum_factor: f32,
+    pub maximum_factor: f32,
+    pub current_factor: f32,
+    /// Whether zooming can automatically hand off between physical lenses.
+    #[serde(default)]
+    pub automatic_lens_switching: bool,
+    /// User-facing zoom factors at which the platform may change lenses.
+    #[serde(default)]
+    pub switch_over_factors: Vec<f32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CameraCapabilities {
     pub supports_still: bool,
     pub supports_video: bool,
     pub supports_audio: bool,
+    /// Whether the platform permits suppressing its built-in still-photo
+    /// shutter sound for the current runtime environment.
+    #[serde(default)]
+    pub shutter_sound_suppression_supported: bool,
     pub resolutions: Vec<(u32, u32)>,
     pub frame_rates: Vec<u32>,
     pub formats: Vec<CameraFormatCapability>,
@@ -107,6 +131,10 @@ pub struct CameraCapabilities {
     pub manual_white_balance: bool,
     #[serde(default)]
     pub current_white_balance_kelvin: Option<f32>,
+    /// Continuous live zoom range for the selected camera. `None` means the
+    /// backend must not expose a zoom control for this device.
+    #[serde(default)]
+    pub zoom: Option<CameraZoomCapability>,
     pub raw_photo: bool,
     pub log_video: bool,
     pub hdr_video: bool,
@@ -388,6 +416,39 @@ mod tests {
         assert!(capability.validate().is_err());
         capability.bitrate_range_bps = Some((1, 10));
         assert!(capability.validate().is_ok());
+    }
+
+    #[test]
+    fn older_capability_payloads_default_shutter_suppression_to_unavailable() {
+        let payload = serde_json::json!({
+            "supports_still": true,
+            "supports_video": true,
+            "supports_audio": true,
+            "resolutions": [[1920, 1080]],
+            "frame_rates": [30],
+            "formats": [{ "width": 1920, "height": 1080, "frame_rates": [30] }],
+            "manual_iso": null,
+            "manual_shutter": false,
+            "manual_focus": false,
+            "raw_photo": false,
+            "log_video": false,
+            "hdr_video": false
+        });
+        let capabilities: CameraCapabilities = serde_json::from_value(payload).unwrap();
+        assert!(!capabilities.shutter_sound_suppression_supported);
+        assert_eq!(capabilities.zoom, None);
+    }
+
+    #[test]
+    fn older_device_payloads_default_virtual_camera_flags() {
+        let device: CameraDevice = serde_json::from_value(serde_json::json!({
+            "id": "legacy-rear",
+            "label": "Rear camera",
+            "position": "back"
+        }))
+        .unwrap();
+        assert!(!device.is_virtual);
+        assert!(!device.is_default);
     }
 
     #[test]

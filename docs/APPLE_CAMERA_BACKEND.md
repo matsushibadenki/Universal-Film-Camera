@@ -32,6 +32,8 @@
 - [Done] UI姿勢をPreview／Photo／Movie connectionへ同期し、front preview鏡像と非鏡像保存を分離
 - [Done] output再接続／format再適用後のrotation／mirror再設定
 - [Done] Webのportrait基準角度をAVFoundationへ変換し、縦90°／横左0°／横右180°／逆さ縦270°として保存まで統一
+- [Done] iOS native preview frameをWKWebViewのSafe Areaと交差させ、status barへの映像漏れをattach／resizeの両方で防止
+- [Done] 背面cameraのAVFoundation連続zoom能力を列挙し、45ms間引きUI入力をnative smooth rampへ接続
 - [Done] `vite.config.ts`でTauri `devUrl`と開発serverを127.0.0.1:1420へ固定
 - [Next] RAW photo format、HDR／LOG color spaceをformat単位で能力モデルへ追加
 - [Next] iPhone／iPad実機でportrait／upside-down／front-camera mirrorを検証
@@ -45,6 +47,10 @@
 ## 実装境界
 
 `camera-apple`はcontrol planeとnative previewを担当する。AVFoundation objectはWebViewへ渡さない。現在はmonitoring専用fallbackとして幅360pxのRGB frameだけを要求時にTauri IPCへ渡すが、撮影原本やフル解像度frameは渡さない。最終production経路はCVPixelBufferをMetal textureへzero-copy接続し、このRGB IPCを削除する。
+
+iOSのpreview hostはWKWebViewの兄弟`UIView`であり、DOMのSafe Area確定より先に回転後frameを受け取る場合がある。DOMから届く矩形だけを信頼せず、main thread上でWKWebViewの`safeAreaInsets`から安全矩形を作り、container座標へ変換したうえでpreview frameとの交差領域だけを表示する。交差が一時的に空になる場合は映像をstatus barへ漏らさず、後続resizeで復帰するfail-closed設計とする。
+
+`CameraCapabilities.zoom`は選択deviceの`minAvailableVideoZoomFactor`、`maxAvailableVideoZoomFactor`、`videoZoomFactor`を返す。背面cameraで有効範囲がある場合だけ値を公開し、前面／外部／非対応backendは`None`とする。`set_camera_zoom`は範囲外をnative能力内へclampし、configuration lock中に`rampToVideoZoomFactor(..., rate: 6)`を呼ぶ。UIは精密操作を優先して表示範囲を最大10×に制限するが、保存画角はPreviewと同じactive device zoomを使用する。
 
 ```text
 TypeScript UI
@@ -121,6 +127,8 @@ stop_camera_preview()
 ```
 
 `get_camera_capabilities({ "deviceId": "stable-id" })`は全`AVCaptureDeviceFormat`を走査し、重複を除いたresolution／frame rate、manual ISO範囲、manual shutter／focus可否を返す。23.976、29.97、59.94のようなrateはUI選択肢では24、30、60へ正規化し、非標準rateはrange端点の丸め値も保持する。
+
+同じ能力応答の`shutter_sound_suppression_supported`は、iOS 18以降の`AVCapturePhotoOutput.shutterSoundSuppressionSupported`を実行時に問い合わせた値である。Appleの契約では、シャッター音を無効化できない法域では`false`となる。国コード、言語、タイムゾーン、販売地域の独自リストでは判定しない。iOS 18未満、selector未提供、iOS以外、能力未取得時は安全側の`false`とし、UIは「無音」とその免責説明をともに表示しない。
 
 能力値には独立したresolution／frame rate集合に加えて、実際に選べる組合せを`formats`として返す。
 
@@ -207,6 +215,14 @@ camera権限は撮影画面内の明示操作で要求する。マイク権限�
 `capabilities()`のresolution、FPS、manual ISO／shutter／focusは実機値へ移行した。撮影UIのresolutionとFPSは対応最大値ではなく、session開始後のactive formatを表示する。未接続のLens、Iris、WBは推測値を出さず`—`または`AUTO`、手動非対応のEI／Shutterは`AUTO`かつdisabledとする。
 
 RAW、LOG、HDRは単純なdevice全体booleanでは不十分で、photo output pixel format、device format、color space、同時output構成の組合せに依存する。現時点ではfalseのままにし、UIはSDRと表示する。resolution／FPSはformat単位へ移行済みであり、次工程では同じ能力型へRAW／LOG／HDRとcolor spaceを追加する。
+
+## iOS背面カメラ自動とズーム倍率
+
+iOSでは`AVCaptureDeviceTypeBuiltInTripleCamera`、`BuiltInDualWideCamera`、`BuiltInDualCamera`を物理レンズより先に探索する。AVFoundationが複数の重複する仮想deviceを返しても、利用可能な背面仮想deviceのうち`constituentDevices`が最多の1件だけを`is_default`として公開し、UIでは三言語の「背面カメラ自動」と表示する。非対応端末では背面Wideを先頭候補とする。Ultra Wide／Wide／Telephotoの物理deviceも列挙し続けるため、撮影者は自動切替を止めた固定レンズ運用を選べる。
+
+「背面カメラ自動」のsliderは単一の仮想deviceへ`rampToVideoZoomFactor`を送る。アプリ自身が0.5×、1×、望遠の境界でsessionを交換せず、`virtualDeviceSwitchOverVideoZoomFactors`に従う物理レンズ選択をiOSへ委ねる。これによりStill previewとVideo収録中の連続操作で同じsessionを維持する。
+
+AVFoundationのnative `videoZoomFactor`とApple UIの表示倍率は一致しない場合がある。IPCの倍率は`displayVideoZoomFactorMultiplier`を掛けた表示値へ統一し、設定時だけnative値へ戻す。したがって0.5×対応機を1×開始と誤表示しない。selector非対応OSではmultiplier 1.0へ安全にfallbackする。切替候補倍率は`CameraZoomCapability.switch_over_factors`へ表示倍率で保持するが、切替時刻は焦点距離だけでなく近接focusや露出条件によりiOSが判断するため、厳密なレンズ固定を意味しない。
 
 ## 検証方法
 

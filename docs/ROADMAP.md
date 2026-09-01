@@ -369,7 +369,7 @@ Nearby Peer Transferは上記3–5で`CapturedAsset`とMedia管理が成立し�
 ```text
 npm run check
   TypeScript / Vite production build: passed
-  Rust workspace tests: 101 passed, 0 failed
+  Rust workspace tests: 102 passed, 0 failed
 
 macOS native runtime
   camera preview: passed
@@ -442,9 +442,32 @@ mobile scaffold
 [Done] 環境設定でピーキングカラーを6色から選択・保存し、ライブ解析表示へ即時反映
 [Done] 環境設定で通常・爽やか・一眼レフ風・無音のシャッター操作音を選択・保存
 [Done] 「無音」撮影時にiOS 18+の正式なシャッター音抑制APIを対応端末・地域で要求
+[Done] iOSが返す実行時能力に従い、消音非対応端末・制限地域では「無音」項目と免責説明をともに非表示
 [Done] 外部シャッター音源（MP3／M4A／WAV／CAF）の読み込み・試聴・永続保存・選択
+[Done] 提供された5 WAV（C137／F2／H503／M4／small）を同梱シャッター音libraryへ登録し、三言語Settingsから選択・試聴・撮影再生
+[Done] 5 WAV同梱後の全103 test、縦横Browser QA、選択永続化、arm64 IPA再build、iPhone 13 install／launch
+[Done] WebKitシャッター音をAVCapturePhotoOutput成功後へ直列化し、写真収録とのAVAudioSession競合を防止
+[Done] Photo NSErrorのdomain／codeをUIと端末consoleへ残す診断経路を追加し、全103 test・iPhone 13再install／launch
+[Next] iPhone実機で通常音と5同梱音を各選択し、Still撮影・JPEG保存・連続撮影を受け入れる
+[Next] 同梱シャッター音5件の出典・作者・ライセンス・商用配布可否とiPhone speaker音量を受け入れる
 [Done] アプリ全体を映像優先のWorkbenchへ再設計し、設定タブ・画面遷移・表示切替・撮影補助をアイコン中心へ簡略化
 [Done] 横位置の環境設定を左カテゴリ＋右編集ペイン、メディアを左フィルター＋右カタログの分割レイアウトへ再構成
 [Done] フォーマットの解像度表記を幅×高さだけに統一し、4K／UHD／1080p／720pの重複表記を廃止
+[Done] LENS／FPS／SHUTTER等のparameter stripを72%半透明へ調整し、撮影映像の視認範囲を拡大
 [Done] 縦向き下部railでスコープ・メディア・近距離共有をシャッター左側へ集約し、環境設定だけを右端に固定
+[Done] iOS native previewをWKWebView Safe Areaへ強制クリップし、回転時のstatus bar映像漏れをコード上で防止
+[Done] 回転後のpreview frame同期をdouble rAF・180／420／800ms・visualViewport変化へ追従させ、Browser縦横2往復で収束を確認
+[Done] LENS選択を背面／前面／外部cameraの三言語groupへ整理
+[Done] 背面camera能力から0.5×を含む最大10×の繊細な連続zoom sliderを生成し、AVFoundation smooth rampへ接続
+[Done] 「背面カメラ自動」を既定値にし、Triple／Dual Wide／Dual仮想cameraで0.5×／1×／望遠の自動レンズ切替へ接続
+[Done] 重複するiOS仮想cameraを最大構成の1件へ正規化し、「背面カメラ自動」をselector内で常に1件に制限
+[Done] AVFoundation倍率をApple表示倍率へ正規化し、仮想camera非対応時の背面物理camera fallbackと固定レンズmodeを維持
+[Done] 署名済みIPAをiPhone 13へ再インストールし、`app.universalfilm.camera`の端末起動まで成功
+[Done] 背面カメラ自動追加後の全103 test、390×844／844×390 Browser QA、arm64 IPA再build、iPhone 13 install／launch
+[Done] 背面カメラ自動の重複修正版を縦横Browser QAし、iPhone 13へ再install／launch
+[Done] Media thumbnailのiOS標準画像calloutを抑止し、長押しをアプリ独自の写真保存／削除menuへ統一
+[Done] Media長押し修正後の全103 test、390×844／844×390 Browser QA、署名済みarm64 IPA build、iPhone 13 install
+[Next] iPhone実機で複数thumbnailを連続長押しし、標準画像previewが出ず、縦scrollと独自menuの削除が維持されることを受け入れる
+[Next] iPhone実映像で背面カメラ自動の0.5×→1×→望遠→1×、近接fallback、動画収録中の連続変更を目視受け入れする
+[Next] iPhone実機で縦位置と左右横位置を連続5往復し、時計・電波・電池領域が常時黒いことを目視受け入れする
 [Next] iPhone実機の横位置でSettings／Media分割表示、各ペインscroll、行き先menu自動closeを目視受け入れする

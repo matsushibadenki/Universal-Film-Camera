@@ -93,7 +93,15 @@ monitor tools menuもnative preview上へ重ねない。bottom railではmenuを
 - LUT原本: `assets/luts/`
 - シャッター音原本: `assets/shutter-sounds/`
 
+環境設定のシャッター音一覧は能力駆動とする。`shutter_sound_suppression_supported === true`のときだけ「無音」とその免責説明を同時に表示し、それ以外は両方をDOM上で非表示・選択不可にする。地域名の独自判定は持たない。
+
 各directoryの`README.md`を受入条件の正本とする。配置だけではruntime catalogへ自動登録せず、形式検証、権利確認、音量／色変換検証を通してから組み込む。
+
+2026-09-01、`assets/shutter-sounds`へ提供された`C137`、`F2`、`H503`、`M4`、`small`の5 WAVを形式検査し、環境設定 > 撮影 > シャッター音の「追加音源」groupへ登録した。Viteがhash付きbundle assetへ変換し、選択時とStill撮影時は同じ事前生成`HTMLAudioElement`を先頭から再生する。原本のgain、長さ、波形は変更しない。出典・作者・ライセンスとiPhone実機の音量受け入れは`assets/shutter-sounds/README.md`の`[Next]`である。
+
+同梱後は390×844／844×390のBrowser QAで5項目の表示、選択、再読み込み保持、horizontal overflow 0、console error／warning 0を確認した。全103 test合格後に署名済みarm64 IPAを再生成し、2026-09-01 20:57にiPhone 13へinstall／launchした。
+
+実機の「写真撮影に失敗しました：収録できません」報告を受け、Still captureではWebKit操作音を先に鳴らさない。AVCapturePhotoOutput、JPEG atomic write、asset finalizeの成功後にだけ選択音を再生し、process-wide AVAudioSessionとphoto captureの競合を避ける。Native NSErrorは今後localized descriptionに加えてdomain／codeを返す。修正版は全103 test合格後、2026-09-01 21:03にiPhone 13へinstall／launchした。
 
 ## Roadmap
 
@@ -110,6 +118,10 @@ monitor tools menuもnative preview上へ重ねない。bottom railではmenuを
 - [Done] 録画中timecode、停止形状、mode lock、保存完了feedbackをnative stateと同期
 - [Done] active resolution／FPSとmanual exposure可否をCameraCapabilities／PreviewStatusから生成
 - [Done] 未接続のLens／Iris／WBと手動非対応のEI／Shutterから架空の固定値を除去
+- [Done] parameter stripを72%半透明・4px blurへ調整し、露出値の可読性を保ちながら背景映像の視認性を向上
+- [Done] iOS native previewをSafe Areaへ強制クリップし、回転直後も時計・電波・電池領域を黒背景に固定
+- [Done] LENS選択を背面／前面／外部camera群へ整理し、「背面カメラ自動」を既定値、物理レンズを固定modeとして併記
+- [Done] 背面カメラ自動ではAVFoundation仮想deviceの表示倍率（0.5×を含む）を繊細な連続zoom sliderへ接続
 - [Done] format／FPS選択panelを対応組合せから生成し、sessionへ適用
 - [Done] format panelを英語・日本語・简体中文へ翻訳し、44px以上の選択controlを確保
 - [Done] format選択のdevice別永続化
@@ -135,6 +147,22 @@ monitor tools menuもnative preview上へ重ねない。bottom railではmenuを
 2026-08-16に署名済みdebug appと内蔵cameraでnative previewを確認した。1100 × 760ではright rail、880 × 650ではbottom railとなり、どちらもparameter strip、preview、操作railの重なりはない。カメラ映像は引き継ぎ資料へ保存しない。
 
 2026-08-17に録画ボタンの中央配置を実機UIで再確認した。right railでは垂直中央、bottom railでは水平中央を維持し、Video modeでは赤い正円として表示される。右レールのmonitor toolsは中央領域を侵食しない展開式へ変更した。
+
+2026-09-01にLENS／FPS／SHUTTER／IRIS／EI／WBを載せるparameter stripの背景を86%から72%へ下げ、backdrop blurを約7pxから4pxへ弱めた。選択中parameterと文字色は維持する。Browser QAは320×568、390×844、844×390で行い、全条件で6項目を表示、horizontal overflow 0、FPS panelの開閉成功、console error／warning 0を確認した。
+
+同日、iPhoneの縦横回転後にnative previewがstatus barへ約1 Safe Area分だけ残る場合がある問題を修正した。UIKit側はDOM frameをWKWebViewのSafe Areaと毎回交差させる。Web側も回転直後のdouble `requestAnimationFrame`に加え180／420／800ms後と`visualViewport`変化時にframeを再送し、CSS環境変数の遅延確定へ追従する。390×844と844×390を2往復したBrowser QAではpreview frameが毎回同一位置へ収束し、horizontal overflow 0、console error／warning 0だった。arm64実機build、署名、iPhone 13へのinstall／launchは成功済み。status barが連続回転中も常時黒いことの最終目視は利用者受け入れ対象である。
+
+同日、LENS quick-adjustのnative selectを「背面カメラ」「前面カメラ」「外部カメラ」のoptgroupへ整理した。撮影面には背面cameraかつ連続zoom能力がある場合だけ、1px track、11px thumb、倍率だけを持つ水平sliderを表示する。可視線は細いが操作領域は44pxを確保し、Scope表示中はHistogram／Level meterの直上へ退避する。入力は45msで間引いてAVFoundation smooth rampへ送り、前面camera選択時は即座に非表示にする。390×844／844×390でgroup、3.25×更新、前面で非表示、背面で復帰、horizontal overflow 0、console error／warning 0を確認した。
+
+続いて背面の先頭へ「背面カメラ自動／Rear Camera Auto／后置相机自动」を追加した。対応iPhoneではTriple／Dual Wide／Dual Cameraのうち物理構成が最多のAVFoundation仮想deviceを既定値とし、0.5×から望遠まで同一sliderで操作する。個別のUltra Wide／Wide／Telephotoは固定レンズmodeとして同じ背面groupに残す。仮想device非対応時は背面物理cameraへfallbackし、存在しない「自動」をUIだけで生成しない。
+
+AVFoundationは同じ端末でTriple／Dual Wide／Dualの複数の仮想deviceを同時に返す場合がある。これらをすべて「背面カメラ自動」と表示すると区別不能になるため、構成物理camera数が最多の既定仮想deviceだけをselectorへ表示する。UI側にも非既定仮想deviceを除外する防御を置き、backend移行中や古いpayloadでも重複を再表示しない。
+
+Browser fixtureを390×844と844×390で再検証した。両方で初期LENSは「背面カメラ自動」、sliderは0.5×〜10×、horizontal overflowは0だった。Wide固定modeでは最小1×、前面ではslider非表示、自動へ戻すと0.5×が復帰し、3.25×入力は3.3×表示へ即時反映された。縦横の記録は`/tmp/camera-auto-rear-portrait.png`と`/tmp/camera-auto-rear-landscape.png`。一時viewport overrideは検証後にresetした。
+
+重複修正のfixtureではTriple／Dual Wide／Dualの仮想cameraを同時投入し、390×844と844×390のLENS selectorで「背面カメラ自動」が各1件、物理cameraが各1件、horizontal overflow 0、console error／warning 0であることを確認した。記録は`/tmp/camera-auto-deduplicated.png`と`/tmp/camera-auto-deduplicated-landscape.png`。
+
+2026-09-01、Media thumbnailの長押しをアプリ独自menuへ統一した。写真`img`は表示専用で、drag、文字選択、iOS WebKitの画像callout、pointer hit testを無効にし、親Media cardだけが420msの長押し、右click、keyboard context menuを処理する。指が10pxを超えて移動した場合は長押しをcancelし、縦scrollを優先する。390×844／844×390のBrowser QAでは「写真アプリに保存／削除」、外側tapでclose、horizontal overflow 0を確認した。iPhone上でiOS標準の拡大previewが出ないことは実機受け入れ対象である。
 
 2026-08-30、tool railへ出力statusを追加した。StillはJPEG、Videoは現行native writerが保証するH.264／AACとcontainerだけを表示し、未実装のRAW／HEVC／LOGをpresetとして提示しない。Rustの`statvfs`結果から保存先filesystemのavailable／total bytesを取得し、JPEGは8 MiB／枚、Videoは120 MiB／分のnominal estimateとして概算量を表示する。これは保証時間ではないため、実際のbitrate／scene complexity／filesystem reservationで変動する。
 

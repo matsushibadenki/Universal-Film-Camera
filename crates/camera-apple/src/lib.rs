@@ -8,7 +8,9 @@ use camera_core::{
     CameraMode, CameraSession, CaptureCodec, CaptureContainer, CaptureOutputCapability,
 };
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-use camera_core::{CameraAuthorizationStatus, CameraFormatCapability, CaptureOrientation};
+use camera_core::{
+    CameraAuthorizationStatus, CameraFormatCapability, CameraZoomCapability, CaptureOrientation,
+};
 
 #[derive(Debug, Default)]
 pub struct AppleCameraBackend;
@@ -36,6 +38,7 @@ mod platform {
     use dispatch2::{DispatchQueue, DispatchQueueAttr};
     use objc2::rc::Retained;
     use objc2::runtime::{Bool, ProtocolObject};
+    use objc2::sel;
     use objc2::{AnyThread, DefinedClass, define_class, msg_send};
     use objc2_av_foundation::{
         AVAuthorizationStatus, AVCaptureConnection, AVCaptureDevice,
@@ -51,6 +54,11 @@ mod platform {
         AVCaptureVideoPreviewLayer, AVCaptureWhiteBalanceMode,
         AVCaptureWhiteBalanceTemperatureAndTintValues, AVLayerVideoGravityResizeAspectFill,
         AVMediaType, AVMediaTypeAudio, AVMediaTypeVideo,
+    };
+    #[cfg(target_os = "ios")]
+    use objc2_av_foundation::{
+        AVCaptureDeviceTypeBuiltInDualCamera, AVCaptureDeviceTypeBuiltInDualWideCamera,
+        AVCaptureDeviceTypeBuiltInTripleCamera, AVCaptureDeviceTypeBuiltInTrueDepthCamera,
     };
     use objc2_core_media::{
         CMSampleBuffer, CMTimeGetSeconds, CMTimeMakeWithSeconds,
@@ -251,6 +259,15 @@ mod platform {
         state: Mutex<PhotoCaptureState>,
     }
 
+    fn describe_photo_error(error: &NSError) -> String {
+        format!(
+            "{} (domain={}, code={})",
+            error.localizedDescription(),
+            error.domain(),
+            error.code()
+        )
+    }
+
     define_class!(
         // SAFETY: NSObject has no additional subclassing requirements. The
         // Rust ivars contain only a synchronized one-shot result sender.
@@ -273,7 +290,9 @@ mod platform {
                 error: Option<&NSError>,
             ) {
                 let result = if let Some(error) = error {
-                    Err(CameraError(error.localizedDescription().to_string()))
+                    let description = describe_photo_error(error);
+                    eprintln!("[camera-apple] photo processing failed: {description}");
+                    Err(CameraError(description))
                 } else {
                     unsafe { photo.fileDataRepresentation() }
                         .map(|data| data.to_vec())
@@ -293,7 +312,9 @@ mod platform {
             ) {
                 if let Ok(mut state) = self.ivars().state.lock() {
                     let result = if let Some(error) = error {
-                        Err(CameraError(error.localizedDescription().to_string()))
+                        let description = describe_photo_error(error);
+                        eprintln!("[camera-apple] photo capture failed: {description}");
+                        Err(CameraError(description))
                     } else {
                         state.result.take().unwrap_or_else(|| {
                             Err(CameraError(
@@ -631,6 +652,41 @@ mod platform {
             Ok(iso)
         }
 
+        pub fn set_zoom_factor(&self, requested_factor: f32) -> Result<f32, CameraError> {
+            if !requested_factor.is_finite() || requested_factor <= 0.0 {
+                return Err(CameraError("zoom factor must be positive".into()));
+            }
+            let _guard = self
+                .operation_lock
+                .lock()
+                .map_err(|_| CameraError("capture session lock poisoned".into()))?;
+            if unsafe { self.video_device.position() } != AVCaptureDevicePosition::Back {
+                return Err(CameraError(
+                    "continuous zoom is available only for the rear camera".into(),
+                ));
+            }
+            let multiplier = display_zoom_multiplier(&self.video_device);
+            let minimum = unsafe { self.video_device.minAvailableVideoZoomFactor() } as f32;
+            let maximum = unsafe { self.video_device.maxAvailableVideoZoomFactor() } as f32;
+            if !minimum.is_finite() || !maximum.is_finite() || maximum <= minimum {
+                return Err(CameraError("continuous zoom is not available".into()));
+            }
+            // The system may present a virtual camera's native factor 1.0 as
+            // 0.5×. IPC uses that user-facing scale; AVFoundation receives the
+            // corresponding native factor.
+            let factor = (requested_factor / multiplier).clamp(minimum, maximum);
+            unsafe { self.video_device.lockForConfiguration() }
+                .map_err(|error| CameraError(error.localizedDescription().to_string()))?;
+            unsafe {
+                // A short native ramp keeps frequent range-input updates fluid
+                // without snapping the preview between magnifications.
+                self.video_device
+                    .rampToVideoZoomFactor_withRate(factor.into(), 6.0);
+                self.video_device.unlockForConfiguration();
+            }
+            Ok(factor * multiplier)
+        }
+
         pub fn set_white_balance_kelvin(&self, kelvin: f32) -> Result<f32, CameraError> {
             if !kelvin.is_finite() || !(2_000.0..=10_000.0).contains(&kelvin) {
                 return Err(CameraError(
@@ -897,16 +953,7 @@ mod platform {
         }
 
         pub fn shutter_sound_suppression_supported(&self) -> bool {
-            #[cfg(target_os = "ios")]
-            {
-                // iOS 18+ exposes this capability dynamically and returns
-                // false where regional policy requires an audible shutter.
-                unsafe { self.photo_output.isShutterSoundSuppressionSupported() }
-            }
-            #[cfg(not(target_os = "ios"))]
-            {
-                false
-            }
+            shutter_sound_suppression_supported(&self.photo_output)
         }
 
         pub fn capture_photo(
@@ -1232,7 +1279,11 @@ mod platform {
                 CGPoint::new(rect.x, rect.y),
                 CGSize::new(rect.width, rect.height),
             );
-            let frame = parent.convertRect_toView(webview_frame, Some(&container));
+            let frame = constrain_frame_to_webview_safe_area(
+                parent,
+                &container,
+                parent.convertRect_toView(webview_frame, Some(&container)),
+            );
             let host = UIView::initWithFrame(mtm.alloc(), frame);
             host.setClipsToBounds(true);
             self.preview_layer.setFrame(host.bounds());
@@ -1280,7 +1331,12 @@ mod platform {
                 CGPoint::new(rect.x, rect.y),
                 CGSize::new(rect.width, rect.height),
             );
-            view.setFrame(webview.convertRect_toView(webview_frame, Some(&container)));
+            let frame = constrain_frame_to_webview_safe_area(
+                webview,
+                &container,
+                webview.convertRect_toView(webview_frame, Some(&container)),
+            );
+            view.setFrame(frame);
             self.preview_layer.setFrame(view.bounds());
             Ok(())
         }
@@ -1400,6 +1456,36 @@ mod platform {
     }
 
     #[cfg(target_os = "ios")]
+    fn constrain_frame_to_webview_safe_area(
+        webview: &objc2_ui_kit::UIView,
+        container: &objc2_ui_kit::UIView,
+        frame: objc2_core_foundation::CGRect,
+    ) -> objc2_core_foundation::CGRect {
+        use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+
+        let bounds = webview.bounds();
+        let insets = webview.safeAreaInsets();
+        let safe_local = CGRect::new(
+            CGPoint::new(bounds.origin.x + insets.left, bounds.origin.y + insets.top),
+            CGSize::new(
+                (bounds.size.width - insets.left - insets.right).max(0.0),
+                (bounds.size.height - insets.top - insets.bottom).max(0.0),
+            ),
+        );
+        let safe_frame = webview.convertRect_toView(safe_local, Some(container));
+        let min_x = frame.origin.x.max(safe_frame.origin.x);
+        let min_y = frame.origin.y.max(safe_frame.origin.y);
+        let max_x =
+            (frame.origin.x + frame.size.width).min(safe_frame.origin.x + safe_frame.size.width);
+        let max_y =
+            (frame.origin.y + frame.size.height).min(safe_frame.origin.y + safe_frame.size.height);
+        CGRect::new(
+            CGPoint::new(min_x, min_y),
+            CGSize::new((max_x - min_x).max(0.0), (max_y - min_y).max(0.0)),
+        )
+    }
+
+    #[cfg(target_os = "ios")]
     #[derive(Debug, Clone, Copy)]
     pub struct IosPreviewHost {
         view: usize,
@@ -1433,6 +1519,24 @@ mod platform {
         // SAFETY: AVFoundation initializes this exported constant when the
         // framework is loaded on every supported Apple target.
         unsafe { AVMediaTypeAudio }.expect("AVMediaTypeAudio must be available")
+    }
+
+    fn shutter_sound_suppression_supported(output: &AVCapturePhotoOutput) -> bool {
+        #[cfg(target_os = "ios")]
+        {
+            // The selector is available from iOS 18. Guard it at runtime so
+            // the iOS 14 deployment target remains safe. AVFoundation returns
+            // false in jurisdictions where shutter sound cannot be disabled.
+            if !output.respondsToSelector(sel!(isShutterSoundSuppressionSupported)) {
+                return false;
+            }
+            unsafe { output.isShutterSoundSuppressionSupported() }
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let _ = output;
+            false
+        }
     }
 
     fn authorization_status_for(media_type: &AVMediaType) -> CameraAuthorizationStatus {
@@ -1497,10 +1601,25 @@ mod platform {
     }
 
     fn discovery_session() -> objc2::rc::Retained<AVCaptureDeviceDiscoverySession> {
+        #[cfg(target_os = "ios")]
         #[allow(deprecated)]
         let device_types = NSArray::from_slice(&[
-            unsafe { AVCaptureDeviceTypeBuiltInUltraWideCamera },
+            // Prefer the most capable virtual rear camera. Physical cameras
+            // remain discoverable as explicit fixed-lens modes.
+            unsafe { AVCaptureDeviceTypeBuiltInTripleCamera },
+            unsafe { AVCaptureDeviceTypeBuiltInDualWideCamera },
+            unsafe { AVCaptureDeviceTypeBuiltInDualCamera },
             unsafe { AVCaptureDeviceTypeBuiltInWideAngleCamera },
+            unsafe { AVCaptureDeviceTypeBuiltInUltraWideCamera },
+            unsafe { AVCaptureDeviceTypeBuiltInTelephotoCamera },
+            unsafe { AVCaptureDeviceTypeBuiltInTrueDepthCamera },
+            unsafe { AVCaptureDeviceTypeExternalUnknown },
+        ]);
+        #[cfg(target_os = "macos")]
+        #[allow(deprecated)]
+        let device_types = NSArray::from_slice(&[
+            unsafe { AVCaptureDeviceTypeBuiltInWideAngleCamera },
+            unsafe { AVCaptureDeviceTypeBuiltInUltraWideCamera },
             unsafe { AVCaptureDeviceTypeBuiltInTelephotoCamera },
             unsafe { AVCaptureDeviceTypeExternalUnknown },
         ]);
@@ -1521,6 +1640,18 @@ mod platform {
             AVCaptureDevicePosition::Back => camera_core::CameraPosition::Back,
             AVCaptureDevicePosition::Unspecified => camera_core::CameraPosition::External,
             _ => camera_core::CameraPosition::Unspecified,
+        }
+    }
+
+    fn display_zoom_multiplier(device: &AVCaptureDevice) -> f32 {
+        if !device.respondsToSelector(sel!(displayVideoZoomFactorMultiplier)) {
+            return 1.0;
+        }
+        let multiplier = unsafe { device.displayVideoZoomFactorMultiplier() } as f32;
+        if multiplier.is_finite() && multiplier > 0.0 {
+            multiplier
+        } else {
+            1.0
         }
     }
 
@@ -1557,14 +1688,52 @@ mod platform {
             // SAFETY: The session retains the immutable NSArray for this call;
             // each property result is returned retained by objc2 bindings.
             let devices = unsafe { discovery_session().devices() };
-            Ok(devices
+            let mut entries = devices
                 .iter()
-                .map(|device| CameraDevice {
-                    id: unsafe { device.uniqueID() }.to_string(),
-                    label: unsafe { device.localizedName() }.to_string(),
-                    position: position(unsafe { device.position() }),
+                .map(|device| {
+                    let constituent_count = unsafe { device.constituentDevices() }.count();
+                    let is_wide_angle = unsafe { device.deviceType() }
+                        .isEqualToString(unsafe { AVCaptureDeviceTypeBuiltInWideAngleCamera });
+                    (
+                        CameraDevice {
+                            id: unsafe { device.uniqueID() }.to_string(),
+                            label: unsafe { device.localizedName() }.to_string(),
+                            position: position(unsafe { device.position() }),
+                            is_virtual: constituent_count > 1,
+                            is_default: false,
+                        },
+                        constituent_count,
+                        is_wide_angle,
+                    )
                 })
-                .collect())
+                .collect::<Vec<_>>();
+            let default_index = entries
+                .iter()
+                .enumerate()
+                .filter(|(_, (device, _, _))| {
+                    device.position == camera_core::CameraPosition::Back && device.is_virtual
+                })
+                .max_by_key(|(_, (_, count, _))| *count)
+                .map(|(index, _)| index)
+                .or_else(|| {
+                    entries.iter().position(|(device, _, is_wide)| {
+                        device.position == camera_core::CameraPosition::Back && *is_wide
+                    })
+                })
+                .or_else(|| {
+                    entries.iter().position(|(device, _, _)| {
+                        device.position == camera_core::CameraPosition::Back
+                    })
+                });
+            if let Some(index) = default_index {
+                entries[index].0.is_default = true;
+            }
+            // AVFoundation can expose Triple, Dual Wide, and Dual virtual
+            // devices at the same time. They represent overlapping automatic
+            // groups, so expose only the best default virtual device while
+            // retaining every physical lens as an explicit fixed mode.
+            entries.retain(|(device, _, _)| !device.is_virtual || device.is_default);
+            Ok(entries.into_iter().map(|(device, _, _)| device).collect())
         }
 
         fn capabilities(&self, device_id: &str) -> Result<CameraCapabilities, CameraError> {
@@ -1629,10 +1798,42 @@ mod platform {
                     )
                     .temperature
             };
+            let photo_output = unsafe { AVCapturePhotoOutput::new() };
+            let zoom_multiplier = display_zoom_multiplier(&device);
+            let zoom_minimum =
+                unsafe { device.minAvailableVideoZoomFactor() } as f32 * zoom_multiplier;
+            let zoom_maximum =
+                unsafe { device.maxAvailableVideoZoomFactor() } as f32 * zoom_multiplier;
+            let zoom_current = unsafe { device.videoZoomFactor() } as f32 * zoom_multiplier;
+            let automatic_lens_switching = unsafe { device.isVirtualDevice() };
+            let switch_over_factors = if automatic_lens_switching {
+                unsafe { device.virtualDeviceSwitchOverVideoZoomFactors() }
+                    .iter()
+                    .map(|factor| factor.doubleValue() as f32 * zoom_multiplier)
+                    .filter(|factor| factor.is_finite())
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let zoom = (unsafe { device.position() } == AVCaptureDevicePosition::Back
+                && zoom_minimum.is_finite()
+                && zoom_maximum.is_finite()
+                && zoom_current.is_finite()
+                && zoom_maximum > zoom_minimum)
+                .then_some(CameraZoomCapability {
+                    minimum_factor: zoom_minimum,
+                    maximum_factor: zoom_maximum,
+                    current_factor: zoom_current.clamp(zoom_minimum, zoom_maximum),
+                    automatic_lens_switching,
+                    switch_over_factors,
+                });
             Ok(CameraCapabilities {
                 supports_still: true,
                 supports_video: true,
                 supports_audio: true,
+                shutter_sound_suppression_supported: shutter_sound_suppression_supported(
+                    &photo_output,
+                ),
                 resolutions: resolutions.into_iter().collect(),
                 frame_rates: frame_rates.into_iter().collect(),
                 formats: format_rates
@@ -1655,6 +1856,7 @@ mod platform {
                 manual_white_balance,
                 current_white_balance_kelvin: (white_balance.is_finite() && white_balance > 0.0)
                     .then_some(white_balance),
+                zoom,
                 raw_photo: false,
                 log_video: false,
                 hdr_video: false,

@@ -10,13 +10,20 @@ type LutPayload = { size: number; samples: [number, number, number][]; domain_mi
 type LutEntry = { id: string; name: string; category: string; source: "built_in" | "imported"; size: number };
 type LutCatalog = { built_in: LutEntry[]; imported: LutEntry[] };
 type CameraAuthorization = "not_determined" | "restricted" | "denied" | "authorized" | "unavailable";
-type CameraDevice = { id: string; label: string; position: "front" | "back" | "external" | "unspecified" };
+type CameraDevice = {
+  id: string;
+  label: string;
+  position: "front" | "back" | "external" | "unspecified";
+  is_virtual?: boolean;
+  is_default?: boolean;
+};
 type CameraDiscovery = { authorization: CameraAuthorization; devices: CameraDevice[] };
 type CameraRuntimeHealth = { preview_attached: boolean; session_running: boolean; recording_pending: boolean };
 type CameraCapabilities = {
   supports_still: boolean;
   supports_video: boolean;
   supports_audio: boolean;
+  shutter_sound_suppression_supported?: boolean;
   resolutions: [number, number][];
   frame_rates: number[];
   formats: { width: number; height: number; frame_rates: number[] }[];
@@ -29,6 +36,13 @@ type CameraCapabilities = {
   current_iso?: number | null;
   manual_white_balance?: boolean;
   current_white_balance_kelvin?: number | null;
+  zoom?: {
+    minimum_factor: number;
+    maximum_factor: number;
+    current_factor: number;
+    automatic_lens_switching?: boolean;
+    switch_over_factors?: number[];
+  } | null;
   raw_photo: boolean;
   log_video: boolean;
   hdr_video: boolean;
@@ -204,6 +218,7 @@ type Copy = {
   shutterSoundFresh: string;
   shutterSoundDslr: string;
   shutterSoundSilent: string;
+  shutterSoundLibrary: string;
   shutterSoundDetail: string;
   shutterSoundSaved: string;
   shutterSoundImport: string;
@@ -242,6 +257,11 @@ type Copy = {
   scopes: string;
   close: string;
   adjust: string;
+  rearCameraAuto: string;
+  rearCameras: string;
+  frontCameras: string;
+  externalCameras: string;
+  zoom: string;
   allowCamera: string;
   requesting: string;
   denied: string;
@@ -376,7 +396,7 @@ const copy: Record<Locale, Copy> = {
     peakingColor: "Peaking color", peakingColorSaved: "Peaking color saved",
     colorCyan: "Cyan", colorRed: "Red", colorGreen: "Green", colorYellow: "Yellow", colorMagenta: "Magenta", colorWhite: "White",
     settingsCaptureDetail: "Photo and video remain equal capture modes · format is configured on the camera screen",
-    shutterSound: "Shutter sound", shutterSoundStandard: "Standard shutter", shutterSoundFresh: "Fresh", shutterSoundDslr: "DSLR", shutterSoundSilent: "Silent",
+    shutterSound: "Shutter sound", shutterSoundStandard: "Standard shutter", shutterSoundFresh: "Fresh", shutterSoundDslr: "DSLR", shutterSoundSilent: "Silent", shutterSoundLibrary: "Added sound library",
     shutterSoundDetail: "Silent requests the official iOS suppression mode. A mandatory system shutter still sounds on unsupported devices or in restricted regions.", shutterSoundSaved: "Shutter sound saved",
     shutterSoundImport: "Import sound file", shutterSoundImportHint: "MP3, M4A, WAV, or CAF · up to 5 MiB", shutterSoundCustom: "Custom", shutterSoundImported: "Shutter sound imported", shutterSoundImportFailed: "Could not import shutter sound",
     settingsLut: "LUT", settingsMedia: "Media", settingsMediaDetail: "Move all finalized photos to Apple Photos, then remove their app copies.",
@@ -390,6 +410,7 @@ const copy: Record<Locale, Copy> = {
     lutAccuracyNote: "Built-ins represent generic film/process families, not measured reproductions of named film stocks.",
     focus: "Focus peaking",
     zebra: "Zebra", guides: "Frame guides", scopes: "Scopes", close: "Close", adjust: "Adjust",
+    rearCameraAuto: "Rear Camera Auto", rearCameras: "Rear cameras", frontCameras: "Front cameras", externalCameras: "External cameras", zoom: "Zoom",
     allowCamera: "Allow camera access", requesting: "Requesting camera access…",
     denied: "Camera access is denied. Enable it in System Settings.",
     restricted: "Camera access is restricted on this device.", unavailable: "Camera backend is unavailable on this platform.",
@@ -459,7 +480,7 @@ const copy: Record<Locale, Copy> = {
     peakingColor: "ピーキングカラー", peakingColorSaved: "ピーキングカラーを保存しました",
     colorCyan: "シアン", colorRed: "赤", colorGreen: "緑", colorYellow: "黄", colorMagenta: "マゼンタ", colorWhite: "白",
     settingsCaptureDetail: "写真と動画を同等に扱います・フォーマットは撮影画面から設定します",
-    shutterSound: "シャッター音", shutterSoundStandard: "通常のシャッター音", shutterSoundFresh: "爽やかな音", shutterSoundDslr: "一眼レフカメラ", shutterSoundSilent: "無音",
+    shutterSound: "シャッター音", shutterSoundStandard: "通常のシャッター音", shutterSoundFresh: "爽やかな音", shutterSoundDslr: "一眼レフカメラ", shutterSoundSilent: "無音", shutterSoundLibrary: "追加音源",
     shutterSoundDetail: "「無音」ではiOSの正式な消音機能も要求します。非対応端末や消音が制限される地域では、システムシャッター音が鳴ります。", shutterSoundSaved: "シャッター音を保存しました",
     shutterSoundImport: "音源ファイルを読み込む", shutterSoundImportHint: "MP3・M4A・WAV・CAF、最大5 MiB", shutterSoundCustom: "カスタム", shutterSoundImported: "シャッター音を読み込みました", shutterSoundImportFailed: "シャッター音を読み込めませんでした",
     settingsLut: "LUT", settingsMedia: "メディア", settingsMediaDetail: "完成済み写真をすべて写真アプリへ移し、転送後にアプリ内のコピーを削除します。",
@@ -473,6 +494,7 @@ const copy: Record<Locale, Copy> = {
     lutAccuracyNote: "内蔵LUTは一般的なフィルム／現像系統の色調で、実在銘柄の測色再現ではありません。",
     focus: "ピーキング",
     zebra: "ゼブラ", guides: "ガイド", scopes: "スコープ", close: "閉じる", adjust: "調整",
+    rearCameraAuto: "背面カメラ自動", rearCameras: "背面カメラ", frontCameras: "前面カメラ", externalCameras: "外部カメラ", zoom: "ズーム",
     allowCamera: "カメラへのアクセスを許可", requesting: "カメラ権限を確認しています…",
     denied: "カメラへのアクセスが拒否されています。システム設定で許可してください。",
     restricted: "このデバイスではカメラへのアクセスが制限されています。", unavailable: "このプラットフォームではカメラバックエンドを利用できません。",
@@ -542,7 +564,7 @@ const copy: Record<Locale, Copy> = {
     peakingColor: "峰值对焦颜色", peakingColorSaved: "峰值对焦颜色已保存",
     colorCyan: "青色", colorRed: "红色", colorGreen: "绿色", colorYellow: "黄色", colorMagenta: "品红色", colorWhite: "白色",
     settingsCaptureDetail: "照片与视频为同等拍摄模式・格式可在拍摄画面中设置",
-    shutterSound: "快门声音", shutterSoundStandard: "标准快门", shutterSoundFresh: "清爽音效", shutterSoundDslr: "单反相机", shutterSoundSilent: "静音",
+    shutterSound: "快门声音", shutterSoundStandard: "标准快门", shutterSoundFresh: "清爽音效", shutterSoundDslr: "单反相机", shutterSoundSilent: "静音", shutterSoundLibrary: "附加音效",
     shutterSoundDetail: "“静音”也会请求 iOS 官方静音功能。在不支持的设备或受限制地区，系统快门声仍会响起。", shutterSoundSaved: "快门声音已保存",
     shutterSoundImport: "导入声音文件", shutterSoundImportHint: "MP3、M4A、WAV 或 CAF・最大 5 MiB", shutterSoundCustom: "自定义", shutterSoundImported: "快门声音已导入", shutterSoundImportFailed: "无法导入快门声音",
     settingsLut: "LUT", settingsMedia: "媒体", settingsMediaDetail: "将所有已完成照片移到 Apple 照片，然后删除应用内副本。",
@@ -556,6 +578,7 @@ const copy: Record<Locale, Copy> = {
     lutAccuracyNote: "内置 LUT 表现通用胶片与冲印风格，并非对特定胶片型号的测色复刻。",
     focus: "峰值对焦",
     zebra: "斑马纹", guides: "参考线", scopes: "示波器", close: "关闭", adjust: "调整",
+    rearCameraAuto: "后置相机自动", rearCameras: "后置相机", frontCameras: "前置相机", externalCameras: "外接相机", zoom: "变焦",
     allowCamera: "允许访问相机", requesting: "正在请求相机权限…",
     denied: "相机访问已被拒绝。请在系统设置中启用。", restricted: "此设备限制了相机访问。",
     unavailable: "此平台无法使用相机后端。", noDevice: "未检测到相机设备。",
@@ -658,10 +681,13 @@ let storageCheckPending = false;
 let recordingStopPending = false;
 let recordingPausedByLifecycle = false;
 let currentCapabilities: CameraCapabilities | undefined;
+let shutterSoundSuppressionSupported = false;
 let adjustmentParameter: "lens" | "iris" | "shutter" | "ei" | "wb" | undefined;
 let availableDevices: CameraDevice[] = [];
 let outputPresets: CaptureOutputPresets | undefined;
 let storageStatus: CaptureStorageStatus | undefined;
+let zoomUpdateTimer: number | undefined;
+let zoomRequestSerial = 0;
 
 const parameters: { key: string; label: string; value: string; active?: boolean }[] = [
   { key: "lens", label: "LENS", value: "35mm" },
@@ -711,6 +737,12 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         </div>
         <div class="timecode" aria-live="polite"><span id="record-indicator"></span><strong id="timecode">00:00:00:00</strong></div>
         <div class="monitor-status"><span>REC.709</span><span>180°</span><span>ND —</span></div>
+        <div class="zoom-control" id="zoom-control" hidden>
+          <span id="zoom-minimum">1×</span>
+          <input id="zoom-slider" type="range" min="1" max="2" step="0.01" value="1" aria-label="${t.zoom}">
+          <span id="zoom-maximum">2×</span>
+          <output id="zoom-value" for="zoom-slider">1.0×</output>
+        </div>
 
         <section class="histogram" aria-label="RGB histogram">
           <svg viewBox="0 0 132 44" role="img" aria-label="RGB histogram unavailable">
@@ -821,12 +853,15 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <h2 class="settings-panel-title">${t.settingsCapture}</h2>
         <div class="settings-readonly"><span>${t.settingsCapture}</span><strong>PHOTO + VIDEO</strong><small>${t.settingsCaptureDetail}</small></div>
         <label class="settings-field" for="shutter-sound"><span>${t.shutterSound}</span>
-          <select id="shutter-sound"><option value="standard">${t.shutterSoundStandard}</option><option value="fresh">${t.shutterSoundFresh}</option><option value="dslr">${t.shutterSoundDslr}</option><option value="silent">${t.shutterSoundSilent}</option></select>
+          <select id="shutter-sound">
+            <option value="standard">${t.shutterSoundStandard}</option><option value="fresh">${t.shutterSoundFresh}</option><option value="dslr">${t.shutterSoundDslr}</option><option id="shutter-sound-silent-option" value="silent" hidden disabled>${t.shutterSoundSilent}</option>
+            <optgroup label="${t.shutterSoundLibrary}"><option value="c137">C137</option><option value="f2">F2</option><option value="h503">H503</option><option value="m4">M4</option><option value="small">small</option></optgroup>
+          </select>
         </label>
         <label class="lut-import" for="shutter-sound-file" aria-label="${t.shutterSoundImport}" title="${t.shutterSoundImport} · ${t.shutterSoundImportHint}">${icon("import")}<span>${t.shutterSoundImport}</span><small>${t.shutterSoundImportHint}</small></label>
         <input id="shutter-sound-file" type="file" accept="audio/*,.mp3,.m4a,.wav,.caf" hidden>
         <p class="settings-status" id="shutter-sound-status" role="status" aria-live="polite"></p>
-        <p class="settings-note">${t.shutterSoundDetail}</p>
+        <p class="settings-note" id="shutter-sound-restriction-note" hidden>${t.shutterSoundDetail}</p>
         <label class="settings-field" for="guide-style"><span>${t.guideStyle}</span>
           <select id="guide-style"><option value="thirds">${t.guideThirds}</option><option value="grid">${t.guideGrid}</option><option value="diagonal">${t.guideDiagonal}</option></select>
         </label>
@@ -983,6 +1018,11 @@ const signalTitle = document.querySelector<HTMLElement>("#camera-signal-title")!
 const signalMessage = document.querySelector<HTMLElement>("#camera-signal-message")!;
 const accessButton = document.querySelector<HTMLButtonElement>("#request-camera-access")!;
 const previewSurface = document.querySelector<HTMLElement>(".preview-surface")!;
+const zoomControl = document.querySelector<HTMLElement>("#zoom-control")!;
+const zoomSlider = document.querySelector<HTMLInputElement>("#zoom-slider")!;
+const zoomMinimum = document.querySelector<HTMLElement>("#zoom-minimum")!;
+const zoomMaximum = document.querySelector<HTMLElement>("#zoom-maximum")!;
+const zoomValue = document.querySelector<HTMLOutputElement>("#zoom-value")!;
 const activeResolution = document.querySelector<HTMLElement>("#active-resolution")!;
 const activeFormatDetail = document.querySelector<HTMLElement>("#active-format-detail")!;
 const formatPanel = document.querySelector<HTMLElement>("#format-panel")!;
@@ -1012,6 +1052,8 @@ const lutImportFile = document.querySelector<HTMLInputElement>("#lut-import-file
 const lutStatus = document.querySelector<HTMLElement>("#lut-status")!;
 const guideStyle = document.querySelector<HTMLSelectElement>("#guide-style")!;
 const shutterSound = document.querySelector<HTMLSelectElement>("#shutter-sound")!;
+const shutterSoundSilentOption = document.querySelector<HTMLOptionElement>("#shutter-sound-silent-option")!;
+const shutterSoundRestrictionNote = document.querySelector<HTMLElement>("#shutter-sound-restriction-note")!;
 const shutterSoundFile = document.querySelector<HTMLInputElement>("#shutter-sound-file")!;
 const shutterSoundStatus = document.querySelector<HTMLElement>("#shutter-sound-status")!;
 const bulkPhotoCount = document.querySelector<HTMLElement>("#bulk-photo-count")!;
@@ -1056,6 +1098,7 @@ let mediaView: MediaView = "thumbnails";
 let selectedMediaEntry: MediaIndexEntry | undefined;
 let contextMediaEntry: MediaIndexEntry | undefined;
 let mediaLongPressTimer: number | undefined;
+const MEDIA_LONG_PRESS_MS = 420;
 let pendingBulkCleanupIds: string[] = [];
 let bulkCleanupRequested = false;
 let nearbySnapshot: NearbyDiscoverySnapshot = { active: false, local_peer: null, peers: [], last_error: null };
@@ -1067,7 +1110,22 @@ const selectedLutKey = "ufc.selected-lut.v1";
 const guideStyleKey = "ufc.guide-style.v1";
 const peakingColorKey = "ufc.peaking-color.v1";
 const shutterSoundKey = "ufc.shutter-sound.v1";
-type ShutterSound = "standard" | "fresh" | "dslr" | "silent" | "custom";
+type BundledShutterSound = "c137" | "f2" | "h503" | "m4" | "small";
+type ShutterSound = "standard" | "fresh" | "dslr" | "silent" | "custom" | BundledShutterSound;
+const bundledShutterSoundUrls: Record<BundledShutterSound, string> = {
+  c137: new URL("../assets/shutter-sounds/C137.wav", import.meta.url).href,
+  f2: new URL("../assets/shutter-sounds/F2.wav", import.meta.url).href,
+  h503: new URL("../assets/shutter-sounds/H503.wav", import.meta.url).href,
+  m4: new URL("../assets/shutter-sounds/M4.wav", import.meta.url).href,
+  small: new URL("../assets/shutter-sounds/small.wav", import.meta.url).href
+};
+const bundledShutterSoundPlayers = new Map<BundledShutterSound, HTMLAudioElement>(
+  (Object.entries(bundledShutterSoundUrls) as [BundledShutterSound, string][]).map(([id, url]) => {
+    const audio = new Audio(url);
+    audio.preload = "auto";
+    return [id, audio];
+  })
+);
 const shutterSoundDatabase = "ufc-shutter-sounds-v1";
 let customShutterSoundUrl: string | undefined;
 let customShutterSoundName: string | undefined;
@@ -1105,8 +1163,24 @@ function applyPeakingColor(value: string): void {
 }
 
 function applyShutterSound(value: string): void {
-  const supported = ["standard", "fresh", "dslr", "silent", ...(customShutterSoundUrl ? ["custom"] : [])];
+  const supported = [
+    "standard", "fresh", "dslr", ...Object.keys(bundledShutterSoundUrls),
+    ...(shutterSoundSuppressionSupported ? ["silent"] : []),
+    ...(customShutterSoundUrl ? ["custom"] : [])
+  ];
   shutterSound.value = supported.includes(value) ? value : "standard";
+}
+
+function applyShutterSoundSuppressionAvailability(supported: boolean): void {
+  shutterSoundSuppressionSupported = supported;
+  shutterSoundSilentOption.hidden = !supported;
+  shutterSoundSilentOption.disabled = !supported;
+  shutterSoundRestrictionNote.hidden = !supported;
+  if (supported) {
+    applyShutterSound(storedPreference(shutterSoundKey, shutterSound.value || "standard"));
+  } else if (shutterSound.value === "silent") {
+    applyShutterSound("standard");
+  }
 }
 
 function openShutterSoundDatabase(): Promise<IDBDatabase> {
@@ -1146,6 +1220,17 @@ async function loadCustomShutterSound(): Promise<void> {
 
 function playShutterSound(kind = shutterSound.value as ShutterSound): void {
   if (kind === "silent") return;
+  const bundledPlayer = bundledShutterSoundPlayers.get(kind as BundledShutterSound);
+  if (bundledPlayer) {
+    bundledPlayer.pause();
+    bundledPlayer.currentTime = 0;
+    bundledPlayer.volume = 1;
+    void bundledPlayer.play().catch(() => {
+      shutterSoundStatus.textContent = t.shutterSoundImportFailed;
+      shutterSoundStatus.dataset.state = "error";
+    });
+    return;
+  }
   if (kind === "custom" && customShutterSoundUrl) {
     const audio = new Audio(customShutterSoundUrl); audio.volume = 1;
     void audio.play().catch(() => { shutterSoundStatus.textContent = t.shutterSoundImportFailed; shutterSoundStatus.dataset.state = "error"; });
@@ -1900,6 +1985,7 @@ async function loadMediaPhotoPreview(entry: MediaIndexEntry, visual: HTMLElement
     image.className = "media-card-thumbnail";
     image.alt = mediaFileName(entry.resource_path);
     image.decoding = "async";
+    image.draggable = false;
     image.addEventListener("load", () => visual.classList.add("has-thumbnail"), { once: true });
     image.addEventListener("error", () => image.remove(), { once: true });
     image.src = `data:${preview.mime_type};base64,${preview.data_base64}`;
@@ -1934,16 +2020,19 @@ function attachMediaContextMenu(card: HTMLElement, entry: MediaIndexEntry): void
   card.setAttribute("aria-haspopup", "menu");
   card.addEventListener("contextmenu", (event) => {
     event.preventDefault();
+    event.stopPropagation();
     openMediaContextMenu(entry, event.clientX, event.clientY);
-  });
+  }, { capture: true });
   let originX = 0;
   let originY = 0;
   card.addEventListener("pointerdown", (event) => {
-    if (event.pointerType === "mouse") return;
+    if (event.pointerType === "mouse" || !event.isPrimary) return;
     originX = event.clientX;
     originY = event.clientY;
     window.clearTimeout(mediaLongPressTimer);
-    mediaLongPressTimer = window.setTimeout(() => openMediaContextMenu(entry, originX, originY), 550);
+    // Open before WebKit's native image-callout threshold. CSS disables that
+    // callout, while pan-y remains available for ordinary Media scrolling.
+    mediaLongPressTimer = window.setTimeout(() => openMediaContextMenu(entry, originX, originY), MEDIA_LONG_PRESS_MS);
   });
   card.addEventListener("pointermove", (event) => {
     if (Math.hypot(event.clientX - originX, event.clientY - originY) > 10) window.clearTimeout(mediaLongPressTimer);
@@ -2556,7 +2645,48 @@ function populateFormatPanel(capabilities: CameraCapabilities): void {
   populateFrameRates();
 }
 
-function applyCapabilities(capabilities: CameraCapabilities): void {
+function zoomLabel(value: number): string {
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)}×`;
+}
+
+function updateZoomAppearance(value: number): void {
+  const minimum = Number(zoomSlider.min);
+  const maximum = Number(zoomSlider.max);
+  const progress = maximum > minimum ? ((value - minimum) / (maximum - minimum)) * 100 : 0;
+  zoomSlider.style.setProperty("--zoom-progress", `${Math.max(0, Math.min(100, progress))}%`);
+  zoomValue.value = zoomLabel(value);
+  zoomValue.textContent = zoomValue.value;
+}
+
+function updateZoomControl(position: CameraDevice["position"] | undefined, capabilities?: CameraCapabilities): void {
+  const zoom = capabilities?.zoom;
+  const minimum = zoom?.minimum_factor ?? 1;
+  // Extremely large digital ranges make the useful 1–3× area impossible to
+  // control precisely. Keep the live UI range deliberate and usable.
+  const maximum = Math.min(zoom?.maximum_factor ?? minimum, 10);
+  const visible = position === "back" && Number.isFinite(minimum) && Number.isFinite(maximum) && maximum > minimum;
+  zoomControl.hidden = !visible;
+  if (!visible || !zoom) return;
+  zoomSlider.min = minimum.toFixed(2);
+  zoomSlider.max = maximum.toFixed(2);
+  zoomSlider.step = "0.01";
+  zoomSlider.value = Math.max(minimum, Math.min(maximum, zoom.current_factor)).toFixed(2);
+  zoomMinimum.textContent = zoomLabel(minimum);
+  zoomMaximum.textContent = zoomLabel(maximum);
+  updateZoomAppearance(Number(zoomSlider.value));
+}
+
+function cameraDeviceLabel(device: CameraDevice | undefined): string | undefined {
+  if (!device) return undefined;
+  return device.position === "back" && device.is_virtual ? t.rearCameraAuto : device.label;
+}
+
+function applyCapabilities(
+  capabilities: CameraCapabilities,
+  position = activeDevicePosition,
+  device = availableDevices.find((candidate) => candidate.id === activeDeviceId)
+): void {
+  applyShutterSoundSuppressionAvailability(capabilities.shutter_sound_suppression_supported === true);
   const lens = document.querySelector<HTMLButtonElement>('[data-parameter="lens"]')!;
   const fpsControl = document.querySelector<HTMLButtonElement>('[data-parameter="fps"]')!;
   const shutter = document.querySelector<HTMLButtonElement>('[data-parameter="shutter"]')!;
@@ -2567,7 +2697,7 @@ function applyCapabilities(capabilities: CameraCapabilities): void {
   fpsControl.disabled = capabilities.formats.length === 0;
   iris.disabled = false;
   wb.disabled = !capabilities.manual_white_balance;
-  lens.querySelector("strong")!.textContent = capabilities.lens_label ?? "FIXED";
+  lens.querySelector("strong")!.textContent = cameraDeviceLabel(device) ?? capabilities.lens_label ?? "FIXED";
   iris.querySelector("strong")!.textContent = capabilities.lens_aperture
     ? `ƒ/${capabilities.lens_aperture.toFixed(1)}` : "FIXED";
   const shutterSeconds = capabilities.current_shutter_seconds;
@@ -2588,6 +2718,7 @@ function applyCapabilities(capabilities: CameraCapabilities): void {
   }
   const dynamicRange = capabilities.log_video ? "LOG" : capabilities.hdr_video ? "HDR" : "SDR";
   activeFormatDetail.dataset.dynamicRange = dynamicRange;
+  updateZoomControl(position, capabilities);
   populateFormatPanel(capabilities);
 }
 
@@ -2607,14 +2738,23 @@ function applyActiveFormat(format: PreviewStatus["active_format"]): void {
 
 async function startNativePreview(result: CameraDiscovery, preferredDeviceId?: string): Promise<void> {
   const device = result.authorization === "authorized"
-    ? result.devices.find((candidate) => candidate.id === preferredDeviceId) ?? result.devices[0]
+    ? result.devices.find((candidate) => candidate.id === preferredDeviceId)
+      ?? result.devices.find((candidate) => candidate.is_default)
+      ?? result.devices.find((candidate) => candidate.position === "back")
+      ?? result.devices[0]
     : undefined;
   if (!device || nativePreviewStarting || (nativePreviewRunning && activeDeviceId === device.id)) return;
   nativePreviewStarting = true;
   signalMessage.textContent = t.previewStarting;
+  currentCapabilities = undefined;
+  updateZoomControl(device.position);
   try {
     try {
-      applyCapabilities(await invoke<CameraCapabilities>("get_camera_capabilities", { deviceId: device.id }));
+      applyCapabilities(
+        await invoke<CameraCapabilities>("get_camera_capabilities", { deviceId: device.id }),
+        device.position,
+        device
+      );
     } catch { /* Preview can continue even if capability inspection fails. */ }
     const status = await invoke<PreviewStatus>("start_camera_preview", {
       deviceId: device.id,
@@ -2672,25 +2812,37 @@ function renderDiscovery(result: CameraDiscovery): void {
     return;
   }
   signalTitle.textContent = t.detected;
-  signalMessage.textContent = `${result.devices[0].label} · ${t.previewPending}`;
+  const defaultDevice = result.devices.find((device) => device.is_default) ?? result.devices[0];
+  signalMessage.textContent = `${cameraDeviceLabel(defaultDevice) ?? defaultDevice.label} · ${t.previewPending}`;
 }
 
 async function refreshCameraDiscovery(): Promise<void> {
   if (controlFixtureEnabled) {
     availableDevices = [
+      { id: "auto", label: "Back Triple Camera", position: "back", is_virtual: true, is_default: true },
+      { id: "auto-dual-wide", label: "Back Dual Wide Camera", position: "back", is_virtual: true },
+      { id: "auto-dual", label: "Back Dual Camera", position: "back", is_virtual: true },
       { id: "ultra", label: "Ultra Wide 13mm", position: "back" },
       { id: "wide", label: "Wide 26mm", position: "back" },
-      { id: "tele", label: "Telephoto 77mm", position: "back" }
+      { id: "tele", label: "Telephoto 77mm", position: "back" },
+      { id: "front", label: "TrueDepth 23mm", position: "front" }
     ];
+    activeDeviceId = "auto";
+    activeDevicePosition = "back";
     applyCapabilities({
       supports_still: true, supports_video: true, supports_audio: true,
+      shutter_sound_suppression_supported: devQuery.get("shutter-suppression") !== "0",
       resolutions: [[1920, 1080]], frame_rates: [24, 30],
       formats: [{ width: 1920, height: 1080, frame_rates: [24, 30] }],
       manual_iso: [32, 1600], manual_shutter: true, manual_focus: true, current_iso: 400,
-      lens_label: "Wide 26mm", lens_aperture: 1.6, current_shutter_seconds: 1 / 48,
+      lens_label: "Back Triple Camera", lens_aperture: 1.6, current_shutter_seconds: 1 / 48,
       manual_white_balance: true, current_white_balance_kelvin: 5600,
+      zoom: {
+        minimum_factor: 0.5, maximum_factor: 10, current_factor: 1,
+        automatic_lens_switching: true, switch_over_factors: [1, 3]
+      },
       raw_photo: false, log_video: false, hdr_video: false
-    });
+    }, "back", availableDevices[0]);
     applyActiveFormat({ width: 1920, height: 1080, fps: 30, settings_persisted: true, settings_warning: null });
     return;
   }
@@ -2738,21 +2890,23 @@ function syncNativePreviewFrame(): void {
 
 new ResizeObserver(syncNativePreviewFrame).observe(previewSurface);
 window.addEventListener("resize", syncNativePreviewFrame);
-let orientationSettleTimer: number | undefined;
+let orientationSettleTimers: number[] = [];
 function scheduleOrientationSync(): void {
-  if (orientationSettleTimer !== undefined) window.clearTimeout(orientationSettleTimer);
+  orientationSettleTimers.forEach((timer) => window.clearTimeout(timer));
+  orientationSettleTimers = [];
   window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
     void syncNativeOrientation();
     syncNativePreviewFrame();
   }));
-  orientationSettleTimer = window.setTimeout(() => {
-    orientationSettleTimer = undefined;
-    void syncNativeOrientation();
+  orientationSettleTimers = [180, 420, 800].map((delay, index) => window.setTimeout(() => {
+    if (index === 1) void syncNativeOrientation();
     syncNativePreviewFrame();
-  }, 180);
+  }, delay));
 }
 screen.orientation?.addEventListener("change", scheduleOrientationSync);
 window.addEventListener("orientationchange", scheduleOrientationSync);
+window.visualViewport?.addEventListener("resize", syncNativePreviewFrame);
+window.visualViewport?.addEventListener("scroll", syncNativePreviewFrame);
 
 window.addEventListener("beforeunload", () => {
   if (nearbySnapshot.active) void invoke("stop_nearby_discovery");
@@ -3433,6 +3587,68 @@ formatApply.addEventListener("click", async () => {
   }
 });
 
+async function applyCameraZoom(): Promise<void> {
+  const factor = Number(zoomSlider.value);
+  if (!Number.isFinite(factor) || zoomControl.hidden || activeDevicePosition !== "back") return;
+  const request = ++zoomRequestSerial;
+  if (controlFixtureEnabled) {
+    if (currentCapabilities?.zoom) currentCapabilities.zoom.current_factor = factor;
+    return;
+  }
+  try {
+    const applied = await invoke<number>("set_camera_zoom", { factor });
+    if (request !== zoomRequestSerial) return;
+    zoomSlider.value = applied.toFixed(2);
+    if (currentCapabilities?.zoom) currentCapabilities.zoom.current_factor = applied;
+    updateZoomAppearance(applied);
+  } catch (error) {
+    if (request !== zoomRequestSerial) return;
+    feedback.textContent = `${t.zoom}: ${String(error)}`;
+    feedback.classList.add("is-visible");
+    window.setTimeout(() => feedback.classList.remove("is-visible"), 3500);
+  }
+}
+
+zoomSlider.addEventListener("input", () => {
+  updateZoomAppearance(Number(zoomSlider.value));
+  if (zoomUpdateTimer !== undefined) window.clearTimeout(zoomUpdateTimer);
+  zoomUpdateTimer = window.setTimeout(() => {
+    zoomUpdateTimer = undefined;
+    void applyCameraZoom();
+  }, 45);
+});
+zoomSlider.addEventListener("change", () => {
+  if (zoomUpdateTimer !== undefined) window.clearTimeout(zoomUpdateTimer);
+  zoomUpdateTimer = undefined;
+  void applyCameraZoom();
+});
+
+function populateLensOptions(select: HTMLSelectElement): void {
+  const groups: { position: CameraDevice["position"][]; label: string }[] = [
+    { position: ["back"], label: t.rearCameras },
+    { position: ["front"], label: t.frontCameras },
+    { position: ["external", "unspecified"], label: t.externalCameras }
+  ];
+  const nodes = groups.flatMap((group) => {
+    const devices = availableDevices.filter((device) =>
+      group.position.includes(device.position)
+      && !(device.position === "back" && device.is_virtual && !device.is_default)
+    );
+    if (devices.length === 0) return [];
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = group.label;
+    devices.forEach((device) => {
+      const option = document.createElement("option");
+      option.value = device.id;
+      option.textContent = cameraDeviceLabel(device) ?? device.label;
+      option.selected = device.id === activeDeviceId;
+      optgroup.append(option);
+    });
+    return [optgroup];
+  });
+  select.replaceChildren(...nodes);
+}
+
 document.querySelectorAll<HTMLButtonElement>("[data-parameter]").forEach((button) => {
   button.addEventListener("click", () => {
     if (button.dataset.parameter === "fps") {
@@ -3457,7 +3673,7 @@ document.querySelectorAll<HTMLButtonElement>("[data-parameter]").forEach((button
       }));
     };
     if (parameter === "lens") {
-      setOptions(availableDevices.map((device) => ({ value: device.id, label: device.label })), activeDeviceId ?? availableDevices[0]?.id ?? "");
+      populateLensOptions(select);
     } else if (parameter === "iris") {
       const aperture = currentCapabilities?.lens_aperture;
       const label = aperture ? `ƒ/${aperture.toFixed(1)} · FIXED` : "FIXED";
@@ -3506,7 +3722,25 @@ document.querySelector<HTMLSelectElement>("#adjust-select")!.addEventListener("c
   try {
     if (adjustmentParameter === "lens") {
       if (controlFixtureEnabled) {
-        document.querySelector<HTMLElement>('[data-parameter="lens"] strong')!.textContent = select.selectedOptions[0]?.textContent ?? "LENS";
+        const selectedDevice = availableDevices.find((device) => device.id === select.value);
+        activeDeviceId = selectedDevice?.id;
+        activeDevicePosition = selectedDevice?.position;
+        document.querySelector<HTMLElement>('[data-parameter="lens"] strong')!.textContent = cameraDeviceLabel(selectedDevice) ?? "LENS";
+        if (currentCapabilities) {
+          currentCapabilities.lens_label = selectedDevice?.label;
+          currentCapabilities.zoom = selectedDevice?.position === "back"
+            ? selectedDevice.is_virtual
+              ? {
+                minimum_factor: 0.5, maximum_factor: 10, current_factor: 1,
+                automatic_lens_switching: true, switch_over_factors: [1, 3]
+              }
+              : {
+                minimum_factor: 1, maximum_factor: 10, current_factor: 1,
+                automatic_lens_switching: false, switch_over_factors: []
+              }
+            : null;
+        }
+        updateZoomControl(activeDevicePosition, currentCapabilities);
       } else {
         await startNativePreview({ authorization: "authorized", devices: availableDevices }, select.value);
       }
@@ -3568,8 +3802,11 @@ captureButton.addEventListener("click", async () => {
   captureButton.disabled = true;
   captureButton.dataset.state = "loading";
   try {
+    const asset = await invoke<CaptureAsset>("capture_photo", { suppressShutterSound: shutterSoundSuppressionSupported && shutterSound.value === "silent" });
+    // On iOS, starting WebKit audio can reconfigure the process-wide
+    // AVAudioSession. Do not let feedback audio race AVCapturePhotoOutput;
+    // play it only after the native capture and atomic save have completed.
     playShutterSound();
-    const asset = await invoke<CaptureAsset>("capture_photo", { suppressShutterSound: shutterSound.value === "silent" });
     captureButton.dataset.state = "success";
     const path = asset.original.path;
     const warning = asset.validation.status === "warning" ? ` · ${t.assetMetadataWarning}` : "";

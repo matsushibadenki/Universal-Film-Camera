@@ -9,6 +9,8 @@ UIシェル: Tauri 2 + TypeScript
 
 2026-09-01、iOS姿勢同期を修正した。Webのportrait-up 0度をAVFoundationへそのまま渡さず、縦90度、横左0度、横右180度、逆さ縦270度へ変換する。Preview／Photo／Movieは同じconnection角度を使用し、front cameraはpreviewだけ鏡像、保存物は非鏡像である。PhotoOutputの再接続とformat再適用後にも保持角度を再設定するため、JPEGとMOVの保存経路もPreviewと同じ被写体上方向になる。回転時はSafe AreaとDOMの確定を待ってnative preview frameを二段階再同期する。portraitでは下部rail、狭高さlandscapeでは右side railを使う。録画中の回転は単一MOV内の途中transform変更を避けて拒否し、停止直後に現在姿勢を反映する。実装／build完了と、実機で4姿勢のPreviewおよび保存JPEG／MOVを目視確認する受け入れは区別し、後者を`[Next]`に残す。
 
+同日の実機報告で、回転後にiOS status barへカメラ映像が残る場合があることを確認した。原因はWKWebViewのSafe Area更新とDOM矩形、兄弟native preview `UIView`のframe更新が同じlayout cycleで確定しない競合である。`IosPreviewHost`はattach／resizeの両方で、DOM由来frameをWKWebViewの`safeAreaInsets`から作ったcontainer座標の安全矩形へ強制クリップする。Web側はdouble `requestAnimationFrame`、180／420／800msの収束更新、`visualViewport`のresize／scrollでもframeを再送する。これによりタイミング差が起きてもstatus barへ表示せず、確定後のframeへ復帰する。`npm run check`（102 test）、arm64実機build、署名、iPhone 13へのinstall／launch、390×844↔844×390のBrowser 2往復は合格した。実機画面を自動取得していないため、縦横5往復でstatus barが常時黒いことは`[Next]`の人手受け入れとする。
+
 同日、横向きright rail上のスワイプで撮影画面全体が移動する問題を修正した。`html/body`をviewportへ固定してoverflow／overscrollを止め、camera shellを`100dvh`内へ拘束し、スクロール不要なtool railには`touch-action: none`を指定した。Media／Nearby／環境設定は各section内部の既存`overflow-y: auto`を維持するため、長い一覧のスクロールは失わない。
 
 同日、撮影monitorのHistogramから冗長な`HIST`ラベルを除去し、HistogramとAudio level meterを4.5remの同一高さへ固定した。両panelはmonitor背景色50%＋2px backdrop blurへ統一し、撮影映像を透過させつつRGB波形、channel、dB表示の判読性を維持する。
@@ -572,13 +574,35 @@ monitoring処理中はsnapshot要求を最大約30Hz、無効時はhistogram／a
 
 - The earlier `silent` setting suppressed only Web Audio feedback. Still capture now passes `suppressShutterSound` through Tauri to `AVCapturePhotoSettings.shutterSoundSuppressionEnabled` on iOS.
 - The property is set only when `AVCapturePhotoOutput.shutterSoundSuppressionSupported` is true. Apple documents that iOS returns false in jurisdictions where shutter sound production cannot be disabled; forcing the setting while unsupported throws an exception and is therefore intentionally avoided.
-- Consequently `silent` is best-effort through Apple's public API, not a bypass. Unsupported devices/regions retain the system shutter sound, and the localized Settings copy explains this accurately.
+- `CameraCapabilities.shutter_sound_suppression_supported` carries that runtime answer to the WebView. Settings starts fail-closed: `silent` and its localized disclaimer are hidden until the value is explicitly true. Unsupported devices, restricted jurisdictions, iOS versions without the selector, and other platforms therefore expose only `standard`／`fresh`／`dslr`／imported custom sounds.
+- Do not replace this with a hard-coded country, locale, time-zone, SIM, or storefront list. Those are not authoritative for the device's current AVFoundation policy. The public runtime capability is the single source of truth.
+- A stored `silent` preference cannot trigger suppression while capability is false. The UI falls back to `standard` for the session, while the native capture command also requires both the visible `silent` selection and a true capability before sending `suppressShutterSound`.
+- Browser regression fixtures are `?control-fixture=1` for supported and `?control-fixture=1&shutter-suppression=0` for unsupported. On 2026-09-01, the unsupported fixture exposed zero visible silent options and zero visible disclaimer nodes; the supported fixture exposed one of each and allowed selecting `silent`. Both rendered without console errors or warnings.
+- The signed arm64 iOS build succeeds with deployment target iOS 14 because the iOS 18 getter is guarded with `respondsToSelector` before invocation. A restricted-jurisdiction device remains the final runtime acceptance environment; this is not simulated by changing the app locale.
+
 ### Imported shutter sound files (2026-09-01)
 
 - Settings > Capture accepts MP3, M4A, WAV, CAF, and other iOS/WebKit-decodable `audio/*` files up to 5 MiB. Import immediately selects and previews the sound.
 - The copied `Blob` and original filename are persisted in IndexedDB database `ufc-shutter-sounds-v1`, object store `sounds`, key `custom`; the source file is not referenced after import.
 - The selected `custom` value remains in `ufc.shutter-sound.v1`. On startup the custom blob is restored before applying the selection. Re-import replaces the single managed custom sound and revokes the previous object URL.
+
+### Bundled shutter sound library (2026-09-01)
+
+- `assets/shutter-sounds/C137.wav`、`F2.wav`、`H503.wav`、`M4.wav`、`small.wav`をVite asset graphへ明示登録した。環境設定では三言語の「追加音源」group内に提供時の識別名で表示する。
+- 各音は48 kHz Float32 stereo、0.38〜3.38秒。選択時に試聴し、Still capture時にも同じassetを再生する。playerは起動時に生成して`preload=auto`とし、capture時のURL生成とdecode開始遅延を減らす。
+- 原本は変更していない。特に`small.wav`はpeak 0.008785で他より約40 dB低いが、意図不明のため自動normalizationしない。hash、duration、peakは`assets/shutter-sounds/README.md`が正本である。
+- `npm run check`はWeb production buildとRust workspace全103 testに合格した。Vite出力で5 WAVすべてのhash付きasset生成を確認した。
+- Browser QAは390×844と844×390で実施した。5項目の表示、各項目の選択、再読み込み後の選択保持、horizontal overflow 0、console error／warning 0を確認した。
+- 5音を含む署名済みarm64 IPAを再生成し、2026-09-01 20:57に接続中の`littlebuddha's iPhone13`へ上書きinstallして`app.universalfilm.camera`を起動した。
+- [Next] 配布前に5音の出典、作者、ライセンス、商用配布可否を記録し、iPhone speakerで音量・tail・連写時の重なりを受け入れる。
 - Audio decoding ultimately depends on the installed iOS/WebKit version. Playback failures are surfaced in the localized settings status instead of silently falling back.
+
+### Still capture and shutter-audio serialization (2026-09-01)
+
+- 実機で「写真撮影に失敗しました：収録できません」と表示された。Still操作がWebKitのシャッター音再生を開始してからAVCapturePhotoOutputを呼んでおり、同一processのAVAudioSession再構成とphoto captureが競合し得る順序だった。
+- native photo capture、JPEG atomic write、CapturedAsset validation／finalizeが成功した後にだけ操作音を再生する順序へ変更した。撮影失敗時に成功音を鳴らさず、音声feedbackが収録開始を妨げない。
+- Photo delegateのNSErrorはlocalized descriptionだけでなくdomain／codeもUI errorへ返し、同じ内容を`[camera-apple]` prefixで端末consoleへ記録する。再発時にAVFoundation errorを特定できる。
+- `cargo fmt --check`、Web production build、Rust workspace全103 test、署名済みarm64 IPA buildに合格し、2026-09-01 21:03にiPhone 13へ上書きinstall／launchした。実機で各同梱音源と通常音を使った連続Still成功は利用者受け入れ対象である。
 ### Icon-first interface redesign (2026-09-01)
 
 - `design.md` now locks the app-wide system: professional Workbench, live-image priority, dark technical canvas, cyan navigation state, and icon-first navigation.
@@ -597,4 +621,26 @@ monitoring処理中はsnapshot要求を最大約30Hz、無効時はhistogram／a
 - Mediaのfilterまたはthumbnail／details表示を切り替えたときは`mediaGrid.scrollTop = 0`へ戻す。旧layoutのscroll offsetを保持すると、件数の少ないfilterで先頭cardが途中から見える。
 - 30rem以下ではCamera／Media／Nearby／Settingsの固定`min-height`を解除する。320×568では下部tool railが168pxまで二段化されるため、25rem固定の作業面を残すと32px重なる。作業面をgridの残り高さへ縮め、各内部scroll regionで内容へ到達させる。
 - Browser QAは844×390のSettings／Media、320×568、375×667、414×896、768×1024で実施した。全viewportでhorizontal overflow 0、44pt未満の可視button 0、主要面とtool railの間隔8px、console error／warning 0を確認した。Settings panelは`scrollTop 0 → 176`、Media detailsは`scrollTop 0 → 260`で独立scrollし、filter後は0へ復帰した。
-- `npm run check`はWeb production buildとRust workspace 101 testに合格した。Development Team `3WH28SSRZC`でarm64 debug IPAを再生成し、接続中の`littlebuddha's iPhone13`へ`app.universalfilm.camera`をinstall／launchした。横位置の実画面による最終目視は利用者受け入れ対象である。
+- `npm run check`はWeb production buildとRust workspace 102 testに合格した。Development Team `3WH28SSRZC`でarm64 debug IPAを再生成し、接続中の`littlebuddha's iPhone13`へ`app.universalfilm.camera`をinstall／launchした。横位置の実画面による最終目視は利用者受け入れ対象である。
+
+### Rear-camera continuous zoom (2026-09-01)
+
+- LENS selectorはdevice positionを正本に、背面／前面／外部の三言語optgroupへ分類する。localized device名を独自文字列解析して分類してはいけない。
+- iOSのTriple／Dual Wide／Dual仮想deviceを列挙し、構成物理camera数が最多の背面仮想deviceを`is_default`にする。UI名は「背面カメラ自動／Rear Camera Auto／后置相机自动」。仮想device非対応時は背面Wide優先の物理deviceへfallbackする。
+- AVFoundationがTriple／Dual Wide／Dualを同時に返す場合、最大構成の`is_default`仮想deviceだけを公開する。UIも非既定仮想deviceを除外するため、「背面カメラ自動」は常に最大1件である。物理deviceは削除しない。
+- 自動modeはsessionを交換せず、単一仮想deviceへzoom rampを送り、0.5×／1×／望遠の物理レンズ選択をiOSへ委ねる。Ultra Wide／Wide／Telephotoの個別deviceは固定レンズmodeとして残す。
+- `CameraCapabilities.zoom`は`displayVideoZoomFactorMultiplier`で正規化した画面表示倍率である。設定時にnative倍率へ逆変換する。`automatic_lens_switching`と表示倍率へ変換済みの`switch_over_factors`を含む。古いpayload、前面camera、非対応backendでは既定値または`None`としてUIを表示しない。
+- 撮影画面のsliderは44px touch領域の中に1px trackと11px thumbだけを描く。Scope有効時はHistogram／Audio meterの上へ移動し、縦横とも重ねない。精密操作のためUI上限は10×とする。
+- range inputは表示値を即時更新し、native要求を45msで間引く。Apple backendはconfiguration lock中にrate 6の`rampToVideoZoomFactor`を使うため、Still／Video previewをsnapさせず連続変更できる。
+- Browser fixtureで背面3レンズ／前面1cameraのgroup、1→3.25×、前面でslider非表示、背面で復帰を操作した。390×844と844×390でScopeとの非重複、horizontal overflow 0、console error／warning 0、`npm run check`全102 test、arm64 IPA buildは合格した。
+- iPhone 13への初回install後、自動launchがApple Development証明書の信頼エラーで一度拒否されたが、2026-09-01 15:10の再installでは同じ署名済みIPAのinstall／`app.universalfilm.camera` launchとも成功した。一時的な端末側信頼状態として記録し、証明書更新を恒久条件とはしない。自動modeの実映像受け入れは、0.5×→1×→望遠→1×、近接時fallback、動画収録中の変更、物理固定mode、前面でslider非表示を目視確認するまで`[Next]`とする。
+- 自動mode追加後の`npm run check`はWeb production buildとRust workspace全103 testに合格した。Browser fixtureは390×844／844×390で既定自動mode、背面／前面group、Wide固定mode、前面slider非表示、自動0.5×復帰、horizontal overflow 0を確認した。arm64署名済みIPAを再生成し、2026-09-01 15:35に接続中のiPhone 13へinstallして`app.universalfilm.camera`を起動した。
+- 重複仮想camera修正後も全103 testが合格した。Triple／Dual Wide／Dualを同時に含むBrowser fixtureを縦横で検証し、「背面カメラ自動」各1件、console error／warning 0を確認した。修正版IPAは2026-09-01 15:47にiPhone 13へ上書きinstallし、起動まで成功した。
+
+### Deterministic Media long-press menu (2026-09-01)
+
+- iOS WebKitでは写真thumbnailの`img`が標準画像preview／共有context menuの対象になり、アプリ側の550ms長押し判定より先にnative calloutが成立する場合があった。その結果、同じ長押しでもアプリの「写真アプリに保存／削除」と、iOS標準の拡大previewが不定に切り替わっていた。
+- thumbnailは表示専用とし、`draggable = false`、`pointer-events: none`、`-webkit-touch-callout: none`、`-webkit-user-drag: none`、選択禁止を設定した。pointer／keyboard操作の所有者は常に親のMedia cardである。
+- card側もiOS標準calloutと文字選択を抑止し、capture phaseの`contextmenu`で`preventDefault`と`stopPropagation`を行う。独自長押しは420msで開き、10pxを超える移動では解除するため、Media gridの`touch-action: pan-y`と縦スクロールは維持する。
+- `npm run check`はWeb production buildとRust workspace全103 testに合格した。Browser fixtureは390×844と844×390で独自menuの「写真アプリに保存／削除」、外側tapでclose、horizontal overflow 0を確認した。desktop WebKitではiOS native image callout自体を再現できないため、複数thumbnailの連続長押しと縦scrollはiPhone実機の受け入れ項目とする。
+- 署名済みarm64 IPAを再生成し、2026-09-01 21:12に接続中のiPhone 13へ上書きinstallした。端末がlock中だったため自動launchだけは拒否されたが、installは成功している。

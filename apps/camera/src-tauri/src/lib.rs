@@ -1007,6 +1007,34 @@ async fn set_camera_iso(iso: f32, state: tauri::State<'_, AppState>) -> Result<f
 }
 
 #[tauri::command]
+async fn set_camera_zoom(factor: f32, state: tauri::State<'_, AppState>) -> Result<f32, String> {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let session = {
+            let preview = state
+                .preview
+                .lock()
+                .map_err(|_| "preview state lock poisoned")?;
+            Arc::clone(
+                &preview
+                    .as_ref()
+                    .ok_or("camera preview is not running")?
+                    .session,
+            )
+        };
+        return tauri::async_runtime::spawn_blocking(move || session.set_zoom_factor(factor))
+            .await
+            .map_err(|error| format!("camera zoom task failed: {error}"))?
+            .map_err(|error| error.to_string());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        let _ = (factor, state);
+        Err("continuous camera zoom is not implemented on this platform".into())
+    }
+}
+
+#[tauri::command]
 async fn request_camera_authorization(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -2076,6 +2104,7 @@ pub fn run() {
             set_camera_shutter,
             set_camera_white_balance,
             set_camera_iso,
+            set_camera_zoom,
             request_camera_authorization,
             get_microphone_authorization,
             request_microphone_authorization,
