@@ -226,6 +226,11 @@ type Copy = {
   shutterSoundCustom: string;
   shutterSoundImported: string;
   shutterSoundImportFailed: string;
+  autoTransferDelete: string;
+  autoTransferDeleteDetail: string;
+  autoTransferRunning: string;
+  autoTransferComplete: string;
+  autoTransferFailed: string;
   settingsLut: string;
   settingsMedia: string;
   settingsMediaDetail: string;
@@ -399,6 +404,8 @@ const copy: Record<Locale, Copy> = {
     shutterSound: "Shutter sound", shutterSoundStandard: "Standard shutter", shutterSoundFresh: "Fresh", shutterSoundDslr: "DSLR", shutterSoundSilent: "Silent", shutterSoundLibrary: "Added sound library",
     shutterSoundDetail: "Silent requests the official iOS suppression mode. A mandatory system shutter still sounds on unsupported devices or in restricted regions.", shutterSoundSaved: "Shutter sound saved",
     shutterSoundImport: "Import sound file", shutterSoundImportHint: "MP3, M4A, WAV, or CAF · up to 5 MiB", shutterSoundCustom: "Custom", shutterSoundImported: "Shutter sound imported", shutterSoundImportFailed: "Could not import shutter sound",
+    autoTransferDelete: "Move new captures to Apple Photos", autoTransferDeleteDetail: "After each photo or video is saved to Photos, remove its app copy. Failed transfers always keep the app original.",
+    autoTransferRunning: "Moving capture to Apple Photos…", autoTransferComplete: "Moved to Apple Photos and removed from this app", autoTransferFailed: "Could not move to Apple Photos. The capture remains in this app.",
     settingsLut: "LUT", settingsMedia: "Media", settingsMediaDetail: "Move all finalized photos to Apple Photos, then remove their app copies.",
     guideStyle: "Guide style", guideThirds: "3 × 3 thirds", guideGrid: "Grid", guideDiagonal: "Diagonals",
     bulkPhotoTitle: "Move all photos to Apple Photos", bulkPhotoDetail: "Videos and recovery files are not affected. App copies are deleted only after every photo is saved successfully.",
@@ -483,6 +490,8 @@ const copy: Record<Locale, Copy> = {
     shutterSound: "シャッター音", shutterSoundStandard: "通常のシャッター音", shutterSoundFresh: "爽やかな音", shutterSoundDslr: "一眼レフカメラ", shutterSoundSilent: "無音", shutterSoundLibrary: "追加音源",
     shutterSoundDetail: "「無音」ではiOSの正式な消音機能も要求します。非対応端末や消音が制限される地域では、システムシャッター音が鳴ります。", shutterSoundSaved: "シャッター音を保存しました",
     shutterSoundImport: "音源ファイルを読み込む", shutterSoundImportHint: "MP3・M4A・WAV・CAF、最大5 MiB", shutterSoundCustom: "カスタム", shutterSoundImported: "シャッター音を読み込みました", shutterSoundImportFailed: "シャッター音を読み込めませんでした",
+    autoTransferDelete: "新しい撮影データをiPhoneの写真へ移動", autoTransferDeleteDetail: "写真・動画を写真アプリへ保存した後、アプリ内コピーを削除します。転送に失敗した原本は必ずアプリ内に保持します。",
+    autoTransferRunning: "撮影データを写真アプリへ移動しています…", autoTransferComplete: "写真アプリへ移動し、アプリ内コピーを削除しました", autoTransferFailed: "写真アプリへ移動できませんでした。撮影データはアプリ内に保持されています。",
     settingsLut: "LUT", settingsMedia: "メディア", settingsMediaDetail: "完成済み写真をすべて写真アプリへ移し、転送後にアプリ内のコピーを削除します。",
     guideStyle: "グリッド形式", guideThirds: "3分割（3×3）", guideGrid: "方眼（格子線）", guideDiagonal: "対角線",
     bulkPhotoTitle: "すべての写真を写真アプリへ移行", bulkPhotoDetail: "動画と復旧対象ファイルには影響しません。全写真の保存成功後にだけアプリ内コピーを削除します。",
@@ -567,6 +576,8 @@ const copy: Record<Locale, Copy> = {
     shutterSound: "快门声音", shutterSoundStandard: "标准快门", shutterSoundFresh: "清爽音效", shutterSoundDslr: "单反相机", shutterSoundSilent: "静音", shutterSoundLibrary: "附加音效",
     shutterSoundDetail: "“静音”也会请求 iOS 官方静音功能。在不支持的设备或受限制地区，系统快门声仍会响起。", shutterSoundSaved: "快门声音已保存",
     shutterSoundImport: "导入声音文件", shutterSoundImportHint: "MP3、M4A、WAV 或 CAF・最大 5 MiB", shutterSoundCustom: "自定义", shutterSoundImported: "快门声音已导入", shutterSoundImportFailed: "无法导入快门声音",
+    autoTransferDelete: "将新拍摄内容移到 Apple 照片", autoTransferDeleteDetail: "每张照片或视频保存到照片后，删除应用内副本。传输失败时始终保留应用内原片。",
+    autoTransferRunning: "正在将拍摄内容移到 Apple 照片…", autoTransferComplete: "已移到 Apple 照片并删除应用内副本", autoTransferFailed: "无法移到 Apple 照片。拍摄内容仍保留在应用内。",
     settingsLut: "LUT", settingsMedia: "媒体", settingsMediaDetail: "将所有已完成照片移到 Apple 照片，然后删除应用内副本。",
     guideStyle: "网格样式", guideThirds: "三分法（3×3）", guideGrid: "方格线", guideDiagonal: "对角线",
     bulkPhotoTitle: "将所有照片移到 Apple 照片", bulkPhotoDetail: "视频和恢复文件不受影响。仅在所有照片成功保存后删除应用内副本。",
@@ -865,6 +876,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <label class="settings-field" for="guide-style"><span>${t.guideStyle}</span>
           <select id="guide-style"><option value="thirds">${t.guideThirds}</option><option value="grid">${t.guideGrid}</option><option value="diagonal">${t.guideDiagonal}</option></select>
         </label>
+        <label class="settings-toggle" for="auto-transfer-delete"><input id="auto-transfer-delete" type="checkbox"><span>${t.autoTransferDelete}<small>${t.autoTransferDeleteDetail}</small></span></label>
       </div>
       <div class="settings-panel" id="settings-panel-color" role="tabpanel" aria-labelledby="settings-tab-color">
         <h2 class="settings-panel-title">${t.settingsColor}</h2>
@@ -1051,6 +1063,7 @@ const lutSelection = document.querySelector<HTMLSelectElement>("#lut-selection")
 const lutImportFile = document.querySelector<HTMLInputElement>("#lut-import-file")!;
 const lutStatus = document.querySelector<HTMLElement>("#lut-status")!;
 const guideStyle = document.querySelector<HTMLSelectElement>("#guide-style")!;
+const autoTransferDelete = document.querySelector<HTMLInputElement>("#auto-transfer-delete")!;
 const shutterSound = document.querySelector<HTMLSelectElement>("#shutter-sound")!;
 const shutterSoundSilentOption = document.querySelector<HTMLOptionElement>("#shutter-sound-silent-option")!;
 const shutterSoundRestrictionNote = document.querySelector<HTMLElement>("#shutter-sound-restriction-note")!;
@@ -1108,6 +1121,7 @@ const monitoringColorSpaceKey = "ufc.monitoring-color-space.v1";
 const monitorLookEnabledKey = "ufc.monitor-look-enabled.v1";
 const selectedLutKey = "ufc.selected-lut.v1";
 const guideStyleKey = "ufc.guide-style.v1";
+const autoTransferDeleteKey = "ufc.auto-transfer-delete.v1";
 const peakingColorKey = "ufc.peaking-color.v1";
 const shutterSoundKey = "ufc.shutter-sound.v1";
 type BundledShutterSound = "c137" | "f2" | "h503" | "m4" | "small";
@@ -2953,6 +2967,18 @@ function stopRecording(): void {
   void syncNativeOrientation();
 }
 
+async function moveCapturedAssetToPhotos(asset: CaptureAsset): Promise<{ moved: boolean; error?: string }> {
+  if (!autoTransferDelete.checked) return { moved: false };
+  feedback.textContent = t.autoTransferRunning;
+  feedback.classList.add("is-visible");
+  try {
+    await invoke("export_media_to_library_and_delete", { id: asset.id });
+    return { moved: true };
+  } catch (error) {
+    return { moved: false, error: String(error) };
+  }
+}
+
 async function finishVideoRecording(storageTriggered = false): Promise<void> {
   if (!recording || recordingStopPending) return;
   recordingStopPending = true;
@@ -2961,12 +2987,18 @@ async function finishVideoRecording(storageTriggered = false): Promise<void> {
   try {
     const asset = await invoke<CaptureAsset>("stop_video_recording");
     stopRecording();
-    captureButton.dataset.state = "success";
     const path = asset.original.path;
     const warning = asset.validation.status === "warning" ? ` · ${t.assetMetadataWarning}` : "";
-    feedback.textContent = storageTriggered
+    const transfer = await moveCapturedAssetToPhotos(asset);
+    captureButton.dataset.state = transfer.error ? "error" : "success";
+    const savedMessage = storageTriggered
       ? `${t.storageAutoStop} · ${path.split("/").pop() ?? path}${warning}`
       : `${t.videoSaved} · ${path.split("/").pop() ?? path}${warning}`;
+    feedback.textContent = transfer.moved
+      ? `${t.autoTransferComplete} · ${path.split("/").pop() ?? path}${warning}`
+      : transfer.error
+        ? `${savedMessage} · ${t.autoTransferFailed} ${transfer.error}`
+        : savedMessage;
     await refreshOutputStatus();
   } catch (error) {
     stopRecording();
@@ -3131,6 +3163,9 @@ guideStyle.addEventListener("change", () => {
   try { window.localStorage.setItem(guideStyleKey, guideStyle.value); } catch { /* keep session preference */ }
   applyGuideStyle(guideStyle.value);
 });
+autoTransferDelete.addEventListener("change", () => {
+  try { window.localStorage.setItem(autoTransferDeleteKey, String(autoTransferDelete.checked)); } catch { /* keep session preference */ }
+});
 peakingColor.addEventListener("change", () => {
   try { window.localStorage.setItem(peakingColorKey, peakingColor.value); } catch { /* keep session preference */ }
   applyPeakingColor(peakingColor.value);
@@ -3184,6 +3219,7 @@ lutImportFile.addEventListener("change", async () => {
 });
 applyMonitoringColorSpace(loadMonitoringColorSpace());
 applyGuideStyle(storedPreference(guideStyleKey, "thirds"));
+autoTransferDelete.checked = storedPreference(autoTransferDeleteKey, "false") === "true";
 applyPeakingColor(storedPreference(peakingColorKey, "cyan"));
 void loadCustomShutterSound().then(() => applyShutterSound(storedPreference(shutterSoundKey, "standard"))).catch(() => applyShutterSound("standard"));
 monitorLookEnabled.checked = storedPreference(monitorLookEnabledKey, "false") === "true";
@@ -3807,10 +3843,16 @@ captureButton.addEventListener("click", async () => {
     // AVAudioSession. Do not let feedback audio race AVCapturePhotoOutput;
     // play it only after the native capture and atomic save have completed.
     playShutterSound();
-    captureButton.dataset.state = "success";
     const path = asset.original.path;
     const warning = asset.validation.status === "warning" ? ` · ${t.assetMetadataWarning}` : "";
-    feedback.textContent = `${t.captured} · ${path.split("/").pop() ?? path}${warning}`;
+    const transfer = await moveCapturedAssetToPhotos(asset);
+    captureButton.dataset.state = transfer.error ? "error" : "success";
+    const savedMessage = `${t.captured} · ${path.split("/").pop() ?? path}${warning}`;
+    feedback.textContent = transfer.moved
+      ? `${t.autoTransferComplete} · ${path.split("/").pop() ?? path}${warning}`
+      : transfer.error
+        ? `${savedMessage} · ${t.autoTransferFailed} ${transfer.error}`
+        : savedMessage;
     void refreshOutputStatus();
   } catch (error) {
     captureButton.dataset.state = "error";

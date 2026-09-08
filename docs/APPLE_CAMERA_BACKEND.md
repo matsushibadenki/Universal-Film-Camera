@@ -164,7 +164,7 @@ stop_camera_preview()
 }
 ```
 
-AVFoundationが返すJPEG dataはWebView IPCへ渡さず、Rust側で直接保存する。保存先は現段階ではapp data directory配下の`captures`であり、Photos libraryへ書かないためPhotos権限は不要。ユーザー指定folder、Media画面、exportは別工程とする。
+AVFoundationが返すJPEG dataはWebView IPCへ渡さず、Rust側で直接`captures`へatomic保存する。通常はMedia Index管理下のアプリ原本として保持する。環境設定 > 撮影の「新しい撮影データをiPhoneの写真へ移動」を有効にした場合だけ、完成済みJPEG／MOVをPhotos Add Only APIへ書き出し、Photosのcommit成功後にアプリ原本、derivative、manifestを削除する。書き出し失敗時はアプリ原本を保持する。
 
 動画commandは次の状態条件を持つ。
 
@@ -208,7 +208,7 @@ stop_video_recording()
 - `tauri.conf.json > bundle.resources`: 各`lproj` directoryをbundleの`Contents/Resources`直下へ配置
 - `tauri.conf.json > bundle.macOS.entitlements`: 署名時にEntitlementを適用
 
-camera権限は撮影画面内の明示操作で要求する。マイク権限はVideo modeを選択した時に別途要求し、拒否／制限時は録画ボタンを無効化する。写真ライブラリへ直接保存しない限りPhotos権限は追加しない。
+camera権限は撮影画面内の明示操作で要求する。マイク権限はVideo modeを選択した時に別途要求し、拒否／制限時は録画ボタンを無効化する。Photos連携はlibraryを読み取らない`PHAccessLevelAddOnly`だけを要求し、自動移動が無効なら撮影時にPhotos権限を要求しない。
 
 ## 能力値に関する注意
 

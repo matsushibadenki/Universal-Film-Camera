@@ -267,6 +267,22 @@ impl MediaIndex {
         resolve_managed_resource(&self.captures_directory, &asset.original.path)
     }
 
+    /// Resolves photo sources in one catalogue pass for disposable cache maintenance.
+    pub fn finalized_photo_paths(&self) -> Result<Vec<PathBuf>, CameraError> {
+        self.list()?
+            .into_iter()
+            .filter(|entry| {
+                entry.state == AssetState::Finalized && entry.media_type == CapturedMediaType::Photo
+            })
+            .map(|entry| {
+                let asset = entry
+                    .asset
+                    .ok_or_else(|| CameraError("finalized media record has no asset".into()))?;
+                resolve_managed_resource(&self.captures_directory, &asset.original.path)
+            })
+            .collect()
+    }
+
     /// Permanently removes a finalized asset after an explicit user action.
     /// All managed resources are validated before the first file is removed;
     /// the manifest is removed last so interrupted deletion remains diagnosable.
@@ -617,6 +633,10 @@ mod tests {
         assert_eq!(entries[1].state, AssetState::Finalized);
         assert_eq!(entries[2].state, AssetState::Failed);
         assert_eq!(entries[1].asset.as_ref(), Some(&asset));
+        assert_eq!(
+            index.finalized_photo_paths().unwrap(),
+            vec![asset.original.path.canonicalize().unwrap()]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

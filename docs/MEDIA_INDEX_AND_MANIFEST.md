@@ -1,6 +1,6 @@
 # Media Index and Atomic Asset Manifest
 
-更新日: 2026-08-30
+更新日: 2026-09-08
 実装: `crates/camera-core/src/media_index.rs`、`apps/camera/src-tauri/src/lib.rs`
 
 ## Status
@@ -20,7 +20,30 @@
 - [Done] Failed／Incompleteの確認付きcleanupとasset詳細dialog
 - [Done] root直下のorphanをFailedとして記録するreconciliation
 - [Done] Failed／Incompleteの非破壊再検査とStill／Video再撮影操作
-- [Later] thumbnail／proxy生成とindex pagination
+- [Done] Apple ImageIO永続写真thumbnailとcache invalidation
+- [Later] 動画poster／proxy生成とindex pagination
+
+## Photo thumbnail cache（2026-09-08）
+
+`apps/camera/src-tauri/src/thumbnail.rs`はApple向けの写真一覧用縮小画像を生成する。
+`get_media_photo_preview(id)`のID／Finalized Photo／canonical managed path検証は維持し、
+IPC payloadのみ原本から長辺最大512pxのJPEGへ置換する。ImageIOの
+`CreateThumbnailWithTransform`でEXIFの向きを画素へ反映する。原本やmanifestは変更しない。
+
+- 保存先: Tauri `app_cache_dir()/media-thumbnails-v1/`。OSが破棄しても再生成できる。
+- キー: version、512px、canonical path、ファイルサイズ、更新日時nsのSHA-256。
+  内容の暗号学的同一性を保証するhashではない。同サイズ・同mtimeの外部書換えは検出対象外。
+- decodeはblocking worker上でmutexにより1件ずつ実行し、原本の同時展開を防ぐ。
+- JPEG cacheの合計は64MiB。生成時に古い更新日時のcacheから削除する（LRUではない）。
+- `.partial`へ書き込み、sync後renameする。cache保存不可でも生成できた縮小画像は表示する。
+- 一覧更新時、現在のFinalized写真pathを一括解決し、旧version／削除写真のcacheとpartialを除去。
+  catalogue解決に失敗した場合は誤削除を避けてcache清掃をスキップする。
+- 原本の読込上限64MiBを維持。壊れた画像は既存placeholderへfallback。
+- 動画poster、全画面原寸ビューア、一覧paginationはこの変更の対象外。
+
+自動テストは縮小寸法、90度orientation付きfixtureの縦横変換、JPEG出力、再利用、原本更新、破損cache再生成、容量eviction、
+cache保存不可時fallback、削除済みsourceの清掃を対象とする。
+iPhone上の一覧速度・EXIF回転実画像の目視受け入れは別途必要。
 
 ## Directory contract
 

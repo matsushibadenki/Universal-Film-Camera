@@ -1,6 +1,18 @@
 # Camera App Implementation Handoff
 
-更新日: 2026-09-01
+更新日: 2026-09-08
+
+## 2026-09-08: 永続写真サムネイル
+
+- Roadmapの原本JPEG IPC置換を実装。Apple ImageIOで長辺512pxの向き補正済みJPEGを作り、`app_cache_dir()/media-thumbnails-v1/`へ保存する。過去記録にある「現在は原本JPEGをIPCへ通す」はApple向けでは解消済み。
+- 生成はblocking worker＋直列decode。cacheは64MiB、原本path／size／mtime／versionで再生成し、一覧再取得と明示削除後に不要cacheを清掃する。cache保存失敗だけで写真表示を失わない。原本とasset metadataは変更しない。
+- `MediaIndex::finalized_photo_paths()`はmanaged path検証付きの一括解決API。cache清掃で写真ごとに全manifestを再走査しないために追加した。
+- Photos権限の用途説明を英語／日本語／简体中文で更新し、既存の手動書き出しとopt-in撮影後自動移動の写真／動画を明記した。
+- 検証: Web production build、Rust workspace全105 testに合格。追加testはnative ImageIO生成、512px寸法、90度orientationの画素反映、cache再利用／更新／破損／容量上限／保存不可fallback／削除後清掃。iPhone実機の速度・EXIF向きは人手受け入れが必要。
+- 次工程: iOSのCVPixelBuffer→Metal zero-copy preview、Still／VideoのLUT付きrendererと色変換・metadata。今回の縮小JPEGはMedia一覧専用であり、撮影previewのLUT高速化を完了したものではない。非iOS新規開発と実機2台検証は保留を維持。
+- 詳細: [MEDIA_INDEX_AND_MANIFEST.md](MEDIA_INDEX_AND_MANIFEST.md)。ユーザーが変更したシャッター音4ファイルと既存作業差分は保持した。
+- `cargo check -p universal-film-camera --target aarch64-apple-ios --offline`も合格。今回の変更は端末へ未インストールであり、署名済みIPA生成／端末実行を実施済みとは扱わない。
+
 対象: macOS / Windows / Linux / iOS / Android  
 UIシェル: Tauri 2 + TypeScript  
 共有コア: Rust
@@ -644,3 +656,11 @@ monitoring処理中はsnapshot要求を最大約30Hz、無効時はhistogram／a
 - card側もiOS標準calloutと文字選択を抑止し、capture phaseの`contextmenu`で`preventDefault`と`stopPropagation`を行う。独自長押しは420msで開き、10pxを超える移動では解除するため、Media gridの`touch-action: pan-y`と縦スクロールは維持する。
 - `npm run check`はWeb production buildとRust workspace全103 testに合格した。Browser fixtureは390×844と844×390で独自menuの「写真アプリに保存／削除」、外側tapでclose、horizontal overflow 0を確認した。desktop WebKitではiOS native image callout自体を再現できないため、複数thumbnailの連続長押しと縦scrollはiPhone実機の受け入れ項目とする。
 - 署名済みarm64 IPAを再生成し、2026-09-01 21:12に接続中のiPhone 13へ上書きinstallした。端末がlock中だったため自動launchだけは拒否されたが、installは成功している。
+
+### Automatic capture transfer to Apple Photos (2026-09-01)
+
+- 環境設定 > 撮影へ「新しい撮影データをiPhoneの写真へ移動」checkboxを追加した。英語、日本語、简体中文へ対応し、`ufc.auto-transfer-delete.v1`へ保存する。既存利用者の意図しない削除を避けるため既定値はoffである。
+- 有効時はStillの`capture_photo`完了後、Videoの`stop_video_recording`完了後に、完成済みMedia Index IDだけを`export_media_to_library_and_delete`へ渡す。UIからfilesystem pathは受け取らない。Photosは`PHAccessLevelAddOnly`を用い、写真は`creationRequestForAssetFromImageAtFileURL`、動画は`creationRequestForAssetFromVideoAtFileURL`で保存する。
+- 処理順は`native capture → probe／manifest finalize → Photos commit → MediaIndex::delete_finalized`である。Photosのpermission拒否、timeout、asset生成失敗では削除を開始せず、撮影成功を保ったままアプリ内原本を残して三言語の警告を表示する。Photos成功後にfilesystem削除だけが失敗した場合は、Photos copyとアプリ原本が両方残り、再試行可能である。
+- Browser QAは390×844と844×390でcheckbox表示、off／on変更、再読み込み後のon復元、撮影panelの独立scroll、horizontal overflow 0、console error／warning 0を確認した。`npm run build`、Rust workspace全103 test、`cargo check -p universal-film-camera --target aarch64-apple-ios`、署名済みarm64 IPA buildに合格した。
+- 修正版は2026-09-01 22:48に接続中のiPhone 13へ上書きinstallし、`app.universalfilm.camera`のlaunchまで成功した。実際のStill／Videoを各1件撮影し、Photosへの追加、アプリ内Media消失、拒否時保持を確認する操作は利用者受け入れ対象である。

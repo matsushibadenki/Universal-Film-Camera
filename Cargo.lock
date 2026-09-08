@@ -2323,6 +2323,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32b0446e98cf4a784cc7a0177715ff317eeaa8463841c616cfc78aa4f953c4ea"
 dependencies = [
+ "block2",
  "objc2",
  "objc2-core-foundation",
  "objc2-core-graphics",
@@ -4090,11 +4091,14 @@ dependencies = [
  "imaging-core",
  "libc",
  "mdns-sd",
+ "objc2-core-foundation",
  "objc2-foundation",
+ "objc2-image-io",
  "objc2-photos",
  "peer-transfer-core",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
 ]

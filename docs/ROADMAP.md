@@ -1,6 +1,6 @@
 # Universal Imaging Camera Roadmap
 
-更新日: 2026-09-01
+更新日: 2026-09-08
 対象: macOS / iOS / Android / Windows / Linux  
 正本仕様: [`Universal Film & Color Imaging Engine.md`](Universal%20Film%20%26%20Color%20Imaging%20Engine.md)
 
@@ -143,7 +143,8 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - [Done] サムネイルの長押し／右クリック／キーボードcontext menu、確認付き明示削除、iOS PhotosへのAdd Only書き出し
 - [Done] iOS app update時のdata container UUID変更を吸収するMedia resource再解決と、詳細リスト専用縦スクロール
 - [Done] 環境設定Media tabから完成済み写真をiOS Photosへ全件保存し、全件成功後だけアプリ内コピーを一括削除する確認付き移行
-- [Next] 原本JPEGのbase64 IPCを置換する永続縮小thumbnail生成とcache invalidation
+- [Done] Apple ImageIOで長辺512pxの向き補正済みJPEGを永続cacheへ生成。写真一覧の原本base64 IPCを縮小画像へ置換し、原本更新／削除時のinvalidation、64MiB上限、直列decode、cache障害時fallbackを実装
+- [Next] iPhone実機で大量写真一覧の初回／再表示、回転付き写真、削除後のcache追従を受け入れる
 - [Later] video poster／proxy生成、pagination、検索
 
 詳細: [`MEDIA_INDEX_AND_MANIFEST.md`](MEDIA_INDEX_AND_MANIFEST.md)
@@ -467,6 +468,10 @@ mobile scaffold
 [Done] 背面カメラ自動の重複修正版を縦横Browser QAし、iPhone 13へ再install／launch
 [Done] Media thumbnailのiOS標準画像calloutを抑止し、長押しをアプリ独自の写真保存／削除menuへ統一
 [Done] Media長押し修正後の全103 test、390×844／844×390 Browser QA、署名済みarm64 IPA build、iPhone 13 install
+[Done] 環境設定 > 撮影へ写真・動画共通の「撮影直後にApple Photosへ移動してアプリ内コピーを削除」checkboxを三言語で追加
+[Done] Photos Add Onlyの写真／動画asset生成を接続し、Photos commit成功後だけMedia Index管理下の原本・派生・manifestを削除
+[Done] 自動Photos移動の設定永続化、縦横Browser QA、全103 test、iOS arm64 check／署名済みIPA build、iPhone 13 install／launch
+[Next] iPhone実機で自動移動onのStill／Videoを各1件撮影し、Photos追加、アプリ内Media消失、Photos拒否時の原本保持を受け入れる
 [Next] iPhone実機で複数thumbnailを連続長押しし、標準画像previewが出ず、縦scrollと独自menuの削除が維持されることを受け入れる
 [Next] iPhone実映像で背面カメラ自動の0.5×→1×→望遠→1×、近接fallback、動画収録中の連続変更を目視受け入れする
 [Next] iPhone実機で縦位置と左右横位置を連続5往復し、時計・電波・電池領域が常時黒いことを目視受け入れする

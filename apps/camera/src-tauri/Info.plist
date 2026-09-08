@@ -7,7 +7,7 @@
   <key>NSMicrophoneUsageDescription</key>
   <string>Microphone access is required when recording video with sound.</string>
   <key>NSPhotoLibraryAddUsageDescription</key>
-  <string>Photo library access is used only to save photos you explicitly export from the Media page.</string>
+  <string>Saves photos and videos you export, or automatically moves new captures to Photos when you enable that setting.</string>
   <key>NSLocalNetworkUsageDescription</key>
   <string>Local network access is used to discover nearby users and transfer approved photos and videos securely.</string>
   <key>NSBonjourServices</key>

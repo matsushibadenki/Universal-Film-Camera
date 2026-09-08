@@ -164,6 +164,8 @@ Browser fixtureを390×844と844×390で再検証した。両方で初期LENSは
 
 2026-09-01、Media thumbnailの長押しをアプリ独自menuへ統一した。写真`img`は表示専用で、drag、文字選択、iOS WebKitの画像callout、pointer hit testを無効にし、親Media cardだけが420msの長押し、右click、keyboard context menuを処理する。指が10pxを超えて移動した場合は長押しをcancelし、縦scrollを優先する。390×844／844×390のBrowser QAでは「写真アプリに保存／削除」、外側tapでclose、horizontal overflow 0を確認した。iPhone上でiOS標準の拡大previewが出ないことは実機受け入れ対象である。
 
+同日、撮影tabの下端へ写真・動画共通の自動Photos移動checkboxを追加した。縦位置では既存の内部scrollで到達し、横位置では左categoryを固定したまま右panelだけをscrollする。説明文は「Photos成功後だけアプリ内コピーを削除し、失敗時は原本を保持する」安全条件を省略しない。390×844では150px、844×390では90pxの自然な折返しとなり、横はみ出しは0、44pt以上のlabel全体をtouch targetとして維持した。記録は`/tmp/auto-transfer-setting-portrait.png`と`/tmp/auto-transfer-setting-landscape.png`。
+
 2026-08-30、tool railへ出力statusを追加した。StillはJPEG、Videoは現行native writerが保証するH.264／AACとcontainerだけを表示し、未実装のRAW／HEVC／LOGをpresetとして提示しない。Rustの`statvfs`結果から保存先filesystemのavailable／total bytesを取得し、JPEGは8 MiB／枚、Videoは120 MiB／分のnominal estimateとして概算量を表示する。これは保証時間ではないため、実際のbitrate／scene complexity／filesystem reservationで変動する。
 
 同日、空き容量が256 MiBの安全予約と次の出力概算量を同時に確保できない場合、output statusをerror表示にし、Still／Videoの中央capture controlを無効化するpreflightを追加した。Rustも各capture commandの直前に同じ条件を再検査するため、UI状態だけには依存しない。録画開始後の連続監視と容量低下時の安全な自動停止は次工程である。

@@ -4,6 +4,8 @@ mod android_camera;
 mod camera_settings;
 mod lut_catalog;
 mod nearby_discovery;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod thumbnail;
 
 #[cfg(not(target_os = "android"))]
 use camera_apple::AppleCameraBackend;
@@ -483,10 +485,22 @@ fn finalize_captured_asset(
 }
 
 #[tauri::command]
-fn get_media_index(app: tauri::AppHandle) -> Result<Vec<MediaIndexEntry>, String> {
-    MediaIndex::new(captures_directory(&app)?)
-        .list()
-        .map_err(|error| error.to_string())
+async fn get_media_index(app: tauri::AppHandle) -> Result<Vec<MediaIndexEntry>, String> {
+    let index = MediaIndex::new(captures_directory(&app)?);
+    let entries = index.list().map_err(|error| error.to_string())?;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if let Ok(cache) = app.path().app_cache_dir() {
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            if let Ok(sources) = index.finalized_photo_paths() {
+                thumbnail::retain_sources(&sources, &cache.join("media-thumbnails-v1"))
+            } else {
+                // Never prune against an incomplete catalogue snapshot.
+                Ok(())
+            }
+        })
+        .await;
+    }
+    Ok(entries)
 }
 
 #[derive(Serialize)]
@@ -502,7 +516,10 @@ struct BulkPhotoMigrationResult {
     deleted: usize,
 }
 
-fn finalized_photo_path(app: &tauri::AppHandle, id: &str) -> Result<std::path::PathBuf, String> {
+fn finalized_media_path(
+    app: &tauri::AppHandle,
+    id: &str,
+) -> Result<(CapturedMediaType, std::path::PathBuf), String> {
     let captures = captures_directory(app)?;
     let index = MediaIndex::new(&captures);
     let entry = index
@@ -511,55 +528,87 @@ fn finalized_photo_path(app: &tauri::AppHandle, id: &str) -> Result<std::path::P
         .into_iter()
         .find(|entry| entry.id == id)
         .ok_or_else(|| "media entry was not found".to_string())?;
-    if entry.state != AssetState::Finalized || entry.media_type != CapturedMediaType::Photo {
+    if entry.state != AssetState::Finalized {
+        return Err("only finalized media can be exported".into());
+    }
+    let path = index
+        .finalized_original_path(id)
+        .map_err(|error| error.to_string())?;
+    Ok((entry.media_type, path))
+}
+
+fn finalized_photo_path(app: &tauri::AppHandle, id: &str) -> Result<std::path::PathBuf, String> {
+    let (media_type, path) = finalized_media_path(app, id)?;
+    if media_type != CapturedMediaType::Photo {
         return Err("only finalized photos can be exported".into());
     }
-    index
-        .finalized_original_path(id)
-        .map_err(|error| error.to_string())
+    Ok(path)
 }
 
 #[tauri::command]
-fn get_media_photo_preview(
+async fn get_media_photo_preview(
     app: tauri::AppHandle,
     id: String,
 ) -> Result<PhotoPreviewPayload, String> {
     use base64::Engine as _;
 
-    const MAX_PREVIEW_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
     let resource = finalized_photo_path(&app, &id)?;
-    let container = resource
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let mime_type = match container.as_str() {
-        "jpeg" | "jpg" => "image/jpeg",
-        "png" => "image/png",
-        "heif" | "heic" => "image/heic",
-        _ => return Err(format!("photo container is not previewable: {container}")),
-    };
-    let metadata = std::fs::metadata(&resource)
-        .map_err(|error| format!("failed to inspect photo preview: {error}"))?;
-    if metadata.len() == 0 || metadata.len() > MAX_PREVIEW_SOURCE_BYTES {
-        return Err("photo preview source exceeds the supported size".into());
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let cache = app
+            .path()
+            .app_cache_dir()
+            .map_err(|e| e.to_string())?
+            .join("media-thumbnails-v1");
+        let bytes =
+            tauri::async_runtime::spawn_blocking(move || thumbnail::load(&resource, &cache))
+                .await
+                .map_err(|e| e.to_string())??;
+        return Ok(PhotoPreviewPayload {
+            id,
+            mime_type: "image/jpeg".into(),
+            data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+        });
     }
-    let bytes = std::fs::read(&resource)
-        .map_err(|error| format!("failed to read photo preview: {error}"))?;
-    Ok(PhotoPreviewPayload {
-        id,
-        mime_type: mime_type.into(),
-        data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
-    })
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        const MAX_PREVIEW_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
+        let container = resource
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let mime_type = match container.as_str() {
+            "jpeg" | "jpg" => "image/jpeg",
+            "png" => "image/png",
+            "heif" | "heic" => "image/heic",
+            _ => return Err(format!("photo container is not previewable: {container}")),
+        };
+        let metadata = std::fs::metadata(&resource)
+            .map_err(|error| format!("failed to inspect photo preview: {error}"))?;
+        if metadata.len() == 0 || metadata.len() > MAX_PREVIEW_SOURCE_BYTES {
+            return Err("photo preview source exceeds the supported size".into());
+        }
+        let bytes = std::fs::read(&resource)
+            .map_err(|error| format!("failed to read photo preview: {error}"))?;
+        Ok(PhotoPreviewPayload {
+            id,
+            mime_type: mime_type.into(),
+            data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+        })
+    }
 }
 
 #[tauri::command]
-fn delete_media_entry(app: tauri::AppHandle, id: String) -> Result<Vec<MediaIndexEntry>, String> {
+async fn delete_media_entry(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Vec<MediaIndexEntry>, String> {
     let index = MediaIndex::new(captures_directory(&app)?);
     index
         .delete_finalized(&id)
         .map_err(|error| error.to_string())?;
-    index.list().map_err(|error| error.to_string())
+    get_media_index(app).await
 }
 
 #[tauri::command]
@@ -575,6 +624,31 @@ async fn export_photo_to_library(app: tauri::AppHandle, id: String) -> Result<()
     {
         let _ = path;
         Err("saving to Apple Photos is available only on iOS".into())
+    }
+}
+
+#[tauri::command]
+async fn export_media_to_library_and_delete(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<(), String> {
+    let (media_type, path) = finalized_media_path(&app, &id)?;
+    let index = MediaIndex::new(captures_directory(&app)?);
+    #[cfg(target_os = "ios")]
+    {
+        tauri::async_runtime::spawn_blocking(move || save_media_to_ios_library(&path, media_type))
+            .await
+            .map_err(|error| format!("media export task failed: {error}"))??;
+        // Never remove the app original until Photos has committed its copy.
+        index.delete_finalized(&id).map_err(|error| {
+            format!("media was exported, but the app copy could not be deleted: {error}")
+        })?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (media_type, path, index);
+        Err("automatic transfer to Apple Photos is available only on iOS".into())
     }
 }
 
@@ -635,6 +709,14 @@ async fn export_all_photos_and_delete(
 
 #[cfg(target_os = "ios")]
 fn save_photo_to_ios_library(path: &std::path::Path) -> Result<(), String> {
+    save_media_to_ios_library(path, CapturedMediaType::Photo)
+}
+
+#[cfg(target_os = "ios")]
+fn save_media_to_ios_library(
+    path: &std::path::Path,
+    media_type: CapturedMediaType,
+) -> Result<(), String> {
     use block2::RcBlock;
     use objc2_foundation::{NSString, NSURL};
     use objc2_photos::{
@@ -675,7 +757,15 @@ fn save_photo_to_ios_library(path: &std::path::Path) -> Result<(), String> {
     let request_created = Arc::new(AtomicBool::new(false));
     let request_created_in_block = Arc::clone(&request_created);
     let changes = RcBlock::new(move || unsafe {
-        if PHAssetCreationRequest::creationRequestForAssetFromImageAtFileURL(&url).is_some() {
+        let request = match media_type {
+            CapturedMediaType::Photo => {
+                PHAssetCreationRequest::creationRequestForAssetFromImageAtFileURL(&url)
+            }
+            CapturedMediaType::Video => {
+                PHAssetCreationRequest::creationRequestForAssetFromVideoAtFileURL(&url)
+            }
+        };
+        if request.is_some() {
             request_created_in_block.store(true, Ordering::Release);
         }
     });
@@ -683,7 +773,7 @@ fn save_photo_to_ios_library(path: &std::path::Path) -> Result<(), String> {
     unsafe { library.performChangesAndWait_error(RcBlock::as_ptr(&changes)) }
         .map_err(|error| error.localizedDescription().to_string())?;
     if !request_created.load(Ordering::Acquire) {
-        return Err("Photos could not create an asset from this image".into());
+        return Err("Photos could not create an asset from this media file".into());
     }
     Ok(())
 }
@@ -2126,6 +2216,7 @@ pub fn run() {
             get_media_photo_preview,
             delete_media_entry,
             export_photo_to_library,
+            export_media_to_library_and_delete,
             export_all_photos_and_delete,
             reconcile_media_index,
             cleanup_media_entry,
