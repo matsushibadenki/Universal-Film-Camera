@@ -1,6 +1,14 @@
 # Camera App Implementation Handoff
 
-更新日: 2026-09-08
+更新日: 2026-09-12
+
+## 2026-09-12: iOS Still LUT保存
+
+写真のLUT適用をnative保存経路へ接続した。選択表を撮影前に固定し、Core ImageでsRGB JPEGへ焼き込んでから既存のprobe／manifest finalizeへ進む。EXIF orientationを保持し、LUT ID・hash・domain・rendererをoptional color metadataに記録する。加工失敗時は未加工captureをincompleteに保持する。`none`は従来保存のまま。完成JPEGは焼き込み済みで、未加工コピーとの二重保存ではない。
+
+外部.cubeのred-fastest順序をCPU／WebGL／nativeで統一したため、従来の赤・青軸逆転が解消される。実機install・撮影は未実施。動画LUTとMetal zero-copy previewは未完了を維持する。過去記録の「Stillはmonitoring専用で原本を変更しない」は今回のLUT付きStill経路には適用されない。
+
+設計、互換性、テスト、残りの受け入れ条件は [IOS_STILL_LUT_MILESTONE.md](IOS_STILL_LUT_MILESTONE.md) を参照。
 
 ## 2026-09-08: 永続写真サムネイル
 

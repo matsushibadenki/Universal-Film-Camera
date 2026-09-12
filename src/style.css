@@ -724,6 +724,7 @@ body:not(.tool-scope) .histogram, body:not(.tool-scope) .audio-meter { display: 
 .destination-tools #open-media,
 .destination-tools #open-nearby,
 .destination-tools #open-settings { display: grid; }
+#settings-panel-lut .settings-note { white-space: pre-line; }
 .tool-rail button {
   display: grid;
   place-items: center;

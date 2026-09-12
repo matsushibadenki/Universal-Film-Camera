@@ -5,6 +5,8 @@ mod camera_settings;
 mod lut_catalog;
 mod nearby_discovery;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
+mod photo_look;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod thumbnail;
 
 #[cfg(not(target_os = "android"))]
@@ -1585,6 +1587,7 @@ async fn capture_photo(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     suppress_shutter_sound: Option<bool>,
+    lut_id: Option<String>,
 ) -> Result<CapturedAsset, String> {
     #[cfg(target_os = "android")]
     {
@@ -1648,6 +1651,14 @@ async fn capture_photo(
     }
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
+        // Resolve and freeze the selected table before the exposure starts.
+        let look = match lut_id.as_deref().filter(|id| *id != "none") {
+            Some(id) => Some((
+                id.to_owned(),
+                lut_catalog::payload(&luts_directory(&app)?, id)?,
+            )),
+            None => None,
+        };
         {
             let camera = state
                 .camera
@@ -1698,7 +1709,37 @@ async fn capture_photo(
         let destination_for_asset = destination.clone();
         let failure_id = id.clone();
         let asset_result = tauri::async_runtime::spawn_blocking(move || {
-            let resource = probe_media_resource(&path, CapturedMediaType::Photo)?;
+            let mut applied_lut = None;
+            if let Some((lut_id, lut)) = look {
+                let rendered = path.with_extension("look.jpg");
+                if rendered.exists() {
+                    return Err(camera_core::CameraError(
+                        "look output already exists; capture retained".into(),
+                    ));
+                }
+                let result = photo_look::render(&path, &rendered, &lut)
+                    .and_then(|_| {
+                        probe_media_resource(&rendered, CapturedMediaType::Photo)
+                            .map(|_| ())
+                            .map_err(|e| e.to_string())
+                    })
+                    .and_then(|_| {
+                        std::fs::File::open(&rendered)
+                            .and_then(|file| file.sync_all())
+                            .map_err(|e| e.to_string())
+                    });
+                if let Err(error) = result {
+                    let _ = std::fs::remove_file(&rendered);
+                    return Err(camera_core::CameraError(format!(
+                        "photo LUT render failed; unprocessed capture retained: {error}"
+                    )));
+                }
+                std::fs::rename(&rendered, &path)
+                    .map_err(|e| camera_core::CameraError(e.to_string()))?;
+                applied_lut = Some(lut.provenance(&lut_id));
+            }
+            let mut resource = probe_media_resource(&path, CapturedMediaType::Photo)?;
+            resource.color.applied_lut = applied_lut;
             CapturedAsset::from_probed_resource(
                 id,
                 CapturedMediaType::Photo,

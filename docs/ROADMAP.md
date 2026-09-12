@@ -1,6 +1,6 @@
 # Universal Imaging Camera Roadmap
 
-更新日: 2026-09-08
+更新日: 2026-09-12
 対象: macOS / iOS / Android / Windows / Linux  
 正本仕様: [`Universal Film & Color Imaging Engine.md`](Universal%20Film%20%26%20Color%20Imaging%20Engine.md)
 
@@ -292,7 +292,10 @@ Bluetooth LE / Bonjour / Nearby discovery
 - [Done] iPhone portraitは下部rail、狭高さlandscapeは右side railへ切り替え、回転後のSafe Area／DOM確定後にnative previewを再配置
 - [Done] 撮影画面を100dvh内へ固定し、横向きright rail上のスワイプによるページ移動／rubber-bandを抑止
 - [Done] HistogramのHISTラベルを除去し、Audio level meterと高さ・50%透過monitor背景を統一
-- [Next] 選択LUTをnative preview／Still／Video rendererへ適用し、LUT ID・hash・domainをasset metadataへ保存
+- [Done] iOS StillのLUT付きJPEG保存：撮影前snapshot、Core ImageによるsRGB LUT baking、EXIF維持、JPEG品質0.95、LUT ID／内容hash／domain／rendererのmanifest記録
+- [Done] 外部.cubeのred-fastest格子順をCPU／WebGLプレビューとnative Stillで統一し、非有限／重複domainを拒否
+- [Next] 選択LUTをMetal native preview／Video rendererへ適用し、動画にもLUT ID・hash・domainをasset metadataへ保存
+- [Next] iPhone実機で内蔵／外部LUTのStill撮影、Photos自動移動後の色調、4姿勢・前面カメラの向きを受け入れる
 - [Later] 測色データと正当なライセンスを持つ実在film stock別profile／LUT package
 - [Next] Rec.709／Display P3／sRGB設定をnative previewの実output transformと保存asset metadataへ接続
 - [Next] iPhone実機でpreview透過合成、histogram応答、audio meter応答を受け入れる

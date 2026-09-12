@@ -46,11 +46,26 @@ pub struct SelectedCaptureFormat {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CapturedColorMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied_lut: Option<AppliedLutMetadata>,
     pub embedded_profile: Option<String>,
     pub color_primaries: Option<String>,
     pub transfer_characteristic: Option<String>,
     pub matrix_coefficients: Option<String>,
     pub full_range: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppliedLutMetadata {
+    pub id: String,
+    pub sha256: String,
+    pub size: usize,
+    /// Decimal strings preserve the exact parsed f32 values without Eq ambiguity.
+    pub domain_min: [String; 3],
+    pub domain_max: [String; 3],
+    pub input_encoding: String,
+    pub output_encoding: String,
+    pub renderer: String,
 }
 
 impl CapturedColorMetadata {
@@ -809,6 +824,7 @@ fn parse_colr(bytes: &[u8], colr: IsoBox) -> CapturedColorMetadata {
             .is_some_and(|value| value & 0x80 != 0)
     });
     CapturedColorMetadata {
+        applied_lut: None,
         embedded_profile: None,
         color_primaries: primaries,
         transfer_characteristic: transfer,

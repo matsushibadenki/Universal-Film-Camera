@@ -414,7 +414,7 @@ const copy: Record<Locale, Copy> = {
     bulkPhotoCancel: "Cancel", bulkPhotoRunning: "Saving photos… Keep the app open.", bulkPhotoComplete: "All photos were saved and app copies were deleted.", bulkPhotoFailed: "Migration stopped. App copies were retained unless all exports had completed.",
     lutSelection: "Film-look LUT", lutImport: "Import .cube LUT", lutImportHint: "3D .cube · 2–65 grid · up to 4 MiB",
     lutImported: "LUT imported", lutImportFailed: "LUT import failed", lutBuiltIn: "Built-in film archetypes", lutExternal: "Imported LUTs",
-    lutAccuracyNote: "Built-ins represent generic film/process families, not measured reproductions of named film stocks.",
+    lutAccuracyNote: "Built-ins are generic film looks, not measured stock reproductions.\nPhotos (iOS): bake the LUT and save as sRGB.\nVideo: preview-only LUT.",
     focus: "Focus peaking",
     zebra: "Zebra", guides: "Frame guides", scopes: "Scopes", close: "Close", adjust: "Adjust",
     rearCameraAuto: "Rear Camera Auto", rearCameras: "Rear cameras", frontCameras: "Front cameras", externalCameras: "External cameras", zoom: "Zoom",
@@ -500,7 +500,7 @@ const copy: Record<Locale, Copy> = {
     bulkPhotoCancel: "キャンセル", bulkPhotoRunning: "写真を保存しています。アプリを開いたままにしてください…", bulkPhotoComplete: "すべての写真を保存し、アプリ内コピーを削除しました。", bulkPhotoFailed: "移行を中止しました。全件の書き出しが完了していない場合、アプリ内コピーは保持されています。",
     lutSelection: "フィルム調LUT", lutImport: ".cube LUTを読み込む", lutImportHint: "3D .cube・2〜65グリッド・最大4 MiB",
     lutImported: "LUTを読み込みました", lutImportFailed: "LUTを読み込めませんでした", lutBuiltIn: "内蔵フィルム調アーキタイプ", lutExternal: "読み込んだLUT",
-    lutAccuracyNote: "内蔵LUTは一般的なフィルム／現像系統の色調で、実在銘柄の測色再現ではありません。",
+    lutAccuracyNote: "内蔵LUTはフィルム調の近似表現です。\n写真：LUT適用・sRGBで保存（iOS）。\n動画：LUTは表示のみ。",
     focus: "ピーキング",
     zebra: "ゼブラ", guides: "ガイド", scopes: "スコープ", close: "閉じる", adjust: "調整",
     rearCameraAuto: "背面カメラ自動", rearCameras: "背面カメラ", frontCameras: "前面カメラ", externalCameras: "外部カメラ", zoom: "ズーム",
@@ -586,7 +586,7 @@ const copy: Record<Locale, Copy> = {
     bulkPhotoCancel: "取消", bulkPhotoRunning: "正在保存照片，请保持应用打开…", bulkPhotoComplete: "所有照片已保存，应用内副本已删除。", bulkPhotoFailed: "迁移已停止。若未完成全部导出，应用内副本会保留。",
     lutSelection: "胶片风格 LUT", lutImport: "导入 .cube LUT", lutImportHint: "3D .cube・2–65 网格・最大 4 MiB",
     lutImported: "LUT 已导入", lutImportFailed: "无法导入 LUT", lutBuiltIn: "内置胶片风格原型", lutExternal: "已导入 LUT",
-    lutAccuracyNote: "内置 LUT 表现通用胶片与冲印风格，并非对特定胶片型号的测色复刻。",
+    lutAccuracyNote: "内置 LUT 是通用胶片风格，并非特定胶片的测色复刻。\n照片（iOS）：应用 LUT，以 sRGB 保存。\n视频：LUT 仅用于预览。",
     focus: "峰值对焦",
     zebra: "斑马纹", guides: "参考线", scopes: "示波器", close: "关闭", adjust: "调整",
     rearCameraAuto: "后置相机自动", rearCameras: "后置相机", frontCameras: "前置相机", externalCameras: "外接相机", zoom: "变焦",
@@ -1345,10 +1345,16 @@ function syncMonitorProcessing(): void {
 }
 
 async function loadSelectedLutPayload(): Promise<void> {
+  const requestedId = lutSelection.value;
   activeLutPayload = undefined;
-  if (!lutSelection.value.startsWith("imported:")) return;
-  try { activeLutPayload = await invoke<LutPayload>("get_lut_payload", { id: lutSelection.value }); }
-  catch (error) { lutStatus.textContent = `${t.lutImportFailed}: ${String(error)}`; lutStatus.dataset.state = "error"; }
+  if (!requestedId.startsWith("imported:")) return;
+  try {
+    const payload = await invoke<LutPayload>("get_lut_payload", { id: requestedId });
+    if (lutSelection.value === requestedId) activeLutPayload = payload;
+  } catch (error) {
+    if (lutSelection.value !== requestedId) return;
+    lutStatus.textContent = `${t.lutImportFailed}: ${String(error)}`; lutStatus.dataset.state = "error";
+  }
 }
 
 function builtInLook(id: string, r: number, g: number, b: number): [number, number, number] {
@@ -1388,7 +1394,7 @@ function sampleExternalLut(payload: LutPayload, r: number, g: number, b: number)
   const axis = (value: number, channel: number) => Math.max(0, Math.min(n - 1, ((value - payload.domain_min[channel]) / (payload.domain_max[channel] - payload.domain_min[channel])) * (n - 1)));
   const x = axis(r, 0), y = axis(g, 1), z = axis(b, 2);
   const x0 = Math.floor(x), y0 = Math.floor(y), z0 = Math.floor(z), x1 = Math.min(n - 1, x0 + 1), y1 = Math.min(n - 1, y0 + 1), z1 = Math.min(n - 1, z0 + 1);
-  const index = (ri: number, gi: number, bi: number) => ri * n * n + gi * n + bi;
+  const index = (ri: number, gi: number, bi: number) => (bi * n + gi) * n + ri;
   const result: [number, number, number] = [0, 0, 0];
   for (let ri = 0; ri < 2; ri++) for (let gi = 0; gi < 2; gi++) for (let bi = 0; bi < 2; bi++) {
     const weight = (ri ? x - x0 : 1 - (x - x0)) * (gi ? y - y0 : 1 - (y - y0)) * (bi ? z - z0 : 1 - (z - z0));
@@ -1425,7 +1431,7 @@ function monitorLutTexture(id: string, payload?: LutPayload): { size: number; da
   const scale = Math.max(1, size - 1);
   for (let blue = 0; blue < size; blue++) for (let green = 0; green < size; green++) for (let red = 0; red < size; red++) {
     const input: [number, number, number] = [red / scale, green / scale, blue / scale];
-    const sourceIndex = red * size * size + green * size + blue;
+    const sourceIndex = (blue * size + green) * size + red;
     const color = imported ? payload.samples[sourceIndex] : builtInLook(id, ...input);
     const output = ((blue * size + green) * size + red) * 4;
     data[output] = Math.round(Math.max(0, Math.min(1, color[0])) * 255);
@@ -3838,7 +3844,7 @@ captureButton.addEventListener("click", async () => {
   captureButton.disabled = true;
   captureButton.dataset.state = "loading";
   try {
-    const asset = await invoke<CaptureAsset>("capture_photo", { suppressShutterSound: shutterSoundSuppressionSupported && shutterSound.value === "silent" });
+    const asset = await invoke<CaptureAsset>("capture_photo", { suppressShutterSound: shutterSoundSuppressionSupported && shutterSound.value === "silent", lutId: lutSelection.value });
     // On iOS, starting WebKit audio can reconfigure the process-wide
     // AVAudioSession. Do not let feedback audio race AVCapturePhotoOutput;
     // play it only after the native capture and atomic save have completed.

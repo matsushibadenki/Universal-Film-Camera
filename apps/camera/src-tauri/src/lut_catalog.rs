@@ -8,6 +8,89 @@ use std::{
 
 const MAX_LUT_BYTES: usize = 4 * 1024 * 1024;
 
+// Same display-referred archetypes used by the monitor; not measured film stocks.
+fn built_in_look(id: &str, rgb: [f32; 3]) -> [f32; 3] {
+    if id == "none" {
+        return rgb;
+    }
+    let mono = id.starts_with("bw-");
+    let vivid = id.contains("vivid") || id.contains("hard") || id == "bleach-bypass";
+    let soft = id.contains("soft") || id.contains("pastel") || id == "archive-faded";
+    let warm = id.contains("warm") || id == "negative-tungsten";
+    let cool = id.contains("cool");
+    let contrast = if vivid {
+        1.22
+    } else if soft {
+        0.84
+    } else {
+        1.05
+    };
+    let saturation = if mono {
+        0.0
+    } else if id == "bleach-bypass" {
+        0.48
+    } else if soft {
+        0.82
+    } else if vivid {
+        1.18
+    } else {
+        1.02
+    };
+    let lift = if soft { 0.035 } else { 0.0 };
+    let luma = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+    let gains = [
+        if warm {
+            1.055
+        } else if cool {
+            0.955
+        } else {
+            1.0
+        },
+        1.0,
+        if warm {
+            0.925
+        } else if cool {
+            1.06
+        } else {
+            1.0
+        },
+    ];
+    if id == "bw-orthochromatic" {
+        return [(rgb[0] * 0.15 + rgb[1] * 0.85).clamp(0., 1.); 3];
+    }
+    std::array::from_fn(|i| {
+        (((luma + (rgb[i] - luma) * saturation - 0.5) * contrast + 0.5 + lift) * gains[i])
+            .clamp(0., 1.)
+    })
+}
+
+impl LutPayload {
+    pub fn provenance(&self, id: &str) -> camera_core::AppliedLutMetadata {
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        hash.update(b"ufc-lut-red-fastest-f32-v1");
+        hash.update((self.size as u32).to_le_bytes());
+        for value in self
+            .domain_min
+            .iter()
+            .chain(self.domain_max.iter())
+            .chain(self.samples.iter().flatten())
+        {
+            hash.update(value.to_le_bytes());
+        }
+        camera_core::AppliedLutMetadata {
+            id: id.into(),
+            sha256: format!("{:x}", hash.finalize()),
+            size: self.size,
+            domain_min: self.domain_min.map(|v| v.to_string()),
+            domain_max: self.domain_max.map(|v| v.to_string()),
+            input_encoding: "srgb-display-referred".into(),
+            output_encoding: "srgb".into(),
+            renderer: "core-image-cube-v1".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct LutEntry {
     pub id: String,
@@ -23,7 +106,7 @@ pub struct LutCatalog {
     pub imported: Vec<LutEntry>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct LutPayload {
     pub size: usize,
     pub samples: Vec<[f32; 3]>,
@@ -173,6 +256,30 @@ pub fn import(directory: &Path, file_name: &str, content: &str) -> Result<LutEnt
 }
 
 pub fn payload(directory: &Path, id: &str) -> Result<LutPayload, String> {
+    if BUILT_INS.iter().any(|entry| entry.0 == id) {
+        let size = if id == "none" { 2 } else { 33 };
+        let mut samples = Vec::with_capacity(size * size * size);
+        for b in 0..size {
+            for g in 0..size {
+                for r in 0..size {
+                    samples.push(built_in_look(
+                        id,
+                        [
+                            r as f32 / (size - 1) as f32,
+                            g as f32 / (size - 1) as f32,
+                            b as f32 / (size - 1) as f32,
+                        ],
+                    ));
+                }
+            }
+        }
+        return Ok(LutPayload {
+            size,
+            samples,
+            domain_min: [0.; 3],
+            domain_max: [1.; 3],
+        });
+    }
     let stem = id
         .strip_prefix("imported:")
         .ok_or("only imported LUTs have file payloads")?;
@@ -190,6 +297,13 @@ pub fn payload(directory: &Path, id: &str) -> Result<LutPayload, String> {
         .map_err(|error| format!("failed to resolve imported LUT: {error}"))?;
     if !canonical_path.starts_with(&canonical_directory) || !canonical_path.is_file() {
         return Err("imported LUT is outside the managed directory".into());
+    }
+    if fs::metadata(&canonical_path)
+        .map_err(|e| e.to_string())?
+        .len()
+        > MAX_LUT_BYTES as u64
+    {
+        return Err("LUT exceeds the 4 MiB import limit".into());
     }
     let content = fs::read_to_string(canonical_path)
         .map_err(|error| format!("failed to read imported LUT: {error}"))?;
@@ -230,7 +344,7 @@ fn parse_cube(content: &str) -> Result<LutPayload, String> {
     if domain_min
         .iter()
         .zip(domain_max)
-        .any(|(min, max)| min >= &max)
+        .any(|(min, max)| !min.is_finite() || !max.is_finite() || min >= &max)
     {
         return Err("LUT domain minimum must be lower than maximum".into());
     }
@@ -249,6 +363,7 @@ fn validate_cube(content: &str) -> Result<(String, usize), String> {
     let mut title = None;
     let mut size = None;
     let mut samples = 0usize;
+    let mut domains = [None::<[f32; 3]>, None];
     for (index, raw) in content.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -261,6 +376,9 @@ fn validate_cube(content: &str) -> Result<(String, usize), String> {
             }
             title = Some(value.to_owned());
         } else if let Some(value) = line.strip_prefix("LUT_3D_SIZE") {
+            if size.is_some() || samples != 0 {
+                return Err("duplicate or misplaced LUT_3D_SIZE".into());
+            }
             let parsed = value
                 .trim()
                 .parse::<usize>()
@@ -272,7 +390,21 @@ fn validate_cube(content: &str) -> Result<(String, usize), String> {
         } else if line.starts_with("LUT_1D_SIZE") {
             return Err("1D LUT import is not supported".into());
         } else if line.starts_with("DOMAIN_MIN") || line.starts_with("DOMAIN_MAX") {
-            continue;
+            let slot = usize::from(line.starts_with("DOMAIN_MAX"));
+            let values = line
+                .split_whitespace()
+                .skip(1)
+                .map(str::parse::<f32>)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| "invalid LUT domain")?;
+            if domains[slot].is_some()
+                || samples != 0
+                || values.len() != 3
+                || values.iter().any(|v| !v.is_finite())
+            {
+                return Err("invalid, duplicate or misplaced LUT domain".into());
+            }
+            domains[slot] = Some([values[0], values[1], values[2]]);
         } else {
             let values = line
                 .split_whitespace()
@@ -289,6 +421,11 @@ fn validate_cube(content: &str) -> Result<(String, usize), String> {
             samples += 1;
         }
     }
+    let min = domains[0].unwrap_or([0.; 3]);
+    let max = domains[1].unwrap_or([1.; 3]);
+    if (0..3).any(|i| min[i] >= max[i]) {
+        return Err("LUT domain must be increasing".into());
+    }
     let size = size.ok_or("LUT_3D_SIZE is required")?;
     let expected = size.checked_pow(3).ok_or("LUT size overflow")?;
     if samples != expected {
@@ -301,7 +438,45 @@ fn validate_cube(content: &str) -> Result<(String, usize), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{catalog, import, parse_cube, validate_cube};
+    use super::*;
+    #[test]
+    fn tables_have_red_fastest_order_and_content_hashes() {
+        let mut lut = payload(Path::new("unused"), "none").unwrap();
+        assert_eq!(lut.samples[1], [1., 0., 0.]);
+        assert_eq!(lut.samples[4], [0., 0., 1.]);
+        let original = lut.provenance("none");
+        lut.samples[0][0] = 0.1;
+        assert_ne!(original.sha256, lut.provenance("none").sha256);
+        for &(id, _, _) in BUILT_INS {
+            let lut = payload(Path::new("unused"), id).unwrap();
+            assert_eq!(lut.samples.len(), lut.size.pow(3));
+            assert!(
+                lut.samples
+                    .iter()
+                    .flatten()
+                    .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+            );
+        }
+        let json = serde_json::to_string(&original).unwrap();
+        assert_eq!(
+            serde_json::from_str::<camera_core::AppliedLutMetadata>(&json).unwrap(),
+            original
+        );
+    }
+    #[test]
+    fn rejects_nonfinite_and_duplicate_domains() {
+        let samples = "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+        assert_eq!(parse_cube(samples).unwrap().samples[1], [1., 0., 0.]);
+        for domain in [
+            "DOMAIN_MIN NaN 0 0",
+            "DOMAIN_MAX inf 1 1",
+            "DOMAIN_MIN 0 0",
+            "DOMAIN_MIN 1 0 0",
+            "DOMAIN_MIN 0 0 0\nDOMAIN_MIN 0 0 0",
+        ] {
+            assert!(parse_cube(&format!("{domain}\n{samples}")).is_err());
+        }
+    }
     #[test]
     fn validates_complete_cube_and_rejects_truncation() {
         let valid = "TITLE \"Test\"\nLUT_3D_SIZE 2\n0 0 0\n0 0 1\n0 1 0\n0 1 1\n1 0 0\n1 0 1\n1 1 0\n1 1 1\n";
