@@ -2,6 +2,8 @@
 
 更新日: 2026-09-12
 
+2026-10-15追記：productionの色処理はRust／wgpu rendererへ移行した。以下はCore Image版の導入時記録であり、現在の所有権・実装・計測は [WGPU_RENDERER_MILESTONE.md](WGPU_RENDERER_MILESTONE.md) を参照。JPEG品質・sRGB・EXIF保持・失敗時のincomplete保持という保存契約は維持する。
+
 ## 完了範囲
 
 - [Done] 選択LUTをJPEGに焼き込み、MediaのthumbnailとPhotos書き出しが同じ加工済み画像を扱う。

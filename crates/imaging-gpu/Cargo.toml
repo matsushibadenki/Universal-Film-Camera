@@ -1,0 +1,17 @@
+[package]
+name = "imaging-gpu"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+wgpu = { version = "=27.0.1", default-features = false, features = ["std", "metal", "wgsl", "parking_lot"] }
+pollster = "0.4.0"
+bytemuck = { version = "1", features = ["derive"] }
+sha2.workspace = true
+serde.workspace = true
+
+[[example]]
+name = "lut_conformance"
+path = "examples/lut_conformance.rs"

@@ -40,6 +40,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 
 struct AppState {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    renderer: Arc<photo_look::PhotoRenderer>,
     camera: Mutex<CameraController>,
     #[cfg(not(target_os = "android"))]
     backend: Arc<dyn CameraBackend>,
@@ -68,6 +70,8 @@ struct PendingMovie {
 impl Default for AppState {
     fn default() -> Self {
         Self {
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            renderer: Arc::new(photo_look::PhotoRenderer::default()),
             camera: Mutex::new(CameraController::default()),
             #[cfg(not(target_os = "android"))]
             backend: Arc::new(AppleCameraBackend),
@@ -83,6 +87,14 @@ impl Default for AppState {
 struct CameraStatus {
     state: CameraState,
     mode: CameraMode,
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[tauri::command]
+fn get_renderer_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<imaging_gpu::RendererStats>, String> {
+    state.renderer.status()
 }
 
 #[derive(Serialize)]
@@ -1417,6 +1429,7 @@ async fn start_camera_preview(
             host,
             device_id: device_id.clone(),
         });
+        state.renderer.activate();
         return Ok(PreviewStatus {
             running: true,
             device_id,
@@ -1554,6 +1567,9 @@ async fn stop_camera_preview(
         {
             return Err("stop video recording before closing the preview".into());
         }
+        let renderer = Arc::clone(&state.renderer);
+        // Cache cleanup must not block the WebView/main thread or prevent camera stop.
+        let _ = tauri::async_runtime::spawn_blocking(move || renderer.release_images()).await;
         let runtime = state
             .preview
             .lock()
@@ -1708,6 +1724,7 @@ async fn capture_photo(
         };
         let destination_for_asset = destination.clone();
         let failure_id = id.clone();
+        let renderer = Arc::clone(&state.renderer);
         let asset_result = tauri::async_runtime::spawn_blocking(move || {
             let mut applied_lut = None;
             if let Some((lut_id, lut)) = look {
@@ -1717,7 +1734,8 @@ async fn capture_photo(
                         "look output already exists; capture retained".into(),
                     ));
                 }
-                let result = photo_look::render(&path, &rendered, &lut)
+                let result = renderer
+                    .render(&path, &rendered, &lut)
                     .and_then(|_| {
                         probe_media_resource(&rendered, CapturedMediaType::Photo)
                             .map(|_| ())
@@ -2226,6 +2244,8 @@ pub fn run() {
         .manage(AppState::default())
         .manage(NearbyDiscoveryState::default())
         .invoke_handler(tauri::generate_handler![
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            get_renderer_status,
             get_camera_status,
             get_camera_runtime_health,
             get_camera_monitor_snapshot,

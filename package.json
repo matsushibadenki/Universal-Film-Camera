@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "check:rust": "cargo test --workspace",
+    "check:gpu": "cargo run -p imaging-gpu --example lut_conformance --offline",
+    "bench:photo-lut": "cargo test -p universal-film-camera benchmark_photo_look --offline -- --ignored --nocapture",
     "check": "npm run build && npm run check:rust"
   },
   "dependencies": {

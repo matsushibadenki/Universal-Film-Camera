@@ -86,7 +86,7 @@ impl LutPayload {
             domain_max: self.domain_max.map(|v| v.to_string()),
             input_encoding: "srgb-display-referred".into(),
             output_encoding: "srgb".into(),
-            renderer: "core-image-cube-v1".into(),
+            renderer: "wgpu-cube-v1".into(),
         }
     }
 }

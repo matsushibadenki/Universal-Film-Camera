@@ -1,6 +1,16 @@
 # Camera App Implementation Handoff
 
-更新日: 2026-09-12
+更新日: 2026-10-15
+
+## 2026-10-15: Rust／wgpu写真処理基盤
+
+`imaging-gpu`を追加し、写真LUT保存をRust／wgpu computeへ移行した。`AppState`が共有rendererを一つ所有し、device／queue／shader／LUT／作業image setを再利用する。2048×1024のtile処理で全寸法のGPU画像を避け、decodeからencodeまで直列化する。完成JPEGの仕様・EXIF・失敗時の原本保持は維持し、新規LUT metadataのrendererは`wgpu-cube-v1`。Core Imageは比較テスト用に残る。
+
+Roadmapは🟢 [Done]／🟠 [Next]／🔴 [Later]／⭕️ [Pending]へ統一した。ライブpreviewのRGB IPCはまだ残り、wgpu native texture import・動画接続・Rust Document／State全体への移行が次工程。実機機材・ライセンスなど開発環境で確定できない項目はPending。
+
+計測条件、GPU resourceの寿命、診断command、conformance、限界は [WGPU_RENDERER_MILESTONE.md](WGPU_RENDERER_MILESTONE.md) を参照。ユーザー追加の`ソフトウェア最適化指示書.md`は変更していない。
+
+Apple M4上の交互比較では保存のwarm中央値245.872→193.145ms、p95 448.768→300.631ms（1254×1254、debug、各方式23 warm sample）。全111 test、Metal conformance、GPU crate Clippy、Web build、iOS arm64 compileを確認した。Xcode 27／Homebrew Rust併存時のiOS検証は`./scripts/check_ios_rust.sh`を使用する。旧device／Simulator IPA build scriptへこの互換環境は自動適用していないため、Xcode 27での署名・packaging確認を次に行う際は同様の指定が必要である。
 
 ## 2026-09-12: iOS Still LUT保存
 
