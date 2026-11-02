@@ -31,7 +31,8 @@
       "entitlements": "./Entitlements.plist"
     },
     "iOS": {
-      "developmentTeam": "3WH28SSRZC"
+      "developmentTeam": "3WH28SSRZC",
+      "minimumSystemVersion": "15.0"
     },
     "resources": {
       "infoplist/en.lproj": "en.lproj",

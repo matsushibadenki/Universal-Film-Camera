@@ -204,13 +204,15 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - 🔴 [Later] カスタム音源本体のnative管理・version付きasset IDとnative再生。現在はWebViewのIndexedDB／音源再生を使用（blobはDocumentへ含めない）
 - ⭕️ [Pending] iPhoneで全音種別・外部音源・無音対応／非対応環境・撮影途中の選択変更・Photos転送との組み合わせを確認
 - ⭕️ [Pending] iPhoneでPhotos権限拒否・容量不足・撮影中の設定切替・転送成功後削除・削除失敗時の挙動を確認
-- ⭕️ [Pending] iPhone実機でLUT／monitoring設定の再起動復元・外部LUT・撮影画像・設定保存失敗時の挙動を確認（今回の端末インストール／撮影は未実施）
+- ⭕️ [Pending] iPhone実機でLUT／monitoring設定の再起動復元・外部LUT・撮影画像・設定保存失敗時の挙動を確認（最新版のinstall／起動継続のみ確認済み、撮影受け入れは未実施）
 - 🟢 [Done] CVPixelBufferの最新1枚mailboxと保持lease、CVMetalTextureCache→同一Metal deviceのwgpu texture import API。実Metal GPUでBGRA画素一致とNV12 video／full-rangeの平面layoutを検証
 - 🟢 [Done] clean native preview時の不要なCPU RGB生成を停止。WebViewエフェクトfallbackは要求1回につき次の1frameだけ生成し、ヒストグラムは継続。Rust状態のみの診断commandを追加
 - 🟢 [Done] iOS workerがnative inputを消費し、SDR色metadataのYUV変換・LUT・aspect-fillを描画してCAMetalLayerへpresent。写真rendererと同一device／queueを使用し、completion callbackまでleaseを保持
 - 🟢 [Done] Safe Area内の既存hostへMetal layerを追加し、native present後だけcanvasを隠す。worker停止join後にhost解放、background要求停止・heartbeat、失敗時fallbackを接続
 - 🟠 [Next] native GPUのpeaking／zebra・Display P3 output transform・LUT適用後histogramを実装
-- ⭕️ [Pending] iPhoneのnative preview FPS／遅延／発熱／回転／レンズ切替／効果切替を測定。今回の実機install・速度比較は未実施
+- ⭕️ [Pending] iPhoneのnative preview FPS／遅延／発熱／回転／レンズ切替／効果切替を測定。実表示の目視・速度比較は未実施
+- 🟢 [Done] Xcode 27.2の最低対応iOS設定を15.0へ統一し、最新native LUT previewを含む実機向け署名済みIPAをexport。Team 3WH28SSRZCと署名検証を確認（実表示受け入れはPending）
+- 🟢 [Done] iOS 27のUIScene lifecycle有効化とexport IPA検査を追加。iPhone 13 Pro／iOS 27.2へ上書きinstall／launchし、同一プロセス継続と新規クラッシュなしを確認（映像・撮影・FPSの受け入れはPending）
 - 🔴 [Later] node fusion、texture lifetime、memory bandwidth最適化
 - 🟠 [Next] Video renderer／hardware encoderへ処理済みtextureを接続し、音声・timestamp・metadataを検証
 

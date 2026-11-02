@@ -52,6 +52,8 @@ Xcode targetへ`AVFoundation.framework`と`CoreMedia.framework`を明示的にli
 
 ### iOS device
 
+Xcode 27.2ではminimum iOS 14.0のprojectをbuildできず、code 65で停止する。2026-11-02に`bundle.iOS.minimumSystemVersion`、`project.yml`、生成済みXcode projectのDebug／Releaseを15.0へ統一した。iOS 14は対象外となる。今後の再生成でもTauri設定の15.0を正本にする。
+
 ```sh
 ./scripts/build_ios_device.sh
 xcrun devicectl list devices
@@ -65,6 +67,20 @@ apps/camera/src-tauri/gen/apple/build/arm64/Universal Film Camera.ipa
 ```
 
 `build_ios_device.sh`は生成済みXcode productだけをcleanし、debugging export用の署名済みarm64 IPAを作る。`install_ios_device.sh`はUDIDを引数で受け取り、IPAを一時directoryへ展開してinstall／launchする。UDIDやApple IDをsourceへ固定しない。
+
+device build scriptはRustup stableのcargo／rustc／rustdocと`ios-swift-compat`をcommand-localな環境で選択する。Xcode 27のSwiftPM互換設定を含むため、以前の手順のような手動PATH指定は不要。インストールはbuildと分離しており、IPA生成だけでは端末を更新しない。今回のbuildログは`/private/tmp/camera-ios-device-build-20261102.log`。
+
+2026-11-02再確認: device build／IPA export成功。IPAのMinimumOSVersion=15.0、署名Team=3WH28SSRZC。archive appのstrict codesign検証も通常環境で合格。最新native LUT previewの端末インストールと実表示は未実施。
+
+この初回IPA（UIScene修正前）のSHA-256: `f26bfb248ebd8ce57a620130f8170e9c224a03aa4766ca30c8d9903e73c007e8`。
+
+### iOS 27のUIScene起動要件
+
+deployment target修正だけでは、iOS 27.2上で`NoSceneLifecycleAdoption`による起動時クラッシュが残った。`Info.ios.plist`のscene manifestでTaoのscene lifecycleを有効化した。`UIApplicationSupportsMultipleScenes=true`は現在のTao 0.35実装が対応経路を選ぶために必要。configurationのdelegate classはTaoがruntimeに設定するため、独自delegateは追加しない。
+
+2026-11-02再build／上書きinstall／launch成功。同一プロセスの継続を複数回確認し、新規クラッシュログの追加なし。実機の映像表示・LUT／撮影・復帰の受け入れは別途必要。iPad複数windowは未検証。`build_ios_device.sh`は生成IPAのscene opt-in欠落時に失敗する。
+
+最新IPA（UIScene修正済み）のSHA-256: `c27dcbd772915a5f20e0d518d80a721d9485166a5cefbaa95f88754cd1ee689f`（再build時は変わり得る）。
 
 ### Android arm64 debug APK
 

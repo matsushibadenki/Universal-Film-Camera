@@ -52,6 +52,21 @@
 		<string>_ufcamera._tcp</string>
 	</array>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Photo library access is used only to save photos you explicitly export from the Media page.</string>
+	<string>Saves photos and videos you export, or automatically moves new captures to Photos when you enable that setting.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>TaoScene</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 </dict>
 </plist>

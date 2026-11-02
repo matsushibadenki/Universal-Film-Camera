@@ -2,6 +2,24 @@
 
 更新日: 2026-11-02
 
+## 2026-11-02: iOS 27起動時のUISceneクラッシュ修正・実機再確認
+
+接続iPhone 13 Pro／iOS 27.2から対象アプリの最新`.ips`を1件取得した。起動から約0.1秒でmain threadが`EXC_BREAKPOINT / SIGTRAP`となり、先頭frameは`UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`だった。GPU worker起動前のUIKit lifecycleエラーであり、直前のdeployment target修正とは別問題。
+
+`tao 0.35.3`の既存実装は、Info.plistの`UIApplicationSceneManifest.UIApplicationSupportsMultipleScenes=true`の場合にのみscene configuration callbackを登録し、`TaoSceneDelegate`を指定する。`Info.ios.plist`を追加してこの経路を有効化し、application roleのconfiguration名を`TaoScene`とした。dependencyやregistry内のソースは変更せず、独自Swift delegateや強制的なチェック回避も追加していない。iPadの複数window動作を受け入れ済みという意味ではない。
+
+署名済みIPA再build成功。device build scriptでexportされたIPAのscene opt-inも必須検査する。ユーザー承認の上、既存アプリを削除せず上書きinstall／launchした。複数回の照合で同一PID 16568の継続と、新規クラッシュログなし（既存10件のまま、最新18:25:28）を確認。カメラ映像の目視・LUT・FPS・撮影／background操作の受け入れは引き続きPending。端末の撮影データやクラッシュログは削除していない。
+
+ログ: `/private/tmp/camera-launch-crash-20261102.ips`、`/private/tmp/camera-ios-scene-build-20261102.log`、`/private/tmp/camera-ios-scene-install-20261102.log`。元のクラッシュログは端末情報を含むためrepositoryへ追加していない。
+
+## 2026-11-02: Xcode 27.2 device buildのdeployment target修正
+
+実際のxcactivitylogで、`IPHONEOS_DEPLOYMENT_TARGET=14.0`に対しSDKの対応範囲が15.0〜27.2というエラーを確認した。Tauri設定、`gen/apple/project.yml`、Xcode projectのDebug／Releaseを15.0へ統一した。iOS 14対応は終了する。
+
+device build scriptへRustup stableとSwiftPMの互換wrapperを組み込み、呼出元の一時環境設定がなくても同じtoolchainを使用するようにした。既存の生成済みInfo.plistと3言語InfoPlist.stringsのPhotos用途説明差分は保持する。署名付きビルドのログは`/private/tmp/camera-ios-device-build-20261102.log`。端末インストールは別操作。
+
+再検証結果: `./scripts/build_ios_device.sh`がexit 0で完了し、最新native LUT preview codeを含む`gen/apple/build/arm64/Universal Film Camera.ipa`を書き出した。IPA内Info.plistのMinimumOSVersionは15.0、archive appのTeamIdentifierは3WH28SSRZC。sandbox内のcodesignはCSSMERR_TP_NOT_TRUSTEDとなったが、承認済みの通常環境で`codesign --verify --deep --strict`に合格した。証明書・信頼設定は変更していない。実機インストール・映像表示受け入れは今回未実施でPendingを維持する。
+
 ## 2026-11-02: iOS LUT native描画とCAMetalLayer接続
 
 入力bridgeをiOS workerへ接続した。`imaging-gpu::preview`のfragment pipelineは8-bit BGRA／NV12、601／709 matrix、video／full range、709 transfer→sRGB、red-fastest 3D LUT、中央aspect-fillを処理する。709 primariesと対応transfer／chroma metadataを確認し、不明値・P3／HDRは推測せずfallbackする。monitor出力surfaceはsRGB-tagged BGRA8Unorm。monitoringのDisplay P3選択とpeaking／zebraは従来WebGL経路。

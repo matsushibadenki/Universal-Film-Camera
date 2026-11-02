@@ -1,5 +1,5 @@
 #!/bin/sh
-# Scoped to check_ios_rust.sh. swift-rs 1.0.7 passes iOS target/sdk via compiler
+# Scoped to the iOS check/device build scripts. swift-rs 1.0.7 passes target/sdk via compiler
 # flags; Xcode 27's default swiftbuild engine instead plans a macOS package.
 set -eu
 task_swift=$(/usr/bin/xcrun --find swift)

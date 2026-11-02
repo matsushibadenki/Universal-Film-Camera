@@ -1,4 +1,4 @@
 NSCameraUsageDescription = "プロ向けの写真・動画撮影にカメラへのアクセスが必要です。";
 NSMicrophoneUsageDescription = "音声付き動画の収録にマイクへのアクセスが必要です。";
-NSPhotoLibraryAddUsageDescription = "メディア画面で明示的に書き出した写真を写真アプリへ保存するために使用します。";
+NSPhotoLibraryAddUsageDescription = "選択した写真・動画の保存、または自動移動設定を有効にした場合に撮影した写真・動画を写真アプリへ移動するために使用します。";
 NSLocalNetworkUsageDescription = "近くのユーザーを見つけ、承認した写真や動画を安全に転送するためにローカルネットワークを使用します。";
