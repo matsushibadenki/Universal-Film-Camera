@@ -512,6 +512,8 @@ fn get_camera_monitor_snapshot(
     state: tauri::State<'_, AppState>,
     include_preview: bool,
     allow_native_lut: Option<bool>,
+    native_zebra: Option<bool>,
+    native_focus: Option<bool>,
 ) -> CameraMonitorSnapshot {
     #[cfg(not(target_os = "ios"))]
     let native_lut_presented = false;
@@ -520,21 +522,55 @@ fn get_camera_monitor_snapshot(
         let mut native_lut_presented = false;
         if let Ok(preview) = state.preview.lock() {
             if let Some(runtime) = preview.as_ref() {
-                let enabled = allow_native_lut.unwrap_or(false)
-                    && state
-                        .imaging_document
-                        .lock()
-                        .ok()
-                        .and_then(|doc| {
-                            doc.as_ref().and_then(|d| {
-                                d.monitoring
-                                    .as_ref()
-                                    .map(|m| m.look_enabled && m.color_space != "display-p3")
+                let zebra = native_zebra.unwrap_or(false);
+                let focus = native_focus.unwrap_or(false);
+                let (supported, revision) = state
+                    .imaging_document
+                    .lock()
+                    .ok()
+                    .and_then(|doc| {
+                        doc.as_ref().and_then(|d| {
+                            d.monitoring.as_ref().map(|m| {
+                                (
+                                    (m.look_enabled || zebra || focus)
+                                        && m.color_space != "display-p3",
+                                    d.revision,
+                                )
                             })
                         })
-                        .unwrap_or(false);
+                    })
+                    .unwrap_or((false, 0));
+                let enabled = allow_native_lut.unwrap_or(false) && supported;
+                runtime
+                    .gpu_preview
+                    .status
+                    .focus
+                    .store(focus, std::sync::atomic::Ordering::Release);
+                runtime
+                    .gpu_preview
+                    .status
+                    .zebra
+                    .store(zebra, std::sync::atomic::Ordering::Release);
                 runtime.gpu_preview.status.request(enabled);
                 native_lut_presented = enabled
+                    && runtime
+                        .gpu_preview
+                        .status
+                        .presented_focus
+                        .load(std::sync::atomic::Ordering::Acquire)
+                        == focus
+                    && runtime
+                        .gpu_preview
+                        .status
+                        .presented_revision
+                        .load(std::sync::atomic::Ordering::Acquire)
+                        == revision
+                    && runtime
+                        .gpu_preview
+                        .status
+                        .presented_zebra
+                        .load(std::sync::atomic::Ordering::Acquire)
+                        == zebra
                     && runtime
                         .gpu_preview
                         .status
@@ -545,7 +581,7 @@ fn get_camera_monitor_snapshot(
         native_lut_presented
     };
     #[cfg(not(target_os = "ios"))]
-    let _ = allow_native_lut;
+    let _ = (allow_native_lut, native_zebra, native_focus);
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         let snapshot = state

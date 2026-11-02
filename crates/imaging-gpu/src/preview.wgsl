@@ -4,6 +4,7 @@ struct Params {
     domain_min: vec4<f32>,
     domain_scale: vec4<f32>,
     cube: vec4<u32>,
+    peaking: vec4<f32>, // RGB; enabled
 }
 @group(0) @binding(0) var y_image: texture_2d<f32>;
 @group(0) @binding(1) var uv_image: texture_2d<f32>;
@@ -26,16 +27,12 @@ fn cube_sample(p: vec3<f32>) -> vec3<f32> {
     let d = mix(textureLoad(color_cube, vec3(lo.x,hi.y,hi.z),0).rgb, textureLoad(color_cube,vec3(hi.x,hi.y,hi.z),0).rgb,t.x);
     return mix(mix(a,b,t.y), mix(c,d,t.y), t.z);
 }
-@fragment fn fragment_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let source_aspect = params.extent.z / params.extent.w;
-    let target_aspect = params.extent.x / params.extent.y;
-    let crop = vec2(min(1.0,target_aspect/source_aspect), min(1.0,source_aspect/target_aspect));
-    let uv = (position.xy / params.extent.xy - vec2(0.5)) * crop + vec2(0.5);
-    var rgb = textureSample(y_image, image_sampler, uv).rgb;
+fn source_rgb(uv: vec2<f32>) -> vec3<f32> {
+    var rgb = textureSampleLevel(y_image, image_sampler, uv, 0.0).rgb;
     if params.color.x != 0u {
         let offset = vec2(select(0.0, 0.5 / params.extent.z, params.color.w == 1u), 0.0);
         var y = rgb.r;
-        var cbcr = textureSample(uv_image, image_sampler, uv + offset).rg - vec2(128.0 / 255.0);
+        var cbcr = textureSampleLevel(uv_image, image_sampler, uv + offset, 0.0).rg - vec2(128.0 / 255.0);
         if params.color.y == 0u { y = (y - 16.0 / 255.0) * (255.0/219.0); cbcr *= 255.0/224.0; }
         let c = select(vec4(1.5748,-0.187324,-0.468124,1.8556), vec4(1.402,-0.344136,-0.714136,1.772), params.color.x == 2u);
         rgb = vec3(y+c.x*cbcr.y, y+c.y*cbcr.x+c.z*cbcr.y, y+c.w*cbcr.x);
@@ -45,5 +42,40 @@ fn cube_sample(p: vec3<f32>) -> vec3<f32> {
         let linear = select(pow((rgb + vec3(0.099)) / 1.099, vec3(1.0/0.45)), rgb / 4.5, rgb < vec3(0.081));
         rgb = select(1.055 * pow(linear, vec3(1.0/2.4)) - vec3(0.055), 12.92 * linear, linear <= vec3(0.0031308));
     }
-    return vec4(clamp(cube_sample(rgb),vec3(0.0),vec3(1.0)),1.0);
+    return rgb;
+}
+fn luma(uv: vec2<f32>) -> f32 {
+    return dot(source_rgb(uv), vec3(54.0,183.0,19.0));
+}
+@fragment fn fragment_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let source_aspect = params.extent.z / params.extent.w;
+    let target_aspect = params.extent.x / params.extent.y;
+    let crop = vec2(min(1.0,target_aspect/source_aspect), min(1.0,source_aspect/target_aspect));
+    let uv = (position.xy / params.extent.xy - vec2(0.5)) * crop + vec2(0.5);
+    let rgb = source_rgb(uv);
+    var output = rgb;
+    if params.cube.z == 1u { output = clamp(cube_sample(rgb),vec3(0.0),vec3(1.0)); }
+    // Use the same cropped source sample as the image. LUTs must not move the
+    // exposure-warning threshold or create warnings on otherwise dark pixels.
+    if params.cube.y == 1u && dot(rgb, vec3(0.2126, 0.7152, 0.0722)) >= 0.9216 {
+        let phase = (u32(floor(position.x)) + u32(floor(position.y))) % 12u;
+        let stripe = select(0.047, 1.0, phase < 6u);
+        output = mix(output, vec3(stripe), 0.745);
+    }
+    if params.peaking.w == 1.0 {
+        // One source texel, not an independently scaled overlay. Clamp-to-edge
+        // sampling avoids wraparound warnings at image borders.
+        let d = vec2(1.0) / params.extent.zw;
+        let tl = luma(uv + d * vec2(-1.0,-1.0));
+        let tc = luma(uv + d * vec2(0.0,-1.0));
+        let tr = luma(uv + d * vec2(1.0,-1.0));
+        let ml = luma(uv + d * vec2(-1.0,0.0));
+        let mr = luma(uv + d * vec2(1.0,0.0));
+        let bl = luma(uv + d * vec2(-1.0,1.0));
+        let bc = luma(uv + d * vec2(0.0,1.0));
+        let br = luma(uv + d * vec2(1.0,1.0));
+        let gradient = vec2(-tl+tr-2.0*ml+2.0*mr-bl+br, -tl-2.0*tc-tr+bl+2.0*bc+br);
+        if length(gradient) > 180.0 { output = params.peaking.rgb; }
+    }
+    return vec4(output,1.0);
 }

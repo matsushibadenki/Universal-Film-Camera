@@ -24,7 +24,7 @@
 
 `includePreview=true`のpollが次のframeのCPU sampleを要求する。要求はcoalesceし、1要求で1frameだけ生成する。RGB sampleは次のpollまで保持し、間のframeで空配列に上書きしない。`includePreview=false`は要求を解除して保存RGBを解放する。session停止でも解放する。histogramとaudioの小さいtelemetryは維持する。
 
-LUT-onlyのnative表示中はRGB IPCを使用しない。peaking／zebra／Display P3／対応外inputのWebView fallbackは引き続きRGB IPCを使用する。全モードのIPC廃止を完了したわけではない。
+SDR LUT／ゼブラ／ピーキングのnative表示中はRGB IPCを使用しない。look OFFの表示補助単独も対象。Display P3／対応外input／起動待ち／GPU失敗時のWebView fallbackは引き続きRGB IPCを使用する。全モードのIPC廃止を完了したわけではない。
 
 ## 診断
 
@@ -54,7 +54,7 @@ layerは既存のSafe Area内hostに重ね、bounds・scaleを既存resizeに同
 
 1frameずつGPUへsubmitし、leaseのreleaseはqueue completion callbackで行う。GPU待ちは2秒で失敗扱いとし、terminal errorはworkerを停止してfallbackする。pending leaseはcompletionまで保持する。iOS workerの再起動はpreview再開始時。import未対応・色metadata不明はframe単位でfallbackし、後の対応frameで回復可能。LUT読込失敗は同じrevisionで繰り返し読み込まず、revision変更後に再試行する。
 
-native present要求後にmain threadでlayerを表示し、`native_lut_presented`でJSに通知する。JSは通知前にcanvasを隠さない。native ready時はbackendが`includePreview`を抑止し、RGB生成／base64 IPCを止める。peaking／zebra使用時はnativeを無効にし、従来の一体化した画像＋効果表示へ戻す。旧sessionのmonitor応答をJS generationで破棄する。
+native present要求後にmain threadでlayerを表示し、`native_lut_presented`でJSに通知する。JSは通知前にcanvasを隠さない。native ready時はbackendが`includePreview`を抑止し、RGB生成／base64 IPCを止める。Document revision／ゼブラ／ピーキング要求とpresent済み設定が一致しない間もfallbackを維持する。旧sessionのmonitor応答をJS generationで破棄する。
 
 background時はJSがnative要求を解除する。要求が途絶えた場合も1秒で描画を休止する。UI visibility通知は集約し、worker終了後のqueued showを拒否する。初期化失敗・panic・GPU検証失敗ではreadyを落とし、既存のAVFoundation／WebView表示を維持する。
 
@@ -66,8 +66,30 @@ UIはBrowser skill未提供のためPlaywright＋Chromeを使用（Browser plugi
 
 追加でzebra切替、停止後に遅れて届く旧sessionのready応答の破棄、preview再開始を模擬検証した。Web build・workspace全体test・iOS arm64 compile・imaging-gpuのno-deps strict Clippyは合格。既存manual benchmark 1件はignoredのまま。実機へのインストール／CAMetalLayer実表示／速度計測は未実施。
 
+## 🟢 [Done] nativeゼブラ（2026-11-02第1段階、下記ピーキング統合で対象を拡張）
+
+`get_camera_monitor_snapshot`のoptional `nativeZebra`は表示要求のみを渡し、画素は渡さない。既存clientで省略した場合はfalse。Rust workerがAtomicBoolをframeごとに読み、LUTと同じfragment passで合成する。GPU完了後にpresent要求済みのゼブラ設定も保持し、最新要求と一致しない間は`native_lut_presented=false`としてfallback用RGB取得を維持する。ゼブラOFF／ONをLUT textureの再upload条件にはしない。
+
+警告はLUT適用前のsRGB-encoded luminance（係数0.2126／0.7152／0.0722、閾値0.9216）で判定する。これはセンサーRAW飽和警告ではない。709入力は従来通りsRGBへ変換後に判定。映像と同一UV・aspect-fillを使い、警告だけ別の伸縮・回転を行わない。native render targetの12px周期で白／暗色の斜線を0.745でLUT後の画像へ合成、最終alphaは1。WebGL fallbackと周期の物理サイズは同一を保証しない。look ONかつpeaking OFFのSDR範囲に限定し、look OFFのゼブラ単独は既存fallbackのまま。
+
+native ready中のJS pollは10Hz（状態・source histogram・audioのみ）、fallback処理中は従来の最大約30Hz。GPU描画はcamera-drivenであり、10Hzへ制限しない。ヒストグラムは依然source、LUT後scopeではない。
+
+検証: 実Metalでpre-LUT閾値上下、黒LUTでも残る警告、暗部への誤警告なし、両stripe phase、中央cropの画素一致を確認。`cargo test -p imaging-gpu --offline`（5件）、Web build、iOS arm64 compile、imaging-gpu strict Clippyに合格。Browser skill未提供（Browser plugin not available）のためPlaywright＋既存Chromeを使用。ローカル`http://127.0.0.1:1420/`、390×844／844×390で実UIを操作し、LUT＋ゼブラのnative要求、ready時canvas非表示、GPU失敗時fallback、復帰、peaking併用時fallback、ゼブラ解除を応答模擬で確認。page identity／非空／framework overlayなし／page errorなし。mockでnative layerは存在しないため撮影面は空白であり、実機映像の表示証拠にはしない。証跡: `/private/tmp/camera-zebra-390.png`、`/private/tmp/camera-zebra-844.png`、一時test script `/private/tmp/camera-zebra-qa.cjs`。端末へのinstallは今回未実施。
+
+## 🟢 [Done] nativeピーキング・look OFFの表示補助（2026-11-02第2段階）
+
+optional `nativeFocus`は既存clientで省略時false。UIからは効果のboolのみを送り、色はRust所有Documentの`peaking_color`を使用する。`PeakingColor`の6色は既存WebViewと同じRGB値（cyan 0/225/255、red 255/48/48、green 70/255/105、yellow 255/224/32、magenta 255/64/224、white 255/255/255）。未定義色は推測せずエラーとする。
+
+shaderは同じaspect-fillのUVを中心にsource texel間隔で8近傍をsampleし、pre-LUTのsRGB輝度（54/183/19）へSobelを適用、gradient長180超を色で上書きする。BGRAとNV12とも共通の色変換を通す。ゼブラの後にピーキングを合成し、重なる場所は輪郭色を優先する。textureはclamp-to-edgeでborder wrapを防止。旧360px fallbackとはsample解像度が違うため、線の太さ／感度の見た目の一致は保証しない。ピントの合焦保証ではなくcontrast edge補助である。iPhoneの実写でノイズ・細線の見え方と負荷を評価する必要がある。
+
+look OFFでもピーキング／ゼブラがあればnative対象とする。workerはidentity LUTを保持し、shaderの`apply_lut=false`でLUT sampleをbypassする。無効な選択LUTの読込失敗でlook OFFの補助を妨げない。全効果OFFは従来AVCaptureVideoPreviewLayer。Display P3／未対応入力のfallbackは維持。`native_lut_presented`は互換名称のままだが表示補助のみのnative描画も含む。
+
+GPU完了・present要求時にDocument revisionとfocus／zebraを記録し、command応答側で現在要求と照合する。色・look・LUT変更直後は旧revisionをready扱いせず、RGB fallbackを維持してから切り替える。複数windowのrequest arbitrationは別工程。
+
+検証: 実Metalの6色、縦横step edge＋中央crop、BGRAとNV12の輪郭一致、平坦入力／borderで誤警告なし、黒LUT下の輪郭、look OFFのLUT bypassを確認。GPU unit testは6件成功。workspace全体test成功（既存manual benchmark 1件ignored）、Web build、iOS arm64 compile、GPU no-deps strict Clippy成功。Browser skill未提供（Browser plugin not available）のためPlaywright＋既存Chromeを使用し、`http://127.0.0.1:1420/`、390×844／844×390でnative応答を模擬する。撮影→補助menu→ゼブラ＋ピーキング→GPU失敗／復帰→環境設定でmagenta・look OFF→撮影復帰→補助解除を操作。実機映像／GPU FPSの証拠ではない。証跡は`/private/tmp/camera-peaking-390.png`、`/private/tmp/camera-peaking-844.png`。
+
 ## 🟠 [Next] 残るGPU移行
 
-peaking／zebra、Display P3 output、LUT適用後histogram、HDR／10-bit対応。現在のhistogramは従来のsource telemetryで、native LUT後のGPU scopeではない。複数windowのcapture ownershipとrequest arbitrationも別途必要。動画保存へのLUT焼き込みはこのpreview接続とは別工程。
+Display P3 output、LUT適用後histogram、HDR／10-bit対応。現在のhistogramは従来のsource telemetryで、native LUT後のGPU scopeではない。複数windowのcapture ownershipとrequest arbitrationも別途必要。動画保存へのLUT焼き込みはこのpreview接続とは別工程。
 
 ⭕️ [Pending] iPhone実機のFPS、遅延、発熱、レンズ切替、縦横回転、background復帰、効果ON/OFFの連続切替。今回端末へのインストールはしていない。

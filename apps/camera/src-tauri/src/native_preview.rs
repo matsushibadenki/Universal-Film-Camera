@@ -3,7 +3,7 @@ use crate::{imaging_document::ImagingDocument, photo_look::PhotoRenderer};
 use camera_apple::{AppleCaptureSession, IosPreviewHost};
 use imaging_gpu::{
     native_input::NativeTextureImporter,
-    preview::{NativeSurface, PreviewFrame, PreviewPipeline},
+    preview::{NativeSurface, PeakingColor, PreviewFrame, PreviewPipeline},
     wgpu,
 };
 use std::sync::{
@@ -16,6 +16,11 @@ pub struct Status {
     pub running: AtomicBool,
     pub enabled: AtomicBool,
     pub ready: AtomicBool,
+    pub zebra: AtomicBool,
+    pub presented_zebra: AtomicBool,
+    pub focus: AtomicBool,
+    pub presented_focus: AtomicBool,
+    pub presented_revision: AtomicU64,
     pub stop: AtomicBool,
     pub presented: AtomicU64,
     pub error: Mutex<Option<String>>,
@@ -170,11 +175,12 @@ fn run(
             .map_err(|_| "imaging document lock poisoned")?
             .clone()
             .ok_or("imaging document unavailable")?;
-        if !snapshot
-            .monitoring
-            .as_ref()
-            .is_some_and(|m| m.look_enabled && m.color_space != "display-p3")
-        {
+        if !snapshot.monitoring.as_ref().is_some_and(|m| {
+            m.color_space != "display-p3"
+                && (m.look_enabled
+                    || status.focus.load(Ordering::Acquire)
+                    || status.zebra.load(Ordering::Acquire))
+        }) {
             if status.ready.load(Ordering::Acquire) {
                 visibility(window, host, status, false);
             }
@@ -186,7 +192,12 @@ fn run(
                 std::thread::sleep(std::time::Duration::from_millis(16));
                 continue;
             }
-            let payload = match crate::lut_catalog::payload(luts, &snapshot.selected_lut) {
+            let selection = if snapshot.monitoring.as_ref().unwrap().look_enabled {
+                &snapshot.selected_lut
+            } else {
+                "none"
+            };
+            let payload = match crate::lut_catalog::payload(luts, selection) {
                 Ok(payload) => payload,
                 Err(error) => {
                     rejected_revision = Some(snapshot.revision);
@@ -257,6 +268,16 @@ fn run(
         };
         let mut encoder = device.create_command_encoder(&Default::default());
         device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let zebra = status.zebra.load(Ordering::Acquire);
+        let focus = status.focus.load(Ordering::Acquire);
+        let peaking = if focus {
+            Some(
+                PeakingColor::from_name(&snapshot.monitoring.as_ref().unwrap().peaking_color)
+                    .ok_or("unsupported peaking color")?,
+            )
+        } else {
+            None
+        };
         let encoded = pipeline.encode(
             &device,
             &queue,
@@ -267,6 +288,9 @@ fn run(
                 extent,
                 color,
                 lut: lut.as_ref().unwrap(),
+                zebra,
+                peaking,
+                apply_lut: snapshot.monitoring.as_ref().unwrap().look_enabled,
             },
         );
         if let Err(error) = encoded {
@@ -292,6 +316,11 @@ fn run(
             continue;
         }
         target.present();
+        status.presented_zebra.store(zebra, Ordering::Release);
+        status.presented_focus.store(focus, Ordering::Release);
+        status
+            .presented_revision
+            .store(snapshot.revision, Ordering::Release);
         status.presented.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut e) = status.error.lock() {
             *e = None;

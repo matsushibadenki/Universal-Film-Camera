@@ -1477,7 +1477,7 @@ const sampleContext = sampleCanvas.getContext("2d", { alpha: true })!;
 let nativeLutPresented = false;
 let nativePreviewGeneration = 0;
 function allowNativeLut(): boolean {
-  return monitorLookEnabled.checked && !document.body.classList.contains("tool-focus") && !document.body.classList.contains("tool-zebra");
+  return monitorLookEnabled.checked || document.body.classList.contains("tool-focus") || document.body.classList.contains("tool-zebra");
 }
 function syncMonitorProcessing(): void {
   if (!allowNativeLut()) nativeLutPresented = false;
@@ -1944,7 +1944,8 @@ let lastMonitorTelemetryAt = 0;
 async function updateMonitorTelemetry(): Promise<void> {
   if ((!nativePreviewRunning && !controlFixtureEnabled) || monitorTelemetryPending || document.hidden) return;
   const processing = monitorLookEnabled.checked || document.body.classList.contains("tool-focus") || document.body.classList.contains("tool-zebra");
-  const interval = processing && gpuMonitorRenderer ? 32 : 100;
+  // Native rendering is camera-driven; poll only small scope/status metadata.
+  const interval = processing && gpuMonitorRenderer && !nativeLutPresented ? 32 : 100;
   const now = performance.now();
   if (now - lastMonitorTelemetryAt < interval) return;
   lastMonitorTelemetryAt = now;
@@ -1953,7 +1954,7 @@ async function updateMonitorTelemetry(): Promise<void> {
   try {
     const snapshot = controlFixtureEnabled
       ? controlMonitorFixture
-      : await invoke<CameraMonitorSnapshot>("get_camera_monitor_snapshot", { includePreview: processing, allowNativeLut: allowNativeLut() });
+      : await invoke<CameraMonitorSnapshot>("get_camera_monitor_snapshot", { includePreview: processing, allowNativeLut: allowNativeLut(), nativeZebra: document.body.classList.contains("tool-zebra"), nativeFocus: document.body.classList.contains("tool-focus") });
     if (generation !== nativePreviewGeneration) return;
     nativeLutPresented = !!snapshot.native_lut_presented && allowNativeLut();
     syncMonitorProcessing();

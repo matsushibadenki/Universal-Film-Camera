@@ -19,7 +19,7 @@ iOSを唯一のactive platformとする。既存のmacOS／Android codeと共通
 
 ## 現在地
 
-現在は、Universal Imaging Pipeline、CPU finishing、Media／Nearby recovery基盤、写真LUT保存のRust／wgpu処理基盤まで実装済みである。ライブ映像のwgpu接続は次工程、開発環境で検証できない実機・機材を要する受け入れは`⭕️ [Pending]`である。
+現在は、Universal Imaging Pipeline、CPU finishing、Media／Nearby recovery基盤、写真LUT保存、iOS SDRライブLUT＋ゼブラ＋ピーキングのRust／wgpu描画接続まで実装済みである。開発環境で検証できない実機・機材を要する受け入れは`⭕️ [Pending]`である。
 
 | 領域                   | 現在の段階                                                                                           | 最も近い完了条件                                        |
 | ---------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
@@ -117,8 +117,10 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - 🟢 [Done] iOSのdevice別format永続化／起動時復元と、画角を維持する透明focus-peaking overlay
 - 🟢 [Done] 360px／10Hz CPU monitor fallback、約92 IRE Zebra、狭幅monitor tool label
 - 🟢 [Done] LUT／カラープロファイル／ピーキング／ゼブラを統合したWebGL2 shader renderer、処理時最大約30Hz／非処理時10Hzの動的取得
-- 🟢 [Done] iOS LUT-onlyのnative表示通知後にWebView canvas／RGB生成・IPCを停止。起動待ち・GPU失敗・peaking／zebra・Display P3は既存fallbackを維持
-- 🟠 [Next] peaking／zebraとDisplay P3もnative GPUへ移行し、表示補助使用時のRGB IPCを廃止
+- 🟢 [Done] iOS SDRのLUT／ゼブラ／ピーキングのnative表示通知後にWebView canvas／RGB生成・IPCを停止。起動待ち・GPU失敗・Display P3は既存fallbackを維持
+- 🟢 [Done] SDR LUT＋ゼブラを同じnative GPU passへ統合。ゼブラ表示中のRGB IPCを抑止し、描画成功通知後だけcanvasを隠す。native表示中のtelemetry pollを10Hzへ低減
+- 🟢 [Done] ピーキングの同一GPU pass描画、6色のRust Document反映、source texelのSobel輪郭検出。look OFFのピーキング／ゼブラ単独もnative化
+- 🟠 [Next] Display P3もnative GPUへ移行し、残る対応色空間のRGB IPCを廃止
 - 🟢 [Done] foreground録画中の2秒間隔残容量監視と共通停止経路による安全な自動停止／Finalize
 - 🟢 [Done] Android CameraX native容量monitor、onPause停止、Finalize結果保持
 - 🟢 [Done] Apple AVFoundation sessionのWebView非依存容量monitorと単発stop要求
@@ -209,7 +211,10 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - 🟢 [Done] clean native preview時の不要なCPU RGB生成を停止。WebViewエフェクトfallbackは要求1回につき次の1frameだけ生成し、ヒストグラムは継続。Rust状態のみの診断commandを追加
 - 🟢 [Done] iOS workerがnative inputを消費し、SDR色metadataのYUV変換・LUT・aspect-fillを描画してCAMetalLayerへpresent。写真rendererと同一device／queueを使用し、completion callbackまでleaseを保持
 - 🟢 [Done] Safe Area内の既存hostへMetal layerを追加し、native present後だけcanvasを隠す。worker停止join後にhost解放、background要求停止・heartbeat、失敗時fallbackを接続
-- 🟠 [Next] native GPUのpeaking／zebra・Display P3 output transform・LUT適用後histogramを実装
+- 🟢 [Done] nativeゼブラのpre-LUT luminance判定・同一aspect-fill・GPU合成と表示済み設定の照合。実Metalの閾値／縞／LUT非依存／crop一致テスト、UI応答模擬の切替・障害復帰を追加
+- 🟢 [Done] nativeピーキングのBGRA／NV12・縦横crop・6色・平坦入力・LUT bypass画素テスト。present済みDocument revisionと表示補助設定の照合を追加し、色／LUT変更途中のfallbackを維持
+- 🟠 [Next] native GPUのDisplay P3 output transform・LUT適用後histogramを実装
+- ⭕️ [Pending] 表示補助統合版をiPhoneへinstallし、実映像の警告位置・輪郭感度・効果切替・RGB生成停止・発熱を確認（今回端末更新なし）
 - ⭕️ [Pending] iPhoneのnative preview FPS／遅延／発熱／回転／レンズ切替／効果切替を測定。実表示の目視・速度比較は未実施
 - 🟢 [Done] Xcode 27.2の最低対応iOS設定を15.0へ統一し、最新native LUT previewを含む実機向け署名済みIPAをexport。Team 3WH28SSRZCと署名検証を確認（実表示受け入れはPending）
 - 🟢 [Done] iOS 27のUIScene lifecycle有効化とexport IPA検査を追加。iPhone 13 Pro／iOS 27.2へ上書きinstall／launchし、同一プロセス継続と新規クラッシュなしを確認（映像・撮影・FPSの受け入れはPending）

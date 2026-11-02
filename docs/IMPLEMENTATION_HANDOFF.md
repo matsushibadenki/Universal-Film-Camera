@@ -2,6 +2,18 @@
 
 更新日: 2026-11-02
 
+## 2026-11-02: nativeピーキングとlook OFF表示補助
+
+前段のゼブラ変更を保持し、SDR native fragment passへSobelピーキングを追加。6色はRust Documentから参照し、UIは`nativeFocus` boolのみを要求する。輪郭判定と映像は同一UVを使う。look OFFでも補助だけでnative描画し、LUTをbypassする。これによりSDRでピーキング／ゼブラ／LUTを併用しても、ready中はRGB画像をWebViewへ転送しない。Document revisionとpresent済みfocus／zebraの照合により、色・look・LUT変更途中はfallbackを維持する。
+
+実Metalの6色・縦横crop・BGRA／NV12一致・平坦入力・LUT bypass、Rust workspace test、Web build、iOS arm64 compile、GPU strict Clippyが合格。UI応答模擬では390×844／844×390で補助併用、障害復帰、環境設定の色変更とlook OFF、撮影画面復帰、補助解除を確認した。ページidentity／非空／framework overlayなし／page errorなし、consoleは初回のfavicon 404のみ。実機の見た目・source解像度Sobelの感度・GPU負荷／発熱はPending。今回端末installは実施していない。仕様・検証証跡は [NATIVE_PREVIEW_BRIDGE.md](NATIVE_PREVIEW_BRIDGE.md)。
+
+## 2026-11-02: SDR LUT＋ゼブラのnative GPU統合
+
+ROADMAPのnative表示補助を優先し、ゼブラを既存LUT fragment passへ統合した。`nativeZebra`というbool要求だけをIPCで送り、Rust workerが最新camera textureの同じcropでpre-LUT輝度を判定する。設定一致のpresent後だけnative readyを返すため、ゼブラ設定切替途中のfallbackも維持。native表示中は画像生成・base64転送を止め、小さいtelemetryのpollを10Hzへ低減する。frame描画自体はcamera-drivenのまま。
+
+実Metalの閾値・stripe・黒LUT・crop画素テスト、Web build、workspace全体のRust test（既存benchmark 1件ignored）、iOS arm64 compile、GPU strict Clippy、390×844／844×390のUI応答模擬テストが合格。frontend-testing-debuggingの手順で実UIのゼブラ／ピーキング切替・障害fallback・復帰を確認した。consoleは初回の既存favicon 404のみ、アプリのpage errorなし。端末install・実映像・速度測定は今回は実施していない。look OFFのゼブラ単独、peaking、P3、LUT後histogramは未完了。仕様・制限と証跡は [NATIVE_PREVIEW_BRIDGE.md](NATIVE_PREVIEW_BRIDGE.md)。
+
 ## 2026-11-02: iOS 27起動時のUISceneクラッシュ修正・実機再確認
 
 接続iPhone 13 Pro／iOS 27.2から対象アプリの最新`.ips`を1件取得した。起動から約0.1秒でmain threadが`EXC_BREAKPOINT / SIGTRAP`となり、先頭frameは`UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`だった。GPU worker起動前のUIKit lifecycleエラーであり、直前のdeployment target修正とは別問題。

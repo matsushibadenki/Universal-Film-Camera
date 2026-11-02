@@ -10,6 +10,46 @@ struct Params {
     min: [f32; 4],
     scale: [f32; 4],
     cube: [u32; 4],
+    peaking: [f32; 4],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum PeakingColor {
+    Cyan,
+    Red,
+    Green,
+    Yellow,
+    Magenta,
+    White,
+}
+impl PeakingColor {
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "cyan" => Self::Cyan,
+            "red" => Self::Red,
+            "green" => Self::Green,
+            "yellow" => Self::Yellow,
+            "magenta" => Self::Magenta,
+            "white" => Self::White,
+            _ => return None,
+        })
+    }
+    fn uniform(self) -> [f32; 4] {
+        let rgb = match self {
+            Self::Cyan => [0, 225, 255],
+            Self::Red => [255, 48, 48],
+            Self::Green => [70, 255, 105],
+            Self::Yellow => [255, 224, 32],
+            Self::Magenta => [255, 64, 224],
+            Self::White => [255, 255, 255],
+        };
+        [
+            rgb[0] as f32 / 255.0,
+            rgb[1] as f32 / 255.0,
+            rgb[2] as f32 / 255.0,
+            1.0,
+        ]
+    }
 }
 
 pub struct PreviewPipeline {
@@ -25,6 +65,10 @@ pub struct PreviewFrame<'a> {
     pub extent: [u32; 2],
     pub color: [u32; 4],
     pub lut: &'a Lut3d,
+    /// Exposure warning from pre-LUT, display-encoded luminance (92 IRE).
+    pub zebra: bool,
+    pub peaking: Option<PeakingColor>,
+    pub apply_lut: bool,
 }
 
 impl PreviewPipeline {
@@ -102,7 +146,7 @@ impl PreviewPipeline {
             layout,
             uniform: device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
-                size: 80,
+                size: std::mem::size_of::<Params>() as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
@@ -129,6 +173,9 @@ impl PreviewPipeline {
             extent,
             color,
             lut,
+            zebra,
+            peaking,
+            apply_lut,
         } = frame;
         if input.is_empty() || (color[0] != 0 && input.len() != 2) || extent.contains(&0) {
             return Err("invalid preview frame layout".into());
@@ -174,7 +221,8 @@ impl PreviewPipeline {
             color,
             min: [lut.min[0], lut.min[1], lut.min[2], 0.0],
             scale: [lut.scale[0], lut.scale[1], lut.scale[2], 0.0],
-            cube: [lut.size, 0, 0, 0],
+            cube: [lut.size, u32::from(zebra), u32::from(apply_lut), 0],
+            peaking: peaking.map_or([0.0; 4], PeakingColor::uniform),
         };
         queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&params));
         let y = input[0].create_view(&Default::default());
@@ -343,6 +391,38 @@ pub(crate) mod tests {
         color: [u32; 4],
         lut: &Lut3d,
     ) -> Vec<u8> {
+        render_with_zebra(g, input, extent, color, lut, false)
+    }
+    fn render_with_zebra(
+        g: &GpuRenderer,
+        input: &[wgpu::Texture],
+        extent: [u32; 2],
+        color: [u32; 4],
+        lut: &Lut3d,
+        zebra: bool,
+    ) -> Vec<u8> {
+        render_with_tools(g, input, extent, color, lut, zebra, None)
+    }
+    fn render_with_tools(
+        g: &GpuRenderer,
+        input: &[wgpu::Texture],
+        extent: [u32; 2],
+        color: [u32; 4],
+        lut: &Lut3d,
+        zebra: bool,
+        peaking: Option<PeakingColor>,
+    ) -> Vec<u8> {
+        render_config(g, input, extent, color, lut, (zebra, peaking, true))
+    }
+    fn render_config(
+        g: &GpuRenderer,
+        input: &[wgpu::Texture],
+        extent: [u32; 2],
+        color: [u32; 4],
+        lut: &Lut3d,
+        tools: (bool, Option<PeakingColor>, bool),
+    ) -> Vec<u8> {
+        let (zebra, peaking, apply_lut) = tools;
         g.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut pipeline = PreviewPipeline::new(&g.device, wgpu::TextureFormat::Rgba8Unorm);
         let target = g.device.create_texture(&wgpu::TextureDescriptor {
@@ -377,6 +457,9 @@ pub(crate) mod tests {
                     extent,
                     color,
                     lut,
+                    zebra,
+                    peaking,
+                    apply_lut,
                 },
             )
             .unwrap();
@@ -437,6 +520,161 @@ pub(crate) mod tests {
             render(&g, &input, [2, 2], [0; 4], &lut(false)),
             [64, 128, 192, 255, 128, 128, 192, 255].repeat(2)
         );
+    }
+    #[test]
+    fn peaking_tracks_source_edges_crop_color_and_nv12() {
+        let g = GpuRenderer::new().unwrap();
+        let black = Lut3d::new(2, &[[0.0; 3]; 8], [0.0; 3], [1.0; 3]).unwrap();
+        for (size, horizontal) in [([8, 4], false), ([4, 8], true)] {
+            let values = (0..size[1])
+                .flat_map(|y| {
+                    (0..size[0]).map(move |x| {
+                        if (if horizontal { y } else { x }) < 4 {
+                            80u8
+                        } else {
+                            220
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+            let rgba = values
+                .iter()
+                .flat_map(|&v| [v, v, v, 255])
+                .collect::<Vec<_>>();
+            let input = vec![image(&g, wgpu::TextureFormat::Rgba8Unorm, size, &rgba, 4)];
+            for name in ["cyan", "red", "green", "yellow", "magenta", "white"] {
+                let peak = PeakingColor::from_name(name).unwrap();
+                let rgb = peak.uniform().map(|v| (v * 255.0).round() as u8);
+                let output =
+                    render_with_tools(&g, &input, [4, 4], [0; 4], &black, true, Some(peak));
+                for (i, pixel) in output.chunks_exact(4).enumerate() {
+                    let axis = if horizontal { i / 4 } else { i % 4 };
+                    let expected = if axis == 1 || axis == 2 {
+                        [rgb[0], rgb[1], rgb[2], 255]
+                    } else {
+                        [0, 0, 0, 255]
+                    };
+                    assert_eq!(pixel, expected, "{name} horizontal={horizontal} pixel={i}");
+                }
+            }
+            let nv12 = vec![
+                image(&g, wgpu::TextureFormat::R8Unorm, size, &values, 1),
+                image(
+                    &g,
+                    wgpu::TextureFormat::Rg8Unorm,
+                    [size[0] / 2, size[1] / 2],
+                    &vec![128; (size[0] * size[1] / 2) as usize],
+                    2,
+                ),
+            ];
+            assert_eq!(
+                render_with_tools(
+                    &g,
+                    &input,
+                    [4, 4],
+                    [0; 4],
+                    &black,
+                    false,
+                    Some(PeakingColor::Cyan)
+                ),
+                render_with_tools(
+                    &g,
+                    &nv12,
+                    [4, 4],
+                    [1, 1, 0, 0],
+                    &black,
+                    false,
+                    Some(PeakingColor::Cyan)
+                )
+            );
+        }
+        let flat = vec![image(
+            &g,
+            wgpu::TextureFormat::Rgba8Unorm,
+            [4, 4],
+            &[128, 128, 128, 255].repeat(16),
+            4,
+        )];
+        // Uniform input, including clamped borders, must not become a solid mask.
+        assert_eq!(
+            render_config(
+                &g,
+                &flat,
+                [4, 4],
+                [0; 4],
+                &black,
+                (false, Some(PeakingColor::Red), false)
+            ),
+            [128, 128, 128, 255].repeat(16)
+        );
+        assert_eq!(
+            render_with_tools(
+                &g,
+                &flat,
+                [4, 4],
+                [0; 4],
+                &black,
+                false,
+                Some(PeakingColor::Red)
+            ),
+            [0, 0, 0, 255].repeat(16)
+        );
+        assert!(PeakingColor::from_name("unknown").is_none());
+    }
+    #[test]
+    fn zebra_uses_pre_lut_luminance_and_the_image_crop() {
+        let g = GpuRenderer::new().unwrap();
+        // Distinct outer columns must be cropped out together with their warning.
+        let bytes = [255u8, 80, 236, 0]
+            .into_iter()
+            .flat_map(|v| [v, v, v, 255])
+            .collect::<Vec<_>>()
+            .repeat(2);
+        let input = vec![image(
+            &g,
+            wgpu::TextureFormat::Rgba8Unorm,
+            [4, 2],
+            &bytes,
+            4,
+        )];
+        let black = Lut3d::new(2, &[[0.0; 3]; 8], [0.0; 3], [1.0; 3]).unwrap();
+        let output = render_with_zebra(&g, &input, [2, 2], [0; 4], &black, true);
+        for row in output.chunks_exact(8) {
+            assert_eq!(&row[..4], &[0, 0, 0, 255]);
+            // The warning survives a black LUT; the adjacent dark input does not warn.
+            assert!((row[4] as i32 - 190).abs() <= 1);
+            assert_eq!(&row[4..7], &[row[4]; 3]);
+            assert_eq!(row[7], 255);
+        }
+        assert_eq!(
+            render(&g, &input, [2, 2], [0; 4], &black),
+            [0, 0, 0, 255].repeat(4)
+        );
+        // Both stripe phases and threshold boundaries, not a filled highlight mask.
+        for (value, warning) in [(234u8, false), (236, true)] {
+            let input = vec![image(
+                &g,
+                wgpu::TextureFormat::Rgba8Unorm,
+                [24, 2],
+                &[value, value, value, 255].repeat(48),
+                4,
+            )];
+            let output = render_with_zebra(&g, &input, [24, 2], [0; 4], &black, true);
+            for (x, pixel) in output[..96].chunks_exact(4).enumerate() {
+                let expected = if !warning {
+                    0
+                } else if x % 12 < 6 {
+                    190
+                } else {
+                    9
+                };
+                assert!(
+                    (pixel[0] as i32 - expected).abs() <= 1,
+                    "x={x}, pixel={pixel:?}"
+                );
+                assert_eq!(pixel[3], 255);
+            }
+        }
     }
     #[test]
     fn nv12_ranges_and_rec709_transfer_render_on_gpu() {
