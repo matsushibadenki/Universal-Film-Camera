@@ -9,6 +9,8 @@ mod native_preview;
 mod nearby_discovery;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod photo_look;
+#[cfg(any(target_os = "ios", test))]
+mod preview_histogram;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod thumbnail;
 
@@ -446,6 +448,7 @@ struct CameraRuntimeHealth {
 #[derive(Serialize)]
 struct CameraMonitorSnapshot {
     native_lut_presented: bool,
+    histogram_source: &'static str,
     red: Vec<u32>,
     green: Vec<u32>,
     blue: Vec<u32>,
@@ -463,6 +466,8 @@ struct NativePreviewStatus {
     cpu_rgb_generated: u64,
     gpu_presented: u64,
     gpu_ready: bool,
+    gpu_histograms: u64,
+    gpu_histogram_ready: bool,
     gpu_error: Option<String>,
 }
 
@@ -499,6 +504,28 @@ fn get_native_preview_status(state: tauri::State<'_, AppState>) -> NativePreview
                     .lock()
                     .ok()
                     .and_then(|e| e.clone());
+                result.gpu_histograms = runtime
+                    .gpu_preview
+                    .status
+                    .histogram_updates
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                let revision = state
+                    .imaging_document
+                    .lock()
+                    .ok()
+                    .and_then(|doc| doc.as_ref().map(|d| d.revision));
+                result.gpu_histogram_ready = result.gpu_ready
+                    && runtime
+                        .gpu_preview
+                        .status
+                        .histogram
+                        .lock()
+                        .ok()
+                        .is_some_and(|h| {
+                            h.as_ref()
+                                .and_then(|h| h.current(revision, std::time::Instant::now()))
+                                .is_some()
+                        });
                 result
             };
             return result;
@@ -596,8 +623,40 @@ fn get_camera_monitor_snapshot(
                 })
             })
             .unwrap_or_default();
+        #[cfg(target_os = "ios")]
+        let (snapshot, histogram_source) = {
+            let mut snapshot = snapshot;
+            let mut histogram_source = "camera-source";
+            if native_lut_presented {
+                if let Ok(preview) = state.preview.lock() {
+                    if let Some(runtime) = preview.as_ref() {
+                        let revision = state
+                            .imaging_document
+                            .lock()
+                            .ok()
+                            .and_then(|doc| doc.as_ref().map(|doc| doc.revision));
+                        if let Ok(histogram) = runtime.gpu_preview.status.histogram.lock() {
+                            if let Some(bins) = histogram
+                                .as_ref()
+                                .and_then(|h| h.current(revision, std::time::Instant::now()))
+                            {
+                                snapshot.red = bins[..32].to_vec();
+                                snapshot.green = bins[32..64].to_vec();
+                                snapshot.blue = bins[64..].to_vec();
+                                snapshot.frame_received = true;
+                                histogram_source = "native-post-lut";
+                            }
+                        }
+                    }
+                }
+            }
+            (snapshot, histogram_source)
+        };
+        #[cfg(not(target_os = "ios"))]
+        let histogram_source = "camera-source";
         return CameraMonitorSnapshot {
             native_lut_presented,
+            histogram_source,
             red: snapshot.red,
             green: snapshot.green,
             blue: snapshot.blue,
@@ -616,6 +675,7 @@ fn get_camera_monitor_snapshot(
         let _ = state;
         CameraMonitorSnapshot {
             native_lut_presented: false,
+            histogram_source: "camera-source",
             red: vec![],
             green: vec![],
             blue: vec![],

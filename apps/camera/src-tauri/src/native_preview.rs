@@ -1,4 +1,5 @@
 //! iOS native LUT preview worker. One in-flight frame; UI sees only status.
+use crate::preview_histogram::Histogram;
 use crate::{imaging_document::ImagingDocument, photo_look::PhotoRenderer};
 use camera_apple::{AppleCaptureSession, IosPreviewHost};
 use imaging_gpu::{
@@ -23,6 +24,8 @@ pub struct Status {
     pub presented_revision: AtomicU64,
     pub stop: AtomicBool,
     pub presented: AtomicU64,
+    pub histogram: Mutex<Option<Histogram>>,
+    pub histogram_updates: AtomicU64,
     pub error: Mutex<Option<String>>,
     pub last_request: Mutex<Option<std::time::Instant>>,
     visibility_target: AtomicBool,
@@ -160,6 +163,7 @@ fn run(
     let mut rejected_revision = None;
     let mut lut = None;
     let mut was_enabled = false;
+    let mut last_histogram: Option<(u64, std::time::Instant)> = None;
     while !status.stop.load(Ordering::Acquire) {
         if !status.active() {
             if was_enabled {
@@ -270,6 +274,9 @@ fn run(
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let zebra = status.zebra.load(Ordering::Acquire);
         let focus = status.focus.load(Ordering::Acquire);
+        let collect_histogram = last_histogram.is_none_or(|(revision, time)| {
+            revision != snapshot.revision || time.elapsed() >= std::time::Duration::from_millis(100)
+        });
         let peaking = if focus {
             Some(
                 PeakingColor::from_name(&snapshot.monitoring.as_ref().unwrap().peaking_color)
@@ -291,6 +298,7 @@ fn run(
                 zebra,
                 peaking,
                 apply_lut: snapshot.monitoring.as_ref().unwrap().look_enabled,
+                collect_histogram,
             },
         );
         if let Err(error) = encoded {
@@ -316,6 +324,15 @@ fn run(
             continue;
         }
         target.present();
+        if collect_histogram {
+            let bins = pipeline.read_histogram(&device)?;
+            let collected = std::time::Instant::now();
+            if let Ok(mut histogram) = status.histogram.lock() {
+                *histogram = Some(Histogram::new(snapshot.revision, collected, bins));
+                status.histogram_updates.fetch_add(1, Ordering::Relaxed);
+            }
+            last_histogram = Some((snapshot.revision, collected));
+        }
         status.presented_zebra.store(zebra, Ordering::Release);
         status.presented_focus.store(focus, Ordering::Release);
         status

@@ -2,6 +2,18 @@
 
 更新日: 2026-11-02
 
+## 2026-11-02: native LUT後histogramのcompute集計・UI接続
+
+ROADMAPのscope不整合を優先し、iOS native SDR previewのLUT後histogramを既存UIへ接続した。GPUでvisible cropの128×72をsampleし、RGB各32binを最大約10Hzで集計、384byteのcounterだけをreadbackする。ピーキング／ゼブラを除外し、画像readback／RGB IPCは増やしていない。look OFFのnative表示補助時はLUT bypass後を集計する。
+
+Rust側はDocument revision一致と500ms未満の新鮮さを検証し、native ready時だけUIのsource分布を置き換える。fallback・期限切れ・設定変更途中は従来sourceへ戻す。`histogram_source`、`gpu_histograms`、`gpu_histogram_ready`で判別可能。frame lease／描画終了待ちの契約は維持する。
+
+実MetalのLUT変化／crop／NV12／補助非混入／bin端点／reset・省略、host側のrevision・期限境界をテスト。`cargo test --workspace --offline`成功（GPU 8件、app 29件成功・既存benchmark 1件ignored）、`npm run build`、`./scripts/check_ios_rust.sh`、GPU no-deps strict Clippyも成功。今回WebViewの画面コードは変更せず、既存32bin描画へbackend応答を接続した。実機install・表示・GPU負荷／発熱は未実施でPending。詳細は [NATIVE_PREVIEW_BRIDGE.md](NATIVE_PREVIEW_BRIDGE.md)、受け入れ手順は [IPHONE_DEVICE_TEST_MEMO.md](IPHONE_DEVICE_TEST_MEMO.md)。Display P3と動画LUT保存は未完了のまま。
+
+## 2026-11-02: 実機テスト手順の整備
+
+[IPHONE_DEVICE_TEST_MEMO.md](IPHONE_DEVICE_TEST_MEMO.md)を追加。現在のbuild／上書きinstall scriptを確認し、短時間のsmoke test、native表示補助・診断、Still／Video保存、データ移動の安全な試験、性能比較と不具合記録欄をまとめた。未実装の動画LUT焼き込みとLUT後histogram、P3 fallback、実機未受け入れを明記。手順作成のみで、端末操作や受け入れ結果の更新は行っていない。
+
 ## 2026-11-02: nativeピーキングとlook OFF表示補助
 
 前段のゼブラ変更を保持し、SDR native fragment passへSobelピーキングを追加。6色はRust Documentから参照し、UIは`nativeFocus` boolのみを要求する。輪郭判定と映像は同一UVを使う。look OFFでも補助だけでnative描画し、LUTをbypassする。これによりSDRでピーキング／ゼブラ／LUTを併用しても、ready中はRGB画像をWebViewへ転送しない。Document revisionとpresent済みfocus／zebraの照合により、色・look・LUT変更途中はfallbackを維持する。

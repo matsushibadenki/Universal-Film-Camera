@@ -15,6 +15,8 @@
 
 ## 現在の開発優先方針
 
+実機試験の手順・チェックリスト: [iPhone実機テストメモ](IPHONE_DEVICE_TEST_MEMO.md)。手順の整備はテスト合格を意味しない。
+
 iOSを唯一のactive platformとする。既存のmacOS／Android codeと共通coreは退行を防ぐためbuild／test対象に残すが、新機能開発は保留する。Windows／Linux、Android、macOS固有拡張、iOS以外とのpeer transfer、他platform向けGPU最適化はすべて`🔴 [Later]`である。共通coreを変更する場合も、直近の受け入れ先がiOSであることを必須とする。
 
 ## 現在地
@@ -29,7 +31,7 @@ iOSを唯一のactive platformとする。既存のmacOS／Android codeと共通
 | Imaging Pipeline model | 🟢 [Done] schema v1 + render snapshot + CPU finishing                                                | measured profile dataを追加                             |
 | Profile system         | 🟢 [Done] typed Profiles + loader + migration registry                                               | profile署名／配布方針を確定                             |
 | Film renderer          | 🟢 [Done] CPU synthetic finishing縦切り                                                              | measured Print／ColorCheckerを追加                      |
-| GPU renderer           | 🟢 [Done] Rust所有のwgpu LUT renderer、写真保存、iOS SDR LUT preview／Metal present接続              | 🟠 [Next] native表示補助・P3とVideo接続                 |
+| GPU renderer           | 🟢 [Done] Rust所有のwgpu LUT renderer、写真保存、iOS SDR LUT／表示補助／LUT後histogram接続              | 🟠 [Next] Display P3とVideo接続                 |
 | Nearby sharing         | ⭕️ [Pending] Apple暗号化Original転送＋resume／recovery／partial管理を保守                            | iOS camera安定化後に実機2台受け入れ                     |
 | Android                | 🔴 [Later] CameraX Still／Videoを保守のみ                                                            | iOS優先期間終了後に再評価                               |
 | Windows／Linux         | 🔴 [Later] 未実装                                                                                    | platform camera backendの最初のpreview                  |
@@ -213,7 +215,10 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - 🟢 [Done] Safe Area内の既存hostへMetal layerを追加し、native present後だけcanvasを隠す。worker停止join後にhost解放、background要求停止・heartbeat、失敗時fallbackを接続
 - 🟢 [Done] nativeゼブラのpre-LUT luminance判定・同一aspect-fill・GPU合成と表示済み設定の照合。実Metalの閾値／縞／LUT非依存／crop一致テスト、UI応答模擬の切替・障害復帰を追加
 - 🟢 [Done] nativeピーキングのBGRA／NV12・縦横crop・6色・平坦入力・LUT bypass画素テスト。present済みDocument revisionと表示補助設定の照合を追加し、色／LUT変更途中のfallbackを維持
-- 🟠 [Next] native GPUのDisplay P3 output transform・LUT適用後histogramを実装
+- 🟢 [Done] native SDRのLUT後RGB histogramをcomputeで集計。visible cropの128×72サンプル・各32bin・最大約10Hz、384byteのcounterのみreadback。表示補助を除外し、revision／500ms期限付きでUIの既存histogramへ接続
+- 🟢 [Done] histogramのLUT変化・bypass・crop・BGRA／NV12・overlay非混入・端点bin・counterリセット／集計省略の実Metalテスト、revision／期限境界のhost test、診断counterを追加
+- 🟠 [Next] native GPUのDisplay P3 output transformを実装
+- ⭕️ [Pending] iPhoneでnative histogramのLUT追従、回転・レンズ切替・fallbackとの切替、readback追加時の実FPS／発熱を受け入れる
 - ⭕️ [Pending] 表示補助統合版をiPhoneへinstallし、実映像の警告位置・輪郭感度・効果切替・RGB生成停止・発熱を確認（今回端末更新なし）
 - ⭕️ [Pending] iPhoneのnative preview FPS／遅延／発熱／回転／レンズ切替／効果切替を測定。実表示の目視・速度比較は未実施
 - 🟢 [Done] Xcode 27.2の最低対応iOS設定を15.0へ統一し、最新native LUT previewを含む実機向け署名済みIPAをexport。Team 3WH28SSRZCと署名検証を確認（実表示受け入れはPending）

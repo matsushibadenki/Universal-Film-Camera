@@ -88,8 +88,22 @@ GPU完了・present要求時にDocument revisionとfocus／zebraを記録し、c
 
 検証: 実Metalの6色、縦横step edge＋中央crop、BGRAとNV12の輪郭一致、平坦入力／borderで誤警告なし、黒LUT下の輪郭、look OFFのLUT bypassを確認。GPU unit testは6件成功。workspace全体test成功（既存manual benchmark 1件ignored）、Web build、iOS arm64 compile、GPU no-deps strict Clippy成功。Browser skill未提供（Browser plugin not available）のためPlaywright＋既存Chromeを使用し、`http://127.0.0.1:1420/`、390×844／844×390でnative応答を模擬する。撮影→補助menu→ゼブラ＋ピーキング→GPU失敗／復帰→環境設定でmagenta・look OFF→撮影復帰→補助解除を操作。実機映像／GPU FPSの証拠ではない。証跡は`/private/tmp/camera-peaking-390.png`、`/private/tmp/camera-peaking-844.png`。
 
+## 🟢 [Done] native LUT後histogram（2026-11-02第3段階）
+
+`PreviewPipeline`へcompute entryを追加した。既存のcamera texture／LUT／uniform／samplerを共有し、映像と同じ中央aspect-fillのvisible cropを128×72の固定gridでsampleする。709→sRGB変換とLUT／bypassは表示と同じ関数・tableを使用する。各channel32bin（`min(floor(value*32),31)`）でRGB計96個のu32をatomic加算する。これは近似分布で、全画素の厳密集計・RAW scope・HDR scopeではない。
+
+ゼブラ・ピーキングは集計しない。GPU computeはそれらの合成前の値をsampleするため、警告色や縞がhistogramを汚染しない。look OFF＋表示補助のnative時はLUT bypass後（元映像）の分布になる。全効果OFFでは従来のcamera-source telemetryを使う。
+
+workerは最大約10Hz、Document revision変更時は次frameで集計する。毎回counterをclearし、compute後に384byteだけMAP_READ stagingへcopyする。既存のframe submission完了後にcounterをmapし、必ずunmapする。画像のCPU readbackやWebViewへのRGB画像転送を追加しない。集計しないframeではcompute／counter copy／mapを行わない。実iPhone上の追加待ち時間と発熱は未測定。
+
+RustのHistogramはrevision・採取時刻・96counterのみを保持する。native表示通知済みで、現在のDocument revisionと一致し、採取から500ms未満の場合のみ`get_camera_monitor_snapshot`のRGB histogramを置き換える。設定変更直後・古い結果・worker停止・未対応input時はsourceへfallbackする。音声levelは従来のtelemetryを維持する。readbackエラーはworkerの通常エラー経路を通り、native映像も既存fallbackへ戻す。
+
+snapshotの追加field `histogram_source`は`native-post-lut`または`camera-source`（look OFFのnativeも互換名`native-post-lut`）。既存UIはそのまま32binを描画し、source種類を画面上の新規文字としては表示しない。診断`get_native_preview_status`へ`gpu_histograms`（成功した集計公開回数）と`gpu_histogram_ready`（native ready＋現在revision／期限に合う結果）を追加。counterは画面FPSを意味しない。
+
+実MetalでLUTによるbin移動、黒LUT／bypass、crop外の白画素除外、overlayをONにしても分布不変、NV12入力、0／1の端点bin、連続集計のreset、非要求frameでの集計省略を検証。host testでrevision不一致・未設定・499／500ms境界・未来時刻の拒否を確認。端末install／実画面の検証は未実施。実機手順は [IPHONE_DEVICE_TEST_MEMO.md](IPHONE_DEVICE_TEST_MEMO.md)。
+
 ## 🟠 [Next] 残るGPU移行
 
-Display P3 output、LUT適用後histogram、HDR／10-bit対応。現在のhistogramは従来のsource telemetryで、native LUT後のGPU scopeではない。複数windowのcapture ownershipとrequest arbitrationも別途必要。動画保存へのLUT焼き込みはこのpreview接続とは別工程。
+Display P3 output、HDR／10-bit対応。WebView fallback経路のhistogramは従来sourceのままであり、nativeと意味が切り替わる点に注意する。複数windowのcapture ownershipとrequest arbitrationも別途必要。動画保存へのLUT焼き込みはこのpreview接続とは別工程。
 
 ⭕️ [Pending] iPhone実機のFPS、遅延、発熱、レンズ切替、縦横回転、background復帰、効果ON/OFFの連続切替。今回端末へのインストールはしていない。

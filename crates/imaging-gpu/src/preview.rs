@@ -58,6 +58,9 @@ pub struct PreviewPipeline {
     uniform: wgpu::Buffer,
     sampler: wgpu::Sampler,
     cube: Option<Cube>,
+    histogram_pipeline: wgpu::ComputePipeline,
+    histogram: wgpu::Buffer,
+    histogram_readback: wgpu::Buffer,
 }
 pub struct PreviewFrame<'a> {
     pub input: &'a [wgpu::Texture],
@@ -69,13 +72,14 @@ pub struct PreviewFrame<'a> {
     pub zebra: bool,
     pub peaking: Option<PeakingColor>,
     pub apply_lut: bool,
+    pub collect_histogram: bool,
 }
 
 impl PreviewPipeline {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         let texture = |binding, dimension, filterable| wgpu::BindGroupLayoutEntry {
             binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
+            visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Float { filterable },
                 view_dimension: dimension,
@@ -90,16 +94,26 @@ impl PreviewPipeline {
                 texture(1, wgpu::TextureViewDimension::D2, true),
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
                 texture(3, wgpu::TextureViewDimension::D3, false),
                 wgpu::BindGroupLayoutEntry {
                     binding: 4,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -142,6 +156,28 @@ impl PreviewPipeline {
             cache: None,
         });
         Self {
+            histogram_pipeline: device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("post-LUT histogram"),
+                layout: Some(&pipeline_layout),
+                module: &shader,
+                entry_point: Some("histogram_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            }),
+            histogram: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("RGB 32-bin histogram"),
+                size: 384,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            histogram_readback: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("histogram counters only"),
+                size: 384,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }),
             pipeline,
             layout,
             uniform: device.create_buffer(&wgpu::BufferDescriptor {
@@ -176,6 +212,7 @@ impl PreviewPipeline {
             zebra,
             peaking,
             apply_lut,
+            collect_histogram,
         } = frame;
         if input.is_empty() || (color[0] != 0 && input.len() != 2) || extent.contains(&0) {
             return Err("invalid preview frame layout".into());
@@ -254,6 +291,10 @@ impl PreviewPipeline {
                     binding: 4,
                     resource: self.uniform.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: self.histogram.as_entire_binding(),
+                },
             ],
         });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -274,7 +315,49 @@ impl PreviewPipeline {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &bindings, &[]);
         pass.draw(0..3, 0..1);
+        drop(pass);
+        if collect_histogram {
+            encoder.clear_buffer(&self.histogram, 0, None);
+            let mut compute = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("sample visible post-LUT pixels"),
+                timestamp_writes: None,
+            });
+            compute.set_pipeline(&self.histogram_pipeline);
+            compute.set_bind_group(0, &bindings, &[]);
+            compute.dispatch_workgroups(16, 9, 1);
+            drop(compute);
+            encoder.copy_buffer_to_buffer(&self.histogram, 0, &self.histogram_readback, 0, 384);
+        }
         Ok(())
+    }
+
+    /// Call after submission completion, before encoding another collected histogram.
+    /// Reads back only 96 counters; never image pixels.
+    pub fn read_histogram(&self, device: &wgpu::Device) -> Result<[u32; 96], String> {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        self.histogram_readback
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |r| {
+                let _ = tx.send(r);
+            });
+        if let Err(error) = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(2)),
+        }) {
+            self.histogram_readback.unmap();
+            return Err(error.to_string());
+        }
+        let result = (|| {
+            rx.recv_timeout(std::time::Duration::from_secs(2))
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+            let bytes = self.histogram_readback.slice(..).get_mapped_range();
+            let mut bins = [0u32; 96];
+            bins.copy_from_slice(bytemuck::cast_slice(&bytes));
+            Ok(bins)
+        })();
+        self.histogram_readback.unmap();
+        result
     }
 }
 
@@ -422,6 +505,16 @@ pub(crate) mod tests {
         lut: &Lut3d,
         tools: (bool, Option<PeakingColor>, bool),
     ) -> Vec<u8> {
+        render_config_with_histogram(g, input, extent, color, lut, tools).0
+    }
+    fn render_config_with_histogram(
+        g: &GpuRenderer,
+        input: &[wgpu::Texture],
+        extent: [u32; 2],
+        color: [u32; 4],
+        lut: &Lut3d,
+        tools: (bool, Option<PeakingColor>, bool),
+    ) -> (Vec<u8>, [u32; 96]) {
         let (zebra, peaking, apply_lut) = tools;
         g.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut pipeline = PreviewPipeline::new(&g.device, wgpu::TextureFormat::Rgba8Unorm);
@@ -460,6 +553,7 @@ pub(crate) mod tests {
                     zebra,
                     peaking,
                     apply_lut,
+                    collect_histogram: true,
                 },
             )
             .unwrap();
@@ -494,7 +588,149 @@ pub(crate) mod tests {
             .collect();
         drop(bytes);
         readback.unmap();
-        result
+        (result, pipeline.read_histogram(&g.device).unwrap())
+    }
+    #[test]
+    fn histogram_resets_and_skips_unrequested_frames() {
+        let g = GpuRenderer::new().unwrap();
+        let mut pipeline = PreviewPipeline::new(&g.device, wgpu::TextureFormat::Rgba8Unorm);
+        let target = g.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 2,
+                height: 2,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let table = lut(false);
+        for (value, collect, expected_bin) in [(0u8, true, 0), (255, true, 31), (80, false, 31)] {
+            let input = vec![image(
+                &g,
+                wgpu::TextureFormat::Rgba8Unorm,
+                [2, 2],
+                &[value, value, value, 255].repeat(4),
+                4,
+            )];
+            let mut encoder = g.device.create_command_encoder(&Default::default());
+            pipeline
+                .encode(
+                    &g.device,
+                    &g.queue,
+                    &mut encoder,
+                    PreviewFrame {
+                        input: &input,
+                        target: &target.create_view(&Default::default()),
+                        extent: [2, 2],
+                        color: [0; 4],
+                        lut: &table,
+                        zebra: false,
+                        peaking: None,
+                        apply_lut: true,
+                        collect_histogram: collect,
+                    },
+                )
+                .unwrap();
+            let submission = g.queue.submit([encoder.finish()]);
+            g.device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: Some(submission),
+                    timeout: Some(std::time::Duration::from_secs(2)),
+                })
+                .unwrap();
+            let bins = pipeline.read_histogram(&g.device).unwrap();
+            for channel in bins.chunks_exact(32) {
+                assert_eq!(channel.iter().sum::<u32>(), 9216);
+                assert_eq!(channel[expected_bin], 9216);
+            }
+        }
+    }
+    #[test]
+    fn post_lut_histogram_counts_crop_bypass_and_excludes_display_aids() {
+        let g = GpuRenderer::new().unwrap();
+        let bytes = (0..16)
+            .flat_map(|i| {
+                if (2..6).contains(&(i % 8)) {
+                    [64, 128, 192, 255]
+                } else {
+                    [255, 255, 255, 255]
+                }
+            })
+            .collect::<Vec<_>>();
+        let input = vec![image(
+            &g,
+            wgpu::TextureFormat::Rgba8Unorm,
+            [8, 2],
+            &bytes,
+            4,
+        )];
+        let black = Lut3d::new(2, &[[0.0; 3]; 8], [0.0; 3], [1.0; 3]).unwrap();
+        for (table, apply, expected) in [
+            (&black, true, [0, 0, 0]),
+            (&black, false, [8, 16, 24]),
+            (&lut(true), true, [23, 16, 24]),
+        ] {
+            let (_, bins) = render_config_with_histogram(
+                &g,
+                &input,
+                [2, 2],
+                [0; 4],
+                table,
+                (false, None, apply),
+            );
+            for c in 0..3 {
+                assert_eq!(bins[c * 32..(c + 1) * 32].iter().sum::<u32>(), 9216);
+                assert_eq!(bins[c * 32 + expected[c]], 9216);
+            }
+        }
+        let edge = vec![image(
+            &g,
+            wgpu::TextureFormat::Rgba8Unorm,
+            [4, 2],
+            &[
+                0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            ]
+            .repeat(2),
+            4,
+        )];
+        let plain = render_config_with_histogram(
+            &g,
+            &edge,
+            [4, 2],
+            [0; 4],
+            &lut(false),
+            (false, None, true),
+        );
+        let aids = render_config_with_histogram(
+            &g,
+            &edge,
+            [4, 2],
+            [0; 4],
+            &lut(false),
+            (true, Some(PeakingColor::Cyan), true),
+        );
+        assert_ne!(plain.0, aids.0);
+        assert_eq!(plain.1, aids.1);
+        let nv12 = vec![
+            image(&g, wgpu::TextureFormat::R8Unorm, [2, 2], &[128; 4], 1),
+            image(&g, wgpu::TextureFormat::Rg8Unorm, [1, 1], &[128, 128], 2),
+        ];
+        let (_, bins) = render_config_with_histogram(
+            &g,
+            &nv12,
+            [2, 2],
+            [1, 1, 0, 0],
+            &lut(false),
+            (false, None, true),
+        );
+        for c in 0..3 {
+            assert_eq!(bins[c * 32 + 16], 9216);
+        }
     }
     #[test]
     fn native_fragment_lut_and_aspect_fill_match_expected_pixels() {

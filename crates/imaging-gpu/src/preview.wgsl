@@ -11,6 +11,7 @@ struct Params {
 @group(0) @binding(2) var image_sampler: sampler;
 @group(0) @binding(3) var color_cube: texture_3d<f32>;
 @group(0) @binding(4) var<uniform> params: Params;
+@group(0) @binding(5) var<storage, read_write> histogram: array<atomic<u32>, 96>;
 
 @vertex fn vertex_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     let p = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
@@ -47,11 +48,29 @@ fn source_rgb(uv: vec2<f32>) -> vec3<f32> {
 fn luma(uv: vec2<f32>) -> f32 {
     return dot(source_rgb(uv), vec3(54.0,183.0,19.0));
 }
-@fragment fn fragment_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+fn preview_uv(normalized: vec2<f32>) -> vec2<f32> {
     let source_aspect = params.extent.z / params.extent.w;
     let target_aspect = params.extent.x / params.extent.y;
     let crop = vec2(min(1.0,target_aspect/source_aspect), min(1.0,source_aspect/target_aspect));
-    let uv = (position.xy / params.extent.xy - vec2(0.5)) * crop + vec2(0.5);
+    return (normalized - vec2(0.5)) * crop + vec2(0.5);
+}
+fn graded_rgb(uv: vec2<f32>) -> vec3<f32> {
+    let rgb = source_rgb(uv);
+    if params.cube.z == 1u { return clamp(cube_sample(rgb),vec3(0.0),vec3(1.0)); }
+    return rgb;
+}
+// A bounded 128x72 grid over the visible crop. Scopes exclude display aids.
+@compute @workgroup_size(8, 8)
+fn histogram_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if id.x >= 128u || id.y >= 72u { return; }
+    let uv = preview_uv((vec2<f32>(id.xy) + vec2(0.5)) / vec2(128.0,72.0));
+    let bins = min(vec3<u32>(floor(graded_rgb(uv) * 32.0)), vec3(31u));
+    atomicAdd(&histogram[bins.r], 1u);
+    atomicAdd(&histogram[32u + bins.g], 1u);
+    atomicAdd(&histogram[64u + bins.b], 1u);
+}
+@fragment fn fragment_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let uv = preview_uv(position.xy / params.extent.xy);
     let rgb = source_rgb(uv);
     var output = rgb;
     if params.cube.z == 1u { output = clamp(cube_sample(rgb),vec3(0.0),vec3(1.0)); }
