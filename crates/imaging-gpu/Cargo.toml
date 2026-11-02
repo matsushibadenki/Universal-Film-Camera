@@ -12,6 +12,17 @@ bytemuck = { version = "1", features = ["derive"] }
 sha2.workspace = true
 serde.workspace = true
 
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+camera-apple.workspace = true
+objc2 = "0.6.4"
+objc2-metal = "0.3.2"
+metal = "0.32.0"
+foreign-types = "0.5.0"
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dev-dependencies]
+objc2-core-foundation = "0.3.2"
+objc2-core-video = "0.3.2"
+
 [[example]]
 name = "lut_conformance"
 path = "examples/lut_conformance.rs"

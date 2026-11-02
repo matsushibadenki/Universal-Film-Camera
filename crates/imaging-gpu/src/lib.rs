@@ -2,12 +2,17 @@
 //!
 //! Native frame import and encoder sharing can use the same pipeline later.
 //! The still-image adapter deliberately reads back only the finished image.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub mod native_input;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub mod preview;
 use bytemuck::{Pod, Zeroable};
 use sha2::{Digest, Sha256};
 use std::{
     sync::mpsc,
     time::{Duration, Instant},
 };
+pub use wgpu;
 
 /// Immutable display-referred sRGB cube, red-fastest, with clamped samples.
 pub struct Lut3d {
@@ -178,6 +183,8 @@ struct Cube {
 
 /// One owner serializes dispatch and retains device, pipeline, cube and image buffers.
 pub struct GpuRenderer {
+    instance: wgpu::Instance,
+    adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
@@ -284,6 +291,8 @@ impl GpuRenderer {
             mapped_at_creation: false,
         });
         Ok(Self {
+            instance,
+            adapter,
             device,
             queue,
             pipeline,
@@ -299,6 +308,16 @@ impl GpuRenderer {
                 ..Default::default()
             },
         })
+    }
+
+    /// Shared native-preview GPU context; no additional device is created.
+    pub fn preview_context(&self) -> (wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue) {
+        (
+            self.instance.clone(),
+            self.adapter.clone(),
+            self.device.clone(),
+            self.queue.clone(),
+        )
     }
 
     pub fn stats(&self) -> RendererStats {

@@ -1,11 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./style.css";
 
 type CameraMode = "still" | "video";
 type Locale = "en" | "ja" | "zh-CN";
 type Tool = "focus" | "zebra" | "guides" | "scope";
-type CameraMonitorSnapshot = { red: number[]; green: number[]; blue: number[]; audio_db: number[]; frame_received: boolean; preview_width: number; preview_height: number; preview_rgb_base64: string };
+type CameraMonitorSnapshot = { native_lut_presented?: boolean; red: number[]; green: number[]; blue: number[]; audio_db: number[]; frame_received: boolean; preview_width: number; preview_height: number; preview_rgb_base64: string };
 type LutPayload = { size: number; samples: [number, number, number][]; domain_min: [number, number, number]; domain_max: [number, number, number] };
 type LutEntry = { id: string; name: string; category: string; source: "built_in" | "imported"; size: number };
 type LutCatalog = { built_in: LutEntry[]; imported: LutEntry[] };
@@ -88,6 +89,9 @@ type RenderProfileSnapshot = {
   snapshot_sha256: string;
 };
 type CaptureAsset = {
+  shutter_sound?: ShutterSound | null;
+  capture_policy?: { move_to_photos: boolean };
+  auto_transfer?: { moved: boolean; error?: string };
   schema_version: number;
   id: string;
   media_type: "photo" | "video";
@@ -201,6 +205,7 @@ type Copy = {
   workingColorSpace: string;
   workingColorSpaceDetail: string;
   colorSpaceSaved: string;
+  settingsSaveFailed: string;
   monitorLook: string;
   monitorLookDetail: string;
   settingsDisplayDetail: string;
@@ -395,7 +400,7 @@ const copy: Record<Locale, Copy> = {
     settingsSubtitle: "Camera, monitoring, and color management", settingsBack: "Back to camera",
     settingsDisplay: "Display", settingsCapture: "Capture", settingsColor: "Color",
     monitoringColorSpace: "Monitoring color space", workingColorSpace: "Internal working space",
-    workingColorSpaceDetail: "Scene-linear ACEScg · fixed by the imaging pipeline", colorSpaceSaved: "Color-space preference saved",
+    workingColorSpaceDetail: "Scene-linear ACEScg · fixed by the imaging pipeline", colorSpaceSaved: "Color-space preference saved", settingsSaveFailed: "Could not save settings",
     monitorLook: "Apply color profile and LUT to live preview", monitorLookDetail: "Monitoring only · captured originals are unchanged",
     settingsDisplayDetail: "Dark technical interface · monitoring overlays are controlled from the camera screen",
     peakingColor: "Peaking color", peakingColorSaved: "Peaking color saved",
@@ -481,7 +486,7 @@ const copy: Record<Locale, Copy> = {
     settingsSubtitle: "カメラ・モニター・カラー管理", settingsBack: "カメラへ戻る",
     settingsDisplay: "表示", settingsCapture: "撮影", settingsColor: "カラー",
     monitoringColorSpace: "モニタリングカラースペース", workingColorSpace: "内部作業色空間",
-    workingColorSpaceDetail: "Scene-linear ACEScg・Imaging Pipelineで固定", colorSpaceSaved: "カラースペース設定を保存しました",
+    workingColorSpaceDetail: "Scene-linear ACEScg・Imaging Pipelineで固定", colorSpaceSaved: "カラースペース設定を保存しました", settingsSaveFailed: "設定を保存できませんでした",
     monitorLook: "カラープロファイルとLUTをライブ表示へ適用", monitorLookDetail: "モニタリング専用・撮影原本は変更しません",
     settingsDisplayDetail: "技術的なダークUI・モニター表示は撮影画面から操作します",
     peakingColor: "ピーキングカラー", peakingColorSaved: "ピーキングカラーを保存しました",
@@ -567,7 +572,7 @@ const copy: Record<Locale, Copy> = {
     settingsSubtitle: "相机、监看与色彩管理", settingsBack: "返回相机",
     settingsDisplay: "显示", settingsCapture: "拍摄", settingsColor: "色彩",
     monitoringColorSpace: "监看色彩空间", workingColorSpace: "内部工作色彩空间",
-    workingColorSpaceDetail: "Scene-linear ACEScg・由成像管线固定", colorSpaceSaved: "色彩空间设置已保存",
+    workingColorSpaceDetail: "Scene-linear ACEScg・由成像管线固定", colorSpaceSaved: "色彩空间设置已保存", settingsSaveFailed: "无法保存设置",
     monitorLook: "将色彩配置与 LUT 应用于实时预览", monitorLookDetail: "仅用于监看・不会更改拍摄原片",
     settingsDisplayDetail: "技术型深色界面・监看叠加层可在拍摄画面中控制",
     peakingColor: "峰值对焦颜色", peakingColorSaved: "峰值对焦颜色已保存",
@@ -877,6 +882,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
           <select id="guide-style"><option value="thirds">${t.guideThirds}</option><option value="grid">${t.guideGrid}</option><option value="diagonal">${t.guideDiagonal}</option></select>
         </label>
         <label class="settings-toggle" for="auto-transfer-delete"><input id="auto-transfer-delete" type="checkbox"><span>${t.autoTransferDelete}<small>${t.autoTransferDeleteDetail}</small></span></label>
+        <p class="settings-status" id="capture-policy-status" role="status" aria-live="polite"></p>
       </div>
       <div class="settings-panel" id="settings-panel-color" role="tabpanel" aria-labelledby="settings-tab-color">
         <h2 class="settings-panel-title">${t.settingsColor}</h2>
@@ -1064,6 +1070,7 @@ const lutImportFile = document.querySelector<HTMLInputElement>("#lut-import-file
 const lutStatus = document.querySelector<HTMLElement>("#lut-status")!;
 const guideStyle = document.querySelector<HTMLSelectElement>("#guide-style")!;
 const autoTransferDelete = document.querySelector<HTMLInputElement>("#auto-transfer-delete")!;
+const capturePolicyStatus = document.querySelector<HTMLElement>("#capture-policy-status")!;
 const shutterSound = document.querySelector<HTMLSelectElement>("#shutter-sound")!;
 const shutterSoundSilentOption = document.querySelector<HTMLOptionElement>("#shutter-sound-silent-option")!;
 const shutterSoundRestrictionNote = document.querySelector<HTMLElement>("#shutter-sound-restriction-note")!;
@@ -1120,6 +1127,120 @@ let selectedNearbyPeerId: string | undefined;
 const monitoringColorSpaceKey = "ufc.monitoring-color-space.v1";
 const monitorLookEnabledKey = "ufc.monitor-look-enabled.v1";
 const selectedLutKey = "ufc.selected-lut.v1";
+type MonitoringSettings = { color_space: string; look_enabled: boolean; guide_style: string; peaking_color: string };
+type CapturePolicy = { move_to_photos: boolean };
+type ImagingDocument = { schema_version: number; revision: number; selected_lut: string; monitoring: MonitoringSettings | null; capture_policy: CapturePolicy | null; shutter_sound: ShutterSound | null };
+let imagingDocument: ImagingDocument | undefined;
+let imagingInitialization: Promise<void> | undefined;
+let imagingSave: Promise<void> = Promise.resolve();
+const nativeImagingDocument = "__TAURI_INTERNALS__" in window;
+function acceptImagingSnapshot(snapshot: ImagingDocument): void {
+  if (!imagingDocument || snapshot.revision >= imagingDocument.revision) {
+    imagingDocument = snapshot;
+    applyMonitoringSnapshot();
+  }
+}
+function applyMonitoringSnapshot(): void {
+  if (imagingDocument?.shutter_sound) applyShutterSound(imagingDocument.shutter_sound);
+  if (imagingDocument?.capture_policy) autoTransferDelete.checked = imagingDocument.capture_policy.move_to_photos;
+  const settings = imagingDocument?.monitoring;
+  if (!settings) return;
+  applyMonitoringColorSpace(settings.color_space);
+  monitorLookEnabled.checked = settings.look_enabled;
+  applyGuideStyle(settings.guide_style);
+  applyPeakingColor(settings.peaking_color);
+  syncMonitorProcessing();
+}
+
+async function initializeImagingDocument(): Promise<void> {
+  if (!nativeImagingDocument) return;
+  imagingInitialization ??= invoke<ImagingDocument>("get_imaging_document", {
+    legacyLut: storedPreference(selectedLutKey, "none"),
+    legacyShutterSound: storedPreference(shutterSoundKey, "standard"),
+    legacyCapturePolicy: { move_to_photos: storedPreference(autoTransferDeleteKey, "false") === "true" },
+    legacyMonitoring: {
+      color_space: loadMonitoringColorSpace(), look_enabled: storedPreference(monitorLookEnabledKey, "false") === "true",
+      guide_style: storedPreference(guideStyleKey, "thirds"), peaking_color: storedPreference(peakingColorKey, "cyan")
+    }
+  }).then(acceptImagingSnapshot).catch((error) => {
+    imagingInitialization = undefined;
+    throw error;
+  });
+  await imagingInitialization;
+}
+function saveMonitoring(patch: Partial<MonitoringSettings>): Promise<void> {
+  const operation = imagingSave.then(async () => {
+    if (nativeImagingDocument) {
+      await initializeImagingDocument();
+      acceptImagingSnapshot(await invoke<ImagingDocument>("set_monitoring_settings", {
+        patch, expectedRevision: imagingDocument!.revision
+      }));
+    } else {
+      const keys: Record<keyof MonitoringSettings, string> = {
+        color_space: monitoringColorSpaceKey, look_enabled: monitorLookEnabledKey,
+        guide_style: guideStyleKey, peaking_color: peakingColorKey
+      };
+      for (const key of Object.keys(patch) as (keyof MonitoringSettings)[]) window.localStorage.setItem(keys[key], String(patch[key]));
+    }
+  });
+  imagingSave = operation.catch(() => {});
+  return operation;
+}
+
+function saveCapturePolicy(policy: CapturePolicy): Promise<void> {
+  const operation = imagingSave.then(async () => {
+    if (nativeImagingDocument) {
+      await initializeImagingDocument();
+      acceptImagingSnapshot(await invoke<ImagingDocument>("set_capture_policy", { policy, expectedRevision: imagingDocument!.revision }));
+    } else {
+      window.localStorage.setItem(autoTransferDeleteKey, String(policy.move_to_photos));
+    }
+  });
+  imagingSave = operation.catch(() => {});
+  return operation;
+}
+
+function saveShutterSound(sound: ShutterSound): Promise<void> {
+  const operation = imagingSave.then(async () => {
+    if (nativeImagingDocument) {
+      await initializeImagingDocument();
+      acceptImagingSnapshot(await invoke<ImagingDocument>("set_shutter_sound", { sound, expectedRevision: imagingDocument!.revision }));
+    } else window.localStorage.setItem(shutterSoundKey, sound);
+  });
+  imagingSave = operation.catch(() => {});
+  return operation;
+}
+
+async function commitMonitoring(control: HTMLInputElement | HTMLSelectElement, patch: Partial<MonitoringSettings>, status: HTMLElement, success = ""): Promise<void> {
+  control.disabled = true;
+  try {
+    await saveMonitoring(patch);
+    status.dataset.state = "";
+    status.textContent = success;
+  } catch (error) {
+    if (nativeImagingDocument) {
+      try { acceptImagingSnapshot(await invoke<ImagingDocument>("get_imaging_document")); }
+      catch { applyMonitoringSnapshot(); }
+    }
+    status.dataset.state = "error";
+    status.textContent = `${t.settingsSaveFailed}: ${String(error)}`;
+  } finally { control.disabled = false; }
+}
+
+function saveImagingLut(selected: string): Promise<void> {
+  const operation = imagingSave.then(async () => {
+    if (nativeImagingDocument) {
+      await initializeImagingDocument();
+      acceptImagingSnapshot(await invoke<ImagingDocument>("set_imaging_lut", {
+        selectedLut: selected, expectedRevision: imagingDocument!.revision
+      }));
+    } else {
+      window.localStorage.setItem(selectedLutKey, selected);
+    }
+  });
+  imagingSave = operation.catch(() => {});
+  return operation;
+}
 const guideStyleKey = "ufc.guide-style.v1";
 const autoTransferDeleteKey = "ufc.auto-transfer-delete.v1";
 const peakingColorKey = "ufc.peaking-color.v1";
@@ -1191,7 +1312,7 @@ function applyShutterSoundSuppressionAvailability(supported: boolean): void {
   shutterSoundSilentOption.disabled = !supported;
   shutterSoundRestrictionNote.hidden = !supported;
   if (supported) {
-    applyShutterSound(storedPreference(shutterSoundKey, shutterSound.value || "standard"));
+    applyShutterSound(imagingDocument?.shutter_sound ?? storedPreference(shutterSoundKey, shutterSound.value || "standard"));
   } else if (shutterSound.value === "silent") {
     applyShutterSound("standard");
   }
@@ -1234,6 +1355,11 @@ async function loadCustomShutterSound(): Promise<void> {
 
 function playShutterSound(kind = shutterSound.value as ShutterSound): void {
   if (kind === "silent") return;
+  if (kind === "custom" && !customShutterSoundUrl) {
+    shutterSoundStatus.textContent = t.shutterSoundImportFailed;
+    shutterSoundStatus.dataset.state = "error";
+    return;
+  }
   const bundledPlayer = bundledShutterSoundPlayers.get(kind as BundledShutterSound);
   if (bundledPlayer) {
     bundledPlayer.pause();
@@ -1295,7 +1421,7 @@ async function refreshBulkPhotoCount(): Promise<number> {
 }
 
 function populateLutSelection(catalog: LutCatalog): void {
-  const selected = storedPreference(selectedLutKey, "none");
+  const selected = imagingDocument?.selected_lut ?? storedPreference(selectedLutKey, "none");
   const builtIn = document.createElement("optgroup");
   builtIn.label = t.lutBuiltIn;
   builtIn.append(...catalog.built_in.map((lut) => new Option(lut.name, lut.id)));
@@ -1311,6 +1437,14 @@ function populateLutSelection(catalog: LutCatalog): void {
 }
 
 async function loadLutCatalog(): Promise<void> {
+  try {
+    await initializeImagingDocument();
+    if (nativeImagingDocument) acceptImagingSnapshot(await invoke<ImagingDocument>("get_imaging_document"));
+  } catch (error) {
+    lutStatus.textContent = String(error);
+    lutStatus.dataset.state = "error";
+    return;
+  }
   try { populateLutSelection(await invoke<LutCatalog>("get_lut_catalog")); }
   catch { populateLutSelection({ built_in: builtInLuts, imported: [] }); }
   await loadSelectedLutPayload();
@@ -1340,8 +1474,14 @@ let processedContext: CanvasRenderingContext2D | undefined;
 const sampleCanvas = document.createElement("canvas");
 const sampleContext = sampleCanvas.getContext("2d", { alpha: true })!;
 
+let nativeLutPresented = false;
+let nativePreviewGeneration = 0;
+function allowNativeLut(): boolean {
+  return monitorLookEnabled.checked && !document.body.classList.contains("tool-focus") && !document.body.classList.contains("tool-zebra");
+}
 function syncMonitorProcessing(): void {
-  document.body.classList.toggle("monitor-processing", monitorLookEnabled.checked || document.body.classList.contains("tool-focus") || document.body.classList.contains("tool-zebra"));
+  if (!allowNativeLut()) nativeLutPresented = false;
+  document.body.classList.toggle("monitor-processing", !nativeLutPresented && (monitorLookEnabled.checked || document.body.classList.contains("tool-focus") || document.body.classList.contains("tool-zebra")));
 }
 
 async function loadSelectedLutPayload(): Promise<void> {
@@ -1777,6 +1917,9 @@ function renderProcessedPreview(snapshot: CameraMonitorSnapshot): void {
 }
 
 function setNativePreviewCompositing(active: boolean): void {
+  nativePreviewGeneration++;
+  nativeLutPresented = false;
+  syncMonitorProcessing();
   document.documentElement.classList.toggle("has-native-preview", active);
   document.body.classList.toggle("has-native-preview", active);
 }
@@ -1806,15 +1949,19 @@ async function updateMonitorTelemetry(): Promise<void> {
   if (now - lastMonitorTelemetryAt < interval) return;
   lastMonitorTelemetryAt = now;
   monitorTelemetryPending = true;
+  const generation = nativePreviewGeneration;
   try {
     const snapshot = controlFixtureEnabled
       ? controlMonitorFixture
-      : await invoke<CameraMonitorSnapshot>("get_camera_monitor_snapshot", { includePreview: processing });
+      : await invoke<CameraMonitorSnapshot>("get_camera_monitor_snapshot", { includePreview: processing, allowNativeLut: allowNativeLut() });
+    if (generation !== nativePreviewGeneration) return;
+    nativeLutPresented = !!snapshot.native_lut_presented && allowNativeLut();
+    syncMonitorProcessing();
     if (snapshot.frame_received) {
       document.querySelector<SVGPathElement>("#hist-red")!.setAttribute("d", histogramPath(snapshot.red));
       document.querySelector<SVGPathElement>("#hist-green")!.setAttribute("d", histogramPath(snapshot.green));
       document.querySelector<SVGPathElement>("#hist-blue")!.setAttribute("d", histogramPath(snapshot.blue));
-      if (processing) renderProcessedPreview(snapshot);
+      if (processing && !nativeLutPresented) renderProcessedPreview(snapshot);
     }
     const channels = snapshot.audio_db.length === 1
       ? [snapshot.audio_db[0], snapshot.audio_db[0]]
@@ -2973,16 +3120,10 @@ function stopRecording(): void {
   void syncNativeOrientation();
 }
 
-async function moveCapturedAssetToPhotos(asset: CaptureAsset): Promise<{ moved: boolean; error?: string }> {
-  if (!autoTransferDelete.checked) return { moved: false };
-  feedback.textContent = t.autoTransferRunning;
-  feedback.classList.add("is-visible");
-  try {
-    await invoke("export_media_to_library_and_delete", { id: asset.id });
-    return { moved: true };
-  } catch (error) {
-    return { moved: false, error: String(error) };
-  }
+function captureTransferOutcome(asset: CaptureAsset): { moved: boolean; error?: string } {
+  // Native completion owns export + deletion. Never repeat it after a lost reply,
+  // and never infer deletion authority from the current checkbox or old receipts.
+  return asset.auto_transfer ?? { moved: false };
 }
 
 async function finishVideoRecording(storageTriggered = false): Promise<void> {
@@ -2995,7 +3136,7 @@ async function finishVideoRecording(storageTriggered = false): Promise<void> {
     stopRecording();
     const path = asset.original.path;
     const warning = asset.validation.status === "warning" ? ` · ${t.assetMetadataWarning}` : "";
-    const transfer = await moveCapturedAssetToPhotos(asset);
+    const transfer = captureTransferOutcome(asset);
     captureButton.dataset.state = transfer.error ? "error" : "success";
     const savedMessage = storageTriggered
       ? `${t.storageAutoStop} · ${path.split("/").pop() ?? path}${warning}`
@@ -3038,6 +3179,9 @@ async function monitorRecordingStorage(): Promise<void> {
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    nativeLutPresented = false;
+    syncMonitorProcessing();
+    if (nativeImagingDocument) void invoke("get_camera_monitor_snapshot", { includePreview: false, allowNativeLut: false }).catch(() => {});
     if (recording) {
       recordingPausedByLifecycle = true;
       void finishVideoRecording().finally(() => {
@@ -3157,30 +3301,52 @@ document.querySelectorAll<HTMLButtonElement>("[data-settings-tab]").forEach((but
   });
 });
 monitoringColorSpace.addEventListener("change", () => {
-  try { window.localStorage.setItem(monitoringColorSpaceKey, monitoringColorSpace.value); } catch { /* keep session preference */ }
   applyMonitoringColorSpace(monitoringColorSpace.value);
-  settingsStatus.textContent = t.colorSpaceSaved;
+  void commitMonitoring(monitoringColorSpace, { color_space: monitoringColorSpace.value }, settingsStatus, t.colorSpaceSaved);
 });
 monitorLookEnabled.addEventListener("change", () => {
-  try { window.localStorage.setItem(monitorLookEnabledKey, String(monitorLookEnabled.checked)); } catch { /* keep session preference */ }
   syncMonitorProcessing();
+  void commitMonitoring(monitorLookEnabled, { look_enabled: monitorLookEnabled.checked }, settingsStatus);
 });
 guideStyle.addEventListener("change", () => {
-  try { window.localStorage.setItem(guideStyleKey, guideStyle.value); } catch { /* keep session preference */ }
   applyGuideStyle(guideStyle.value);
+  void commitMonitoring(guideStyle, { guide_style: guideStyle.value }, displaySettingsStatus);
 });
-autoTransferDelete.addEventListener("change", () => {
-  try { window.localStorage.setItem(autoTransferDeleteKey, String(autoTransferDelete.checked)); } catch { /* keep session preference */ }
+autoTransferDelete.addEventListener("change", async () => {
+  autoTransferDelete.disabled = true;
+  try {
+    await saveCapturePolicy({ move_to_photos: autoTransferDelete.checked });
+    capturePolicyStatus.dataset.state = "";
+    capturePolicyStatus.textContent = "";
+  } catch (error) {
+    if (nativeImagingDocument) {
+      try { acceptImagingSnapshot(await invoke<ImagingDocument>("get_imaging_document")); }
+      catch { applyMonitoringSnapshot(); }
+    }
+    capturePolicyStatus.dataset.state = "error";
+    capturePolicyStatus.textContent = `${t.settingsSaveFailed}: ${String(error)}`;
+  } finally { autoTransferDelete.disabled = false; }
 });
 peakingColor.addEventListener("change", () => {
-  try { window.localStorage.setItem(peakingColorKey, peakingColor.value); } catch { /* keep session preference */ }
   applyPeakingColor(peakingColor.value);
-  displaySettingsStatus.textContent = t.peakingColorSaved;
+  void commitMonitoring(peakingColor, { peaking_color: peakingColor.value }, displaySettingsStatus, t.peakingColorSaved);
 });
-shutterSound.addEventListener("change", () => {
-  try { window.localStorage.setItem(shutterSoundKey, shutterSound.value); } catch { /* keep session preference */ }
-  applyShutterSound(shutterSound.value);
-  playShutterSound();
+shutterSound.addEventListener("change", async () => {
+  const selected = shutterSound.value as ShutterSound;
+  shutterSound.disabled = true;
+  try {
+    await saveShutterSound(selected);
+    shutterSoundStatus.dataset.state = "";
+    shutterSoundStatus.textContent = "";
+    playShutterSound(selected);
+  } catch (error) {
+    if (nativeImagingDocument) {
+      try { acceptImagingSnapshot(await invoke<ImagingDocument>("get_imaging_document")); }
+      catch { applyMonitoringSnapshot(); }
+    }
+    shutterSoundStatus.dataset.state = "error";
+    shutterSoundStatus.textContent = `${t.settingsSaveFailed}: ${String(error)}`;
+  } finally { shutterSound.disabled = false; }
 });
 shutterSoundFile.addEventListener("change", async () => {
   const file = shutterSoundFile.files?.[0];
@@ -3190,8 +3356,8 @@ shutterSoundFile.addEventListener("change", async () => {
     if (file.size === 0 || file.size > 5 * 1024 * 1024) throw new Error(t.shutterSoundImportHint);
     await storeCustomShutterSound(file);
     await loadCustomShutterSound();
+    await saveShutterSound("custom");
     applyShutterSound("custom");
-    window.localStorage.setItem(shutterSoundKey, "custom");
     shutterSoundStatus.textContent = `${t.shutterSoundImported} · ${customShutterSoundName}`;
     playShutterSound("custom");
   } catch (error) {
@@ -3200,9 +3366,17 @@ shutterSoundFile.addEventListener("change", async () => {
   } finally { shutterSoundFile.value = ""; }
 });
 lutSelection.addEventListener("change", async () => {
-  try { window.localStorage.setItem(selectedLutKey, lutSelection.value); } catch { /* keep session preference */ }
-  lutStatus.textContent = lutSelection.options[lutSelection.selectedIndex]?.textContent ?? "";
-  await loadSelectedLutPayload();
+  lutSelection.disabled = true;
+  try {
+    await saveImagingLut(lutSelection.value);
+    lutStatus.dataset.state = "";
+    lutStatus.textContent = lutSelection.options[lutSelection.selectedIndex]?.textContent ?? "";
+    await loadSelectedLutPayload();
+  } catch (error) {
+    await loadLutCatalog();
+    lutStatus.textContent = String(error);
+    lutStatus.dataset.state = "error";
+  } finally { lutSelection.disabled = false; }
 });
 lutImportFile.addEventListener("change", async () => {
   const file = lutImportFile.files?.[0];
@@ -3213,10 +3387,11 @@ lutImportFile.addEventListener("change", async () => {
     const imported = await invoke<LutEntry>("import_lut", { fileName: file.name, content: await file.text() });
     await loadLutCatalog();
     lutSelection.value = imported.id;
-    try { window.localStorage.setItem(selectedLutKey, imported.id); } catch { /* keep session preference */ }
+    await saveImagingLut(imported.id);
     lutStatus.textContent = `${t.lutImported}: ${imported.name} · ${imported.size}³`;
     await loadSelectedLutPayload();
   } catch (error) {
+    await loadLutCatalog();
     lutStatus.textContent = `${t.lutImportFailed}: ${String(error)}`;
     lutStatus.dataset.state = "error";
   } finally {
@@ -3227,10 +3402,25 @@ applyMonitoringColorSpace(loadMonitoringColorSpace());
 applyGuideStyle(storedPreference(guideStyleKey, "thirds"));
 autoTransferDelete.checked = storedPreference(autoTransferDeleteKey, "false") === "true";
 applyPeakingColor(storedPreference(peakingColorKey, "cyan"));
-void loadCustomShutterSound().then(() => applyShutterSound(storedPreference(shutterSoundKey, "standard"))).catch(() => applyShutterSound("standard"));
+void loadCustomShutterSound().then(() => applyShutterSound(imagingDocument?.shutter_sound ?? storedPreference(shutterSoundKey, "standard"))).catch(() => applyShutterSound("standard"));
 monitorLookEnabled.checked = storedPreference(monitorLookEnabledKey, "false") === "true";
 syncMonitorProcessing();
 void loadLutCatalog();
+if (nativeImagingDocument) {
+  void listen<ImagingDocument>("imaging-document-changed", ({ payload }) => {
+    if (imagingDocument && payload.revision <= imagingDocument.revision) return;
+    const previousLut = imagingDocument?.selected_lut;
+    acceptImagingSnapshot(payload);
+    // Monitoring-only changes must not reload large imported LUT samples.
+    if (previousLut === payload.selected_lut) return;
+    if ([...lutSelection.options].some((option) => option.value === payload.selected_lut)) {
+      lutSelection.value = payload.selected_lut;
+      void loadSelectedLutPayload();
+    } else {
+      void loadLutCatalog();
+    }
+  }).catch((error) => { console.error("Imaging document subscription failed", error); });
+}
 bulkPhotoStart.addEventListener("click", async () => {
   const count = await refreshBulkPhotoCount();
   if (count === 0) return;
@@ -3813,6 +4003,8 @@ captureButton.addEventListener("click", async () => {
     captureButton.dataset.state = "loading";
     try {
       if (!recording) {
+        await initializeImagingDocument();
+        await imagingSave;
         await invoke("start_video_recording");
         recording = true;
         recordingStartedAt = performance.now();
@@ -3844,14 +4036,16 @@ captureButton.addEventListener("click", async () => {
   captureButton.disabled = true;
   captureButton.dataset.state = "loading";
   try {
-    const asset = await invoke<CaptureAsset>("capture_photo", { suppressShutterSound: shutterSoundSuppressionSupported && shutterSound.value === "silent", lutId: lutSelection.value });
+    await initializeImagingDocument();
+    await imagingSave;
+    const asset = await invoke<CaptureAsset>("capture_photo");
     // On iOS, starting WebKit audio can reconfigure the process-wide
     // AVAudioSession. Do not let feedback audio race AVCapturePhotoOutput;
     // play it only after the native capture and atomic save have completed.
-    playShutterSound();
+    playShutterSound(asset.shutter_sound ?? "standard");
     const path = asset.original.path;
     const warning = asset.validation.status === "warning" ? ` · ${t.assetMetadataWarning}` : "";
-    const transfer = await moveCapturedAssetToPhotos(asset);
+    const transfer = captureTransferOutcome(asset);
     captureButton.dataset.state = transfer.error ? "error" : "success";
     const savedMessage = `${t.captured} · ${path.split("/").pop() ?? path}${warning}`;
     feedback.textContent = transfer.moved

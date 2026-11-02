@@ -33,6 +33,24 @@ impl Default for PhotoRenderer {
 }
 
 impl PhotoRenderer {
+    #[cfg(target_os = "ios")]
+    pub fn preview_context(
+        &self,
+    ) -> Result<
+        (
+            imaging_gpu::wgpu::Instance,
+            imaging_gpu::wgpu::Adapter,
+            imaging_gpu::wgpu::Device,
+            imaging_gpu::wgpu::Queue,
+        ),
+        String,
+    > {
+        let mut gpu = self.gpu.lock().map_err(|_| "renderer lock poisoned")?;
+        if gpu.is_none() {
+            *gpu = Some(imaging_gpu::GpuRenderer::new()?);
+        }
+        Ok(gpu.as_ref().unwrap().preview_context())
+    }
     pub fn status(&self) -> Result<Option<imaging_gpu::RendererStats>, String> {
         self.gpu
             .try_lock()

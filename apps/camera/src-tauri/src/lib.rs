@@ -2,7 +2,10 @@
 mod android_camera;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod camera_settings;
+mod imaging_document;
 mod lut_catalog;
+#[cfg(target_os = "ios")]
+mod native_preview;
 mod nearby_discovery;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod photo_look;
@@ -33,13 +36,13 @@ use nearby_discovery::{
     NearbyDiscoverySnapshot, NearbyDiscoveryState, StartNearbyDiscoveryRequest,
 };
 use serde::{Deserialize, Serialize};
-#[cfg(not(target_os = "android"))]
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 struct AppState {
+    imaging_document: Arc<Mutex<Option<imaging_document::ImagingDocument>>>,
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     renderer: Arc<photo_look::PhotoRenderer>,
     camera: Mutex<CameraController>,
@@ -53,6 +56,8 @@ struct AppState {
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 struct PreviewRuntime {
+    #[cfg(target_os = "ios")]
+    gpu_preview: native_preview::Worker,
     session: Arc<AppleCaptureSession>,
     host: PlatformPreviewHost,
     device_id: String,
@@ -60,6 +65,7 @@ struct PreviewRuntime {
 
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
 struct PendingMovie {
+    policy: imaging_document::CapturePolicy,
     id: String,
     temporary: std::path::PathBuf,
     destination: std::path::PathBuf,
@@ -70,6 +76,7 @@ struct PendingMovie {
 impl Default for AppState {
     fn default() -> Self {
         Self {
+            imaging_document: Arc::new(Mutex::new(None)),
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             renderer: Arc::new(photo_look::PhotoRenderer::default()),
             camera: Mutex::new(CameraController::default()),
@@ -81,6 +88,278 @@ impl Default for AppState {
             pending_movie: Mutex::new(None),
         }
     }
+}
+
+#[tauri::command]
+fn get_imaging_document(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    legacy_lut: Option<String>,
+    legacy_monitoring: Option<imaging_document::MonitoringSettings>,
+    legacy_capture_policy: Option<imaging_document::CapturePolicy>,
+    legacy_shutter_sound: Option<String>,
+) -> Result<imaging_document::ImagingDocument, String> {
+    let mut document = state
+        .imaging_document
+        .lock()
+        .map_err(|_| "imaging document lock poisoned")?;
+    if document.is_none() {
+        let path = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("imaging-document.json");
+        *document = Some(match imaging_document::load(&path)? {
+            Some(saved) => saved,
+            None => {
+                let selected = legacy_lut.unwrap_or_else(|| "none".into());
+                // Invalid legacy IDs must not prevent a first launch.
+                let selected = if lut_catalog::payload(&luts_directory(&app)?, &selected).is_ok() {
+                    selected
+                } else {
+                    "none".into()
+                };
+                imaging_document::save_selection(
+                    &path,
+                    &imaging_document::ImagingDocument::default(),
+                    selected,
+                    0,
+                )?
+            }
+        });
+    }
+    if document
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.monitoring.is_none())
+    {
+        let settings = legacy_monitoring
+            .filter(|s| s.validate().is_ok())
+            .unwrap_or_default();
+        let current = document.as_ref().ok_or("imaging document unavailable")?;
+        let path = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("imaging-document.json");
+        let next = imaging_document::save_monitoring(
+            &path,
+            current,
+            imaging_document::MonitoringPatch {
+                color_space: Some(settings.color_space),
+                look_enabled: Some(settings.look_enabled),
+                guide_style: Some(settings.guide_style),
+                peaking_color: Some(settings.peaking_color),
+            },
+            current.revision,
+        )?;
+        *document = Some(next);
+    }
+    if document
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.capture_policy.is_none())
+    {
+        let current = document.as_ref().ok_or("imaging document unavailable")?;
+        let path = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("imaging-document.json");
+        *document = Some(imaging_document::save_capture_policy(
+            &path,
+            current,
+            legacy_capture_policy.unwrap_or_default(),
+            current.revision,
+        )?);
+    }
+    if document
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.shutter_sound.is_none())
+    {
+        let sound = legacy_shutter_sound
+            .and_then(|value| {
+                serde_json::from_value::<imaging_document::ShutterSound>(serde_json::Value::String(
+                    value,
+                ))
+                .ok()
+            })
+            .unwrap_or_default();
+        let current = document.as_ref().ok_or("imaging document unavailable")?;
+        let path = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("imaging-document.json");
+        *document = Some(imaging_document::save_shutter_sound(
+            &path,
+            current,
+            sound,
+            current.revision,
+        )?);
+    }
+    document
+        .clone()
+        .ok_or_else(|| "imaging document unavailable".into())
+}
+
+#[tauri::command]
+fn set_shutter_sound(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    sound: imaging_document::ShutterSound,
+    expected_revision: u64,
+) -> Result<imaging_document::ImagingDocument, String> {
+    let mut document = state
+        .imaging_document
+        .lock()
+        .map_err(|_| "imaging document lock poisoned")?;
+    let current = document
+        .as_ref()
+        .ok_or("imaging document not initialized")?;
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("imaging-document.json");
+    let next = imaging_document::save_shutter_sound(&path, current, sound, expected_revision)?;
+    *document = Some(next.clone());
+    let _ = app.emit("imaging-document-changed", &next);
+    Ok(next)
+}
+
+#[tauri::command]
+fn set_capture_policy(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    policy: imaging_document::CapturePolicy,
+    expected_revision: u64,
+) -> Result<imaging_document::ImagingDocument, String> {
+    let mut document = state
+        .imaging_document
+        .lock()
+        .map_err(|_| "imaging document lock poisoned")?;
+    let current = document
+        .as_ref()
+        .ok_or("imaging document not initialized")?;
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("imaging-document.json");
+    let next = imaging_document::save_capture_policy(&path, current, policy, expected_revision)?;
+    *document = Some(next.clone());
+    let _ = app.emit("imaging-document-changed", &next);
+    Ok(next)
+}
+
+fn capture_settings_snapshot(
+    state: &AppState,
+) -> Result<imaging_document::CaptureSettings, String> {
+    state
+        .imaging_document
+        .lock()
+        .map_err(|_| "imaging document lock poisoned")?
+        .as_ref()
+        .ok_or("imaging document not initialized")?
+        .freeze_capture()
+}
+
+#[derive(Serialize)]
+struct CaptureReceipt {
+    #[serde(flatten)]
+    asset: CapturedAsset,
+    capture_policy: imaging_document::CapturePolicy,
+    auto_transfer: AutoTransferOutcome,
+    shutter_sound: Option<imaging_document::ShutterSound>,
+}
+
+#[derive(Default, Serialize)]
+struct AutoTransferOutcome {
+    moved: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn complete_capture(
+    app: &tauri::AppHandle,
+    asset: CapturedAsset,
+    policy: imaging_document::CapturePolicy,
+    shutter_sound: Option<imaging_document::ShutterSound>,
+) -> CaptureReceipt {
+    // Called only after validation and manifest finalization. Export errors must
+    // not turn a successfully saved capture into a capture failure.
+    let auto_transfer = if policy.move_to_photos {
+        match export_media_to_library_and_delete(app.clone(), asset.id.clone()).await {
+            Ok(()) => AutoTransferOutcome {
+                moved: true,
+                error: None,
+            },
+            Err(error) => AutoTransferOutcome {
+                moved: false,
+                error: Some(error),
+            },
+        }
+    } else {
+        AutoTransferOutcome::default()
+    };
+    CaptureReceipt {
+        asset,
+        capture_policy: policy,
+        auto_transfer,
+        shutter_sound,
+    }
+}
+
+#[tauri::command]
+fn set_monitoring_settings(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    patch: imaging_document::MonitoringPatch,
+    expected_revision: u64,
+) -> Result<imaging_document::ImagingDocument, String> {
+    let mut document = state
+        .imaging_document
+        .lock()
+        .map_err(|_| "imaging document lock poisoned")?;
+    let current = document
+        .as_ref()
+        .ok_or("imaging document not initialized")?;
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("imaging-document.json");
+    let next = imaging_document::save_monitoring(&path, current, patch, expected_revision)?;
+    *document = Some(next.clone());
+    let _ = app.emit("imaging-document-changed", &next);
+    Ok(next)
+}
+
+#[tauri::command]
+fn set_imaging_lut(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    selected_lut: String,
+    expected_revision: u64,
+) -> Result<imaging_document::ImagingDocument, String> {
+    // Validate managed LUT data, never accept an arbitrary filesystem path.
+    lut_catalog::payload(&luts_directory(&app)?, &selected_lut)?;
+    let mut document = state
+        .imaging_document
+        .lock()
+        .map_err(|_| "imaging document lock poisoned")?;
+    let current = document
+        .as_ref()
+        .ok_or("imaging document not initialized")?;
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("imaging-document.json");
+    let next = imaging_document::save_selection(&path, current, selected_lut, expected_revision)?;
+    *document = Some(next.clone());
+    // Persistence succeeded. A missing window listener must not report a failed save.
+    let _ = app.emit("imaging-document-changed", &next);
+    Ok(next)
 }
 
 #[derive(Serialize)]
@@ -166,6 +445,7 @@ struct CameraRuntimeHealth {
 
 #[derive(Serialize)]
 struct CameraMonitorSnapshot {
+    native_lut_presented: bool,
     red: Vec<u32>,
     green: Vec<u32>,
     blue: Vec<u32>,
@@ -176,11 +456,96 @@ struct CameraMonitorSnapshot {
     preview_rgb_base64: String,
 }
 
+#[derive(Default, Serialize)]
+struct NativePreviewStatus {
+    frames_received: u64,
+    frames_replaced: u64,
+    cpu_rgb_generated: u64,
+    gpu_presented: u64,
+    gpu_ready: bool,
+    gpu_error: Option<String>,
+}
+
+#[tauri::command]
+fn get_native_preview_status(state: tauri::State<'_, AppState>) -> NativePreviewStatus {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if let Ok(preview) = state.preview.lock() {
+        if let Some(runtime) = preview.as_ref() {
+            let (frames_received, frames_replaced, cpu_rgb_generated) =
+                runtime.session.native_frames().counters();
+            let result = NativePreviewStatus {
+                frames_received,
+                frames_replaced,
+                cpu_rgb_generated,
+                ..Default::default()
+            };
+            #[cfg(target_os = "ios")]
+            let result = {
+                let mut result = result;
+                result.gpu_presented = runtime
+                    .gpu_preview
+                    .status
+                    .presented
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                result.gpu_ready = runtime
+                    .gpu_preview
+                    .status
+                    .ready
+                    .load(std::sync::atomic::Ordering::Acquire);
+                result.gpu_error = runtime
+                    .gpu_preview
+                    .status
+                    .error
+                    .lock()
+                    .ok()
+                    .and_then(|e| e.clone());
+                result
+            };
+            return result;
+        }
+    }
+    NativePreviewStatus::default()
+}
+
 #[tauri::command]
 fn get_camera_monitor_snapshot(
     state: tauri::State<'_, AppState>,
     include_preview: bool,
+    allow_native_lut: Option<bool>,
 ) -> CameraMonitorSnapshot {
+    #[cfg(not(target_os = "ios"))]
+    let native_lut_presented = false;
+    #[cfg(target_os = "ios")]
+    let native_lut_presented = {
+        let mut native_lut_presented = false;
+        if let Ok(preview) = state.preview.lock() {
+            if let Some(runtime) = preview.as_ref() {
+                let enabled = allow_native_lut.unwrap_or(false)
+                    && state
+                        .imaging_document
+                        .lock()
+                        .ok()
+                        .and_then(|doc| {
+                            doc.as_ref().and_then(|d| {
+                                d.monitoring
+                                    .as_ref()
+                                    .map(|m| m.look_enabled && m.color_space != "display-p3")
+                            })
+                        })
+                        .unwrap_or(false);
+                runtime.gpu_preview.status.request(enabled);
+                native_lut_presented = enabled
+                    && runtime
+                        .gpu_preview
+                        .status
+                        .ready
+                        .load(std::sync::atomic::Ordering::Acquire);
+            }
+        }
+        native_lut_presented
+    };
+    #[cfg(not(target_os = "ios"))]
+    let _ = allow_native_lut;
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         let snapshot = state
@@ -188,12 +553,15 @@ fn get_camera_monitor_snapshot(
             .lock()
             .ok()
             .and_then(|preview| {
-                preview
-                    .as_ref()
-                    .map(|runtime| runtime.session.monitor_snapshot(include_preview))
+                preview.as_ref().map(|runtime| {
+                    runtime
+                        .session
+                        .monitor_snapshot(include_preview && !native_lut_presented)
+                })
             })
             .unwrap_or_default();
         return CameraMonitorSnapshot {
+            native_lut_presented,
             red: snapshot.red,
             green: snapshot.green,
             blue: snapshot.blue,
@@ -211,6 +579,7 @@ fn get_camera_monitor_snapshot(
     {
         let _ = state;
         CameraMonitorSnapshot {
+            native_lut_presented: false,
             red: vec![],
             green: vec![],
             blue: vec![],
@@ -1239,6 +1608,10 @@ async fn stop_preview_runtime(
     window: &tauri::WebviewWindow,
     runtime: PreviewRuntime,
 ) -> Result<(), String> {
+    #[cfg(target_os = "ios")]
+    tauri::async_runtime::spawn_blocking(move || runtime.gpu_preview.stop())
+        .await
+        .map_err(|e| e.to_string())?;
     let (sender, receiver) = std::sync::mpsc::channel();
     window
         .run_on_main_thread(move || {
@@ -1421,10 +1794,21 @@ async fn start_camera_preview(
             .map_err(|_| "camera state lock poisoned")?
             .transition(CameraState::Previewing)
             .map_err(|error| error.to_string())?;
+        #[cfg(target_os = "ios")]
+        let gpu_preview = native_preview::Worker::start(
+            window.clone(),
+            host,
+            session.clone(),
+            state.renderer.clone(),
+            state.imaging_document.clone(),
+            luts_directory(window.app_handle()),
+        );
         *state
             .preview
             .lock()
             .map_err(|_| "preview state lock poisoned")? = Some(PreviewRuntime {
+            #[cfg(target_os = "ios")]
+            gpu_preview,
             session,
             host,
             device_id: device_id.clone(),
@@ -1602,9 +1986,10 @@ async fn stop_camera_preview(
 async fn capture_photo(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-    suppress_shutter_sound: Option<bool>,
-    lut_id: Option<String>,
-) -> Result<CapturedAsset, String> {
+) -> Result<CaptureReceipt, String> {
+    let settings = capture_settings_snapshot(&state)?;
+    let policy = settings.policy;
+    let shutter_sound = settings.shutter_sound;
     #[cfg(target_os = "android")]
     {
         {
@@ -1663,12 +2048,13 @@ async fn capture_photo(
             }
         };
         finalize_captured_asset(&temporary, &destination, &asset)?;
-        return Ok(asset);
+        return Ok(complete_capture(&app, asset, policy, Some(shutter_sound)).await);
     }
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         // Resolve and freeze the selected table before the exposure starts.
-        let look = match lut_id.as_deref().filter(|id| *id != "none") {
+        let lut_id = settings.selected_lut;
+        let look = match Some(lut_id.as_str()).filter(|id| *id != "none") {
             Some(id) => Some((
                 id.to_owned(),
                 lut_catalog::payload(&luts_directory(&app)?, id)?,
@@ -1712,7 +2098,7 @@ async fn capture_photo(
         let path = tauri::async_runtime::spawn_blocking(move || {
             session.capture_photo(
                 temporary_for_capture,
-                suppress_shutter_sound.unwrap_or(false),
+                shutter_sound == imaging_document::ShutterSound::Silent,
             )
         })
         .await
@@ -1782,7 +2168,7 @@ async fn capture_photo(
             }
         };
         finalize_captured_asset(&temporary, &destination, &asset)?;
-        return Ok(asset);
+        return Ok(complete_capture(&app, asset, policy, Some(shutter_sound)).await);
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
@@ -1797,6 +2183,7 @@ async fn start_video_recording(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    let policy = capture_settings_snapshot(&state)?.policy;
     #[cfg(target_os = "android")]
     {
         {
@@ -1841,6 +2228,7 @@ async fn start_video_recording(
             .pending_movie
             .lock()
             .map_err(|_| "movie state lock poisoned")? = Some(PendingMovie {
+            policy,
             id,
             temporary,
             destination,
@@ -1907,6 +2295,7 @@ async fn start_video_recording(
             .pending_movie
             .lock()
             .map_err(|_| "movie state lock poisoned")? = Some(PendingMovie {
+            policy,
             id,
             temporary,
             destination,
@@ -1929,7 +2318,7 @@ async fn start_video_recording(
 async fn stop_video_recording(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-) -> Result<CapturedAsset, String> {
+) -> Result<CaptureReceipt, String> {
     #[cfg(target_os = "android")]
     {
         {
@@ -1944,7 +2333,7 @@ async fn stop_video_recording(
                 .transition(CameraState::Stopping)
                 .map_err(|error| error.to_string())?;
         }
-        let result: Result<CapturedAsset, String> = async {
+        let result: Result<CaptureReceipt, String> = async {
             let pending = state
                 .pending_movie
                 .lock()
@@ -1997,7 +2386,7 @@ async fn stop_video_recording(
                 .map_err(|_| "camera state lock poisoned")?
                 .transition(CameraState::Previewing)
                 .map_err(|error| error.to_string())?;
-            Ok(asset)
+            Ok(complete_capture(&app, asset, pending.policy, None).await)
         }
         .await;
         if result.is_err() {
@@ -2022,7 +2411,7 @@ async fn stop_video_recording(
                 .transition(CameraState::Stopping)
                 .map_err(|error| error.to_string())?;
         }
-        let result: Result<CapturedAsset, String> = async {
+        let result: Result<CaptureReceipt, String> = async {
             let pending = state
                 .pending_movie
                 .lock()
@@ -2088,7 +2477,7 @@ async fn stop_video_recording(
                 .map_err(|_| "camera state lock poisoned")?
                 .transition(CameraState::Previewing)
                 .map_err(|error| error.to_string())?;
-            Ok(asset)
+            Ok(complete_capture(&app, asset, pending.policy, None).await)
         }
         .await;
         if result.is_err() {
@@ -2244,11 +2633,17 @@ pub fn run() {
         .manage(AppState::default())
         .manage(NearbyDiscoveryState::default())
         .invoke_handler(tauri::generate_handler![
+            get_imaging_document,
+            set_imaging_lut,
+            set_monitoring_settings,
+            set_capture_policy,
+            set_shutter_sound,
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             get_renderer_status,
             get_camera_status,
             get_camera_runtime_health,
             get_camera_monitor_snapshot,
+            get_native_preview_status,
             get_camera_discovery,
             get_camera_capabilities,
             apply_camera_format,

@@ -1,6 +1,6 @@
 # Universal Imaging Camera Roadmap
 
-更新日: 2026-10-15
+更新日: 2026-11-02
 対象: macOS / iOS / Android / Windows / Linux  
 正本仕様: [`Universal Film & Color Imaging Engine.md`](Universal%20Film%20%26%20Color%20Imaging%20Engine.md)
 
@@ -29,7 +29,7 @@ iOSを唯一のactive platformとする。既存のmacOS／Android codeと共通
 | Imaging Pipeline model | 🟢 [Done] schema v1 + render snapshot + CPU finishing | measured profile dataを追加 |
 | Profile system | 🟢 [Done] typed Profiles + loader + migration registry | profile署名／配布方針を確定 |
 | Film renderer | 🟢 [Done] CPU synthetic finishing縦切り | measured Print／ColorCheckerを追加 |
-| GPU renderer | 🟢 [Done] Rust所有のwgpu LUT renderer、写真保存接続、CPU参照との画素比較 | 🟠 [Next] native camera texture importとVideo接続 |
+| GPU renderer | 🟢 [Done] Rust所有のwgpu LUT renderer、写真保存、iOS SDR LUT preview／Metal present接続 | 🟠 [Next] native表示補助・P3とVideo接続 |
 | Nearby sharing | ⭕️ [Pending] Apple暗号化Original転送＋resume／recovery／partial管理を保守 | iOS camera安定化後に実機2台受け入れ |
 | Android | 🔴 [Later] CameraX Still／Videoを保守のみ | iOS優先期間終了後に再評価 |
 | Windows／Linux | 🔴 [Later] 未実装 | platform camera backendの最初のpreview |
@@ -90,7 +90,7 @@ Selected camera format
 - ⭕️ [Pending] iOS実機でportrait／upside-down／front-camera mirror caseを検証
 - 🟢 [Done] HEIF／RAW、codec／container／bitrate／audio channelの型付き能力モデルとbackend別出力組合せ
 - 🟢 [Done] window close／background時の録画finalize、低頻度device切断監視、foreground再発見と共通復旧action
-- 🟠 [Next] `AVCaptureVideoDataOutput → CVPixelBuffer → Metal texture`のzero-copy preview renderer
+- 🟢 [Done] iOSのCVPixelBuffer→Metal→wgpu→LUT fragment→CAMetalLayer接続（SDRの対応metadataに限定、実機表示受け入れはPending）
 
 詳細: [`APPLE_CAMERA_BACKEND.md`](APPLE_CAMERA_BACKEND.md)
 
@@ -117,7 +117,8 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - 🟢 [Done] iOSのdevice別format永続化／起動時復元と、画角を維持する透明focus-peaking overlay
 - 🟢 [Done] 360px／10Hz CPU monitor fallback、約92 IRE Zebra、狭幅monitor tool label
 - 🟢 [Done] LUT／カラープロファイル／ピーキング／ゼブラを統合したWebGL2 shader renderer、処理時最大約30Hz／非処理時10Hzの動的取得
-- 🟠 [Next] iOSのCVPixelBuffer→Metal texture zero-copy rendererでWebView IPCとRGB CPU変換を廃止
+- 🟢 [Done] iOS LUT-onlyのnative表示通知後にWebView canvas／RGB生成・IPCを停止。起動待ち・GPU失敗・peaking／zebra・Display P3は既存fallbackを維持
+- 🟠 [Next] peaking／zebraとDisplay P3もnative GPUへ移行し、表示補助使用時のRGB IPCを廃止
 - 🟢 [Done] foreground録画中の2秒間隔残容量監視と共通停止経路による安全な自動停止／Finalize
 - 🟢 [Done] Android CameraX native容量monitor、onPause停止、Finalize結果保持
 - 🟢 [Done] Apple AVFoundation sessionのWebView非依存容量monitorと単発stop要求
@@ -196,14 +197,26 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 - 🔴 [Later] input transform、exposure、sensitometry、output shader
 - 🟢 [Done] red-fastest float LUT compilerと単一3D texture cache、cache hit／upload／allocation／保持byte診断
 - 🟢 [Done] 写真LUT保存のwgpu移行、2048×1024までのtile処理、原本全寸法のGPU展開回避、撮影画面終了時の作業用texture解放
-- 🟠 [Next] 撮影／monitoring設定をRust Document／Stateへ集約し、WebViewはcommand／snapshotで操作する
-- 🟠 [Next] CVPixelBufferからwgpu（Metal）へのnative texture importとライブ描画
+- 🟢 [Done] LUT選択をRust所有のImaging Documentへ移行。原子的な永続化、revision付きcommand／snapshot、古いウインドウからの上書き防止、変更通知、旧設定の初回移行、撮影時のRust snapshot参照
+- 🟢 [Done] 色空間選択・monitor look・グリッド種別・ピーキング色をRust Documentへ移行。部分更新、値検証、旧設定移行、保存失敗時のUI復帰、revision付き通知を接続（native output transformは別工程）
+- 🟢 [Done] 撮影後Photos移動設定をRust Documentへ移行し、Still露光前／Video開始時にpolicyを固定。保存確定後のPhotos転送・成功後削除をRust側で実行し、失敗は撮影成功と分けて通知
+- 🟢 [Done] シャッター音選択をRust Documentへ集約。LUT・転送policy・音種別を同一snapshotで固定し、写真receiptの音種別で効果音を再生。無音要求はRustからApple APIへ渡し、native capability判定は維持
+- 🔴 [Later] カスタム音源本体のnative管理・version付きasset IDとnative再生。現在はWebViewのIndexedDB／音源再生を使用（blobはDocumentへ含めない）
+- ⭕️ [Pending] iPhoneで全音種別・外部音源・無音対応／非対応環境・撮影途中の選択変更・Photos転送との組み合わせを確認
+- ⭕️ [Pending] iPhoneでPhotos権限拒否・容量不足・撮影中の設定切替・転送成功後削除・削除失敗時の挙動を確認
+- ⭕️ [Pending] iPhone実機でLUT／monitoring設定の再起動復元・外部LUT・撮影画像・設定保存失敗時の挙動を確認（今回の端末インストール／撮影は未実施）
+- 🟢 [Done] CVPixelBufferの最新1枚mailboxと保持lease、CVMetalTextureCache→同一Metal deviceのwgpu texture import API。実Metal GPUでBGRA画素一致とNV12 video／full-rangeの平面layoutを検証
+- 🟢 [Done] clean native preview時の不要なCPU RGB生成を停止。WebViewエフェクトfallbackは要求1回につき次の1frameだけ生成し、ヒストグラムは継続。Rust状態のみの診断commandを追加
+- 🟢 [Done] iOS workerがnative inputを消費し、SDR色metadataのYUV変換・LUT・aspect-fillを描画してCAMetalLayerへpresent。写真rendererと同一device／queueを使用し、completion callbackまでleaseを保持
+- 🟢 [Done] Safe Area内の既存hostへMetal layerを追加し、native present後だけcanvasを隠す。worker停止join後にhost解放、background要求停止・heartbeat、失敗時fallbackを接続
+- 🟠 [Next] native GPUのpeaking／zebra・Display P3 output transform・LUT適用後histogramを実装
+- ⭕️ [Pending] iPhoneのnative preview FPS／遅延／発熱／回転／レンズ切替／効果切替を測定。今回の実機install・速度比較は未実施
 - 🔴 [Later] node fusion、texture lifetime、memory bandwidth最適化
 - 🟠 [Next] Video renderer／hardware encoderへ処理済みtextureを接続し、音声・timestamp・metadataを検証
 
 開始条件: Milestone 4のCPU Reference縦切りとfixtureが`🟢 [Done]`であること。
 
-2026-10-15の実装と測定記録: [`WGPU_RENDERER_MILESTONE.md`](WGPU_RENDERER_MILESTONE.md)。写真encoder用のreadbackはRust内だけで行う。ライブpreviewの既存RGB IPC／WebGL経路は移行待ちであり、zero-copy完了とは扱わない。
+2026-10-15の実装と測定記録: [`WGPU_RENDERER_MILESTONE.md`](WGPU_RENDERER_MILESTONE.md)。native LUT previewの接続・限界は[`NATIVE_PREVIEW_BRIDGE.md`](NATIVE_PREVIEW_BRIDGE.md)。写真encoder用のreadbackはRust内だけで行う。ライブpreviewのRGB IPC／WebGLは未対応色・表示補助のfallbackとして残り、全モードのzero-copy完了とは扱わない。
 
 ## Milestone 6 — Nearby Peer Transfer
 
@@ -299,7 +312,8 @@ Bluetooth LE / Bonjour / Nearby discovery
 - 🟢 [Done] HistogramのHISTラベルを除去し、Audio level meterと高さ・50%透過monitor背景を統一
 - 🟢 [Done] iOS StillのLUT付きJPEG保存：撮影前snapshot、Core ImageによるsRGB LUT baking、EXIF維持、JPEG品質0.95、LUT ID／内容hash／domain／rendererのmanifest記録
 - 🟢 [Done] 外部.cubeのred-fastest格子順をCPU／WebGLプレビューとnative Stillで統一し、非有限／重複domainを拒否
-- 🟠 [Next] 選択LUTをMetal native preview／Video rendererへ適用し、動画にもLUT ID・hash・domainをasset metadataへ保存
+- 🟢 [Done] 選択LUTをiOS SDR Metal native previewへ適用し、CAMetalLayerへpresentする接続
+- 🟠 [Next] 選択LUTをVideo rendererへ適用し、動画にもLUT ID・hash・domainをasset metadataへ保存
 - ⭕️ [Pending] iPhone実機で内蔵／外部LUTのStill撮影、Photos自動移動後の色調、4姿勢・前面カメラの向きを受け入れる
 - 🔴 [Later] 測色データと正当なライセンスを持つ実在film stock別profile／LUT package
 - 🟠 [Next] Rec.709／Display P3／sRGB設定をnative previewの実output transformと保存asset metadataへ接続
@@ -314,7 +328,7 @@ Bluetooth LE / Bonjour / Nearby discovery
 - 🟢 [Done] Android実機conformanceのinstall／snapshot harnessと必須試験matrixを作成
 - ⭕️ [Pending] Androidの追加開発・実機受け入れ全般（iOS優先方針のため保留）
 - 🔴 [Later] RAW、LOG、manual controlが必要な端末向けCamera2経路
-- 🟠 [Next] iOS CVPixelBuffer／Metal zero-copy GPU bridge
+- 🟢 [Done] iOS CVPixelBuffer／Metal／wgpu SDR LUT preview bridgeとCAMetalLayer接続（実機表示・速度検証はPending）
 - 🔴 [Later] Android AHardwareBuffer／VulkanまたはOpenGL ES zero-copy GPU bridge（iOS優先方針のため保留）
 
 詳細: [`MOBILE_PLATFORM_BOOTSTRAP.md`](MOBILE_PLATFORM_BOOTSTRAP.md)

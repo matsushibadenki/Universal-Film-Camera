@@ -1,6 +1,54 @@
 # Camera App Implementation Handoff
 
-更新日: 2026-10-15
+更新日: 2026-11-02
+
+## 2026-11-02: iOS LUT native描画とCAMetalLayer接続
+
+入力bridgeをiOS workerへ接続した。`imaging-gpu::preview`のfragment pipelineは8-bit BGRA／NV12、601／709 matrix、video／full range、709 transfer→sRGB、red-fastest 3D LUT、中央aspect-fillを処理する。709 primariesと対応transfer／chroma metadataを確認し、不明値・P3／HDRは推測せずfallbackする。monitor出力surfaceはsRGB-tagged BGRA8Unorm。monitoringのDisplay P3選択とpeaking／zebraは従来WebGL経路。
+
+`PhotoRenderer`と同じwgpu instance／adapter／device／queueを共有し、preview専用pipeline・uniform・LUT cacheを持つ。初回要求までGPU初期化を待ち、最新frameだけを取得する。1frameずつsubmit／completion待ち、source leaseはqueue completion callbackへ渡す。iOS hostのAVCaptureVideoPreviewLayerの上にhidden CAMetalLayerを追加し、描画成功・present要求後にmain threadで表示する。古いpreviewは維持し、worker停止join後にviewとlayerを解放する。回転／mirrorは既存AVCapture connectionで適用済みのbufferを使い、shaderでは二重に回さない。
+
+`get_camera_monitor_snapshot`にoptional `allowNativeLut`と応答`native_lut_presented`を追加した。native表示通知後だけCPU RGB取得を止め、JS canvasを隠す。失敗・peaking／zebra・P3時はfallbackする。JSはsession generationが変わった古い応答を無視する。background時の明示停止要求と1秒heartbeat期限を追加。GPU panic／terminal errorでもreadyを落とし、queued visibility通知が旧表示を復活させないようrunning flagと通知集約を使用する。
+
+実Metal GPUではnative buffer→import→LUT描画の画素、identity／非identity LUT、aspect-fill、NV12レンジ・601/709・中間調transferが合格。iOS compile、Web build、workspace testsが合格。UIのnative応答模擬でcanvas切替・peaking fallback・障害復帰を確認した。実iPhoneのCAMetalLayer表示・色・向き・FPS・発熱は未確認でPending。詳細と診断は [NATIVE_PREVIEW_BRIDGE.md](NATIVE_PREVIEW_BRIDGE.md)。
+
+## 2026-11-02: Native preview入力bridgeと不要RGB生成の停止
+
+`camera-apple::native_frame`に最新1枚mailboxと保持lease、`CVMetalTextureCache`によるBGRA／NV12平面importを追加。`imaging-gpu::native_input`はwgpu自身のMetal deviceを取り出して同じdeviceのcacheを作り、Metal textureをwgpu textureへzero-copyで登録する。実Metal GPUの合成BGRA画素比較・NV12 video/full-range平面検証が通った。import後のleaseはGPU処理完了まで保持必須（unsafe API契約）。詳細は [NATIVE_PREVIEW_BRIDGE.md](NATIVE_PREVIEW_BRIDGE.md)。
+
+アプリの通常プレビューは既存のAVCaptureVideoPreviewLayerを維持する。以前は表示補助の有無にかかわらず360px RGBを毎frame生成していたが、今回からWebViewのincludePreview要求1回につき1frameだけ生成する。ヒストグラムは毎frameの既存集計を継続。生成済みRGBは次のpollで取得できるよう保持し、includePreview=falseとsession停止で解放する。native mailboxは実カメラのdelegateへ接続済み、GPU importerのアプリ側consumer／CAMetalLayer presentは未実装。
+
+`get_native_preview_status`はframes_received／frames_replaced／cpu_rgb_generatedの数値のみ返す。frames_replacedはmailbox内の未取得frameの置換数であり、AVFoundationの画面表示drop数ではない。Photos保存、LUT保存、音声・設定snapshot経路は変更していない。GPU previewが有効になった、LUT previewのRGB IPCが廃止された、実機FPSが向上した、とは扱わない。
+
+## 2026-11-02: シャッター音設定と撮影snapshotの統一
+
+Rust Documentにoptional `shutter_sound`を追加した。旧ファイルの欠落時のみlocalStorageの旧選択を移行し、未知の旧IDはstandardにする。保存commandは10種類のenum以外を拒否し、既存のrevision／原子的保存／通知を使用する。
+
+写真commandでは一つのMutex lockでLUT ID・転送policy・シャッター音をcloneする。WebViewからの`suppressShutterSound`引数は削除し、Rustの選択がsilentの時だけnative APIへ要求する。Apple側の対応可否判定は変更しない。写真receiptに固定した音IDを追加し、JSは撮影後の現在のselect値を参照せず再生する。動画は同じsnapshotから転送policyを取得し、音はreceiptでnull（録画効果音の追加ではない）。
+
+カスタム音源のblob／合成音／再生は引き続きWebView側。今回固定するのは音種別IDであり、custom音源の不変なバージョンやnative音声再生を実装したものではない。音源欠落時は音源エラーを示し、別の合成音へ黙って置換しない。写真のフィードバック音は従来どおりcommand完了後なので、Photos転送待ちでは遅延し得る。native再生と音源version管理はLater。
+
+## 2026-11-02: 撮影後Photos移動policyとnative完了処理
+
+Photos自動移動設定をRust Documentへ移し、写真command開始時と動画録画開始時に固定した。動画のpolicyは`PendingMovie`が保持する。設定を撮影途中で変更しても進行中の撮影には適用しない。
+
+原本とmanifestのfinalize後にRustの`complete_capture`が既存の安全なPhotos転送→削除経路を実行する。WebViewは転送commandを自動で呼ばず、`CaptureReceipt`の`auto_transfer`結果だけを表示する。撮影自体の成功と転送失敗は分離。Photosが保存をcommitするまで原本を削除しない。写真／動画のcommand応答は既存assetをflattenし、`capture_policy`と`auto_transfer`を追加した。移動成功時は応答の`original.path`がすでに消えているため、ローカルファイルが残る保証として扱わない。
+
+撮影commandを直接呼ぶクライアントは先に`get_imaging_document`を呼んで初期化する必要がある。旧Documentはpolicy欠落時のみ旧localStorageのopt-inを移行し、情報がなければfalse。設定保存失敗は撮影タブ内のlive statusで通知する。外部LUT・monitoringの既存変更を保持した。
+
+実機Photos転送とバックグラウンド／プロセス終了時の完了保証は未検証。途中終了後に自動再試行はせず、残った原本はMediaから手動で扱う。Photos commit後・削除前に終了すれば重複は残り得るが、原本保護を優先する。
+
+## 2026-11-02: Monitoring設定のRust管理
+
+色空間選択、monitor look、グリッド種別、ピーキング色を`ImagingDocument.monitoring`へ移行した。Rustで選択肢を検証する部分更新commandを追加し、LUTと共通revision／Mutex／永続化を使用する。既存schema 1のLUT専用ファイルは読み取り可能。monitoring未移行時だけ旧localStorageを取り込み、以後はRust snapshotを使用する。保存失敗・競合時はsnapshotを再取得してUIを戻す。通知はrevisionの単調性を守り、monitoringだけの変更ではLUT payloadを再取得しない。
+
+UI QAはnative commandを模擬したPlaywrightで復元・保存失敗・通知順序を検証するもので、iPhoneの実カメラや実ディスク障害を再現したものではない。色空間のnative output transform、動画LUT、シャッター音／撮影後転送policyのRust移行は未完了を維持する。詳細は [IMAGING_DOCUMENT.md](IMAGING_DOCUMENT.md)。
+
+## 2026-10-22: LUT設定のRust Document移行
+
+LUT選択を`AppState`所有の`ImagingDocument`へ移した。WebViewの値を撮影ごとに信用せず、Rustが保存済みsnapshotからLUTを決定する。`app_data_dir()/imaging-document.json`にschema version、revision、selected LUT IDを保存する。既存のdevice別format設定とは別ファイル。詳細と受け入れ条件は [IMAGING_DOCUMENT.md](IMAGING_DOCUMENT.md) を参照。
+
+これは設定の整合性を改善する工程であり、ライブpreviewの高速化完了ではない。色空間、表示補助、シャッター音、撮影後転送はまだWebView管理。native texture importと動画LUTはNext、iPhone実機の再起動・撮影受け入れはPendingを維持する。
 
 ## 2026-10-15: Rust／wgpu写真処理基盤
 

@@ -1,7 +1,10 @@
 //! Apple camera discovery and authorization boundary.
 //!
-//! AVFoundation session objects remain native and pixel data never crosses
-//! the Tauri IPC boundary.
+//! AVFoundation session objects and native input leases remain in Rust.
+//! The legacy WebView effects fallback still requests small RGB preview samples.
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub mod native_frame;
 
 use camera_core::{
     AudioCapability, CameraBackend, CameraCapabilities, CameraConfig, CameraDevice, CameraError,
@@ -114,6 +117,8 @@ mod platform {
 
     struct VideoMonitorDelegateIvars {
         snapshot: Arc<Mutex<CameraMonitorSnapshot>>,
+        frames: Arc<crate::native_frame::NativeFrameMailbox>,
+        preview_requested: Arc<AtomicBool>,
     }
 
     define_class!(
@@ -134,116 +139,135 @@ mod platform {
                 let Some(buffer) = (unsafe { sample_buffer.image_buffer() }) else {
                     return;
                 };
-                let flags = CVPixelBufferLockFlags::ReadOnly;
-                if unsafe { CVPixelBufferLockBaseAddress(&buffer, flags) } != 0 {
-                    return;
-                }
-                let planar = CVPixelBufferIsPlanar(&buffer);
-                let width = if planar {
-                    CVPixelBufferGetWidthOfPlane(&buffer, 0)
-                } else {
-                    CVPixelBufferGetWidth(&buffer)
-                };
-                let height = if planar {
-                    CVPixelBufferGetHeightOfPlane(&buffer, 0)
-                } else {
-                    CVPixelBufferGetHeight(&buffer)
-                };
-                let row_bytes = if planar {
-                    CVPixelBufferGetBytesPerRowOfPlane(&buffer, 0)
-                } else {
-                    CVPixelBufferGetBytesPerRow(&buffer)
-                };
-                let base = if planar {
-                    CVPixelBufferGetBaseAddressOfPlane(&buffer, 0)
-                } else {
-                    CVPixelBufferGetBaseAddress(&buffer)
-                } as *const u8;
-                let is_bgra = CVPixelBufferGetPixelFormatType(&buffer) == kCVPixelFormatType_32BGRA;
-                let mut red = vec![0u32; 32];
-                let mut green = vec![0u32; 32];
-                let mut blue = vec![0u32; 32];
-                const PREVIEW_WIDTH: usize = 360;
-                let preview_height = if width > 0 {
-                    (PREVIEW_WIDTH * height / width).max(1)
-                } else {
-                    0
-                };
-                let mut preview_rgb = vec![0u8; PREVIEW_WIDTH * preview_height * 3];
-                if !base.is_null() && width > 0 && height > 0 {
-                    let step_x = (width / 160).max(1);
-                    let step_y = (height / 90).max(1);
-                    for y in (0..height).step_by(step_y) {
-                        let row = unsafe { base.add(y * row_bytes) };
-                        for x in (0..width).step_by(step_x) {
-                            if is_bgra {
-                                let pixel = unsafe { row.add(x * 4) };
-                                blue[usize::from(unsafe { *pixel }) >> 3] += 1;
-                                green[usize::from(unsafe { *pixel.add(1) }) >> 3] += 1;
-                                red[usize::from(unsafe { *pixel.add(2) }) >> 3] += 1;
-                            } else {
-                                let bin = usize::from(unsafe { *row.add(x) }) >> 3;
-                                red[bin] += 1;
-                                green[bin] += 1;
-                                blue[bin] += 1;
-                            }
+                self.process_buffer(buffer);
+            }
+        }
+    );
+
+    impl VideoMonitorDelegate {
+        fn process_buffer(
+            &self,
+            buffer: objc2_core_foundation::CFRetained<objc2_core_video::CVPixelBuffer>,
+        ) {
+            self.ivars().frames.publish(buffer.clone());
+            // A WebView effects consumer requests one CPU sample at a time.
+            // Clean native preview never allocates/converts this RGB image.
+            let include_preview = self.ivars().preview_requested.swap(false, Ordering::AcqRel);
+            let flags = CVPixelBufferLockFlags::ReadOnly;
+            if unsafe { CVPixelBufferLockBaseAddress(&buffer, flags) } != 0 {
+                return;
+            }
+            let planar = CVPixelBufferIsPlanar(&buffer);
+            let width = if planar {
+                CVPixelBufferGetWidthOfPlane(&buffer, 0)
+            } else {
+                CVPixelBufferGetWidth(&buffer)
+            };
+            let height = if planar {
+                CVPixelBufferGetHeightOfPlane(&buffer, 0)
+            } else {
+                CVPixelBufferGetHeight(&buffer)
+            };
+            let row_bytes = if planar {
+                CVPixelBufferGetBytesPerRowOfPlane(&buffer, 0)
+            } else {
+                CVPixelBufferGetBytesPerRow(&buffer)
+            };
+            let base = if planar {
+                CVPixelBufferGetBaseAddressOfPlane(&buffer, 0)
+            } else {
+                CVPixelBufferGetBaseAddress(&buffer)
+            } as *const u8;
+            let is_bgra = CVPixelBufferGetPixelFormatType(&buffer) == kCVPixelFormatType_32BGRA;
+            let mut red = vec![0u32; 32];
+            let mut green = vec![0u32; 32];
+            let mut blue = vec![0u32; 32];
+            const PREVIEW_WIDTH: usize = 360;
+            let preview_height = if include_preview && width > 0 {
+                (PREVIEW_WIDTH * height / width).max(1)
+            } else {
+                0
+            };
+            let mut preview_rgb = vec![0u8; PREVIEW_WIDTH * preview_height * 3];
+            if !base.is_null() && width > 0 && height > 0 {
+                let step_x = (width / 160).max(1);
+                let step_y = (height / 90).max(1);
+                for y in (0..height).step_by(step_y) {
+                    let row = unsafe { base.add(y * row_bytes) };
+                    for x in (0..width).step_by(step_x) {
+                        if is_bgra {
+                            let pixel = unsafe { row.add(x * 4) };
+                            blue[usize::from(unsafe { *pixel }) >> 3] += 1;
+                            green[usize::from(unsafe { *pixel.add(1) }) >> 3] += 1;
+                            red[usize::from(unsafe { *pixel.add(2) }) >> 3] += 1;
+                        } else {
+                            let bin = usize::from(unsafe { *row.add(x) }) >> 3;
+                            red[bin] += 1;
+                            green[bin] += 1;
+                            blue[bin] += 1;
                         }
                     }
-                    for target_y in 0..preview_height {
-                        let source_y = target_y * height / preview_height;
-                        for target_x in 0..PREVIEW_WIDTH {
-                            let source_x = target_x * width / PREVIEW_WIDTH;
-                            let destination = (target_y * PREVIEW_WIDTH + target_x) * 3;
-                            if is_bgra {
-                                let pixel =
-                                    unsafe { base.add(source_y * row_bytes + source_x * 4) };
-                                preview_rgb[destination] = unsafe { *pixel.add(2) };
-                                preview_rgb[destination + 1] = unsafe { *pixel.add(1) };
-                                preview_rgb[destination + 2] = unsafe { *pixel };
-                            } else {
-                                let y_value = unsafe { *base.add(source_y * row_bytes + source_x) };
-                                let (cb, cr) = if CVPixelBufferIsPlanar(&buffer)
-                                    && CVPixelBufferGetWidthOfPlane(&buffer, 1) > 0
-                                {
-                                    let chroma =
-                                        CVPixelBufferGetBaseAddressOfPlane(&buffer, 1) as *const u8;
-                                    let chroma_row = CVPixelBufferGetBytesPerRowOfPlane(&buffer, 1);
-                                    let uv = unsafe {
-                                        chroma.add((source_y / 2) * chroma_row + (source_x / 2) * 2)
-                                    };
-                                    (unsafe { *uv }, unsafe { *uv.add(1) })
-                                } else {
-                                    (128, 128)
+                }
+                for target_y in 0..preview_height {
+                    let source_y = target_y * height / preview_height;
+                    for target_x in 0..PREVIEW_WIDTH {
+                        let source_x = target_x * width / PREVIEW_WIDTH;
+                        let destination = (target_y * PREVIEW_WIDTH + target_x) * 3;
+                        if is_bgra {
+                            let pixel = unsafe { base.add(source_y * row_bytes + source_x * 4) };
+                            preview_rgb[destination] = unsafe { *pixel.add(2) };
+                            preview_rgb[destination + 1] = unsafe { *pixel.add(1) };
+                            preview_rgb[destination + 2] = unsafe { *pixel };
+                        } else {
+                            let y_value = unsafe { *base.add(source_y * row_bytes + source_x) };
+                            let (cb, cr) = if CVPixelBufferIsPlanar(&buffer)
+                                && CVPixelBufferGetWidthOfPlane(&buffer, 1) > 0
+                            {
+                                let chroma =
+                                    CVPixelBufferGetBaseAddressOfPlane(&buffer, 1) as *const u8;
+                                let chroma_row = CVPixelBufferGetBytesPerRowOfPlane(&buffer, 1);
+                                let uv = unsafe {
+                                    chroma.add((source_y / 2) * chroma_row + (source_x / 2) * 2)
                                 };
-                                let y = (f32::from(y_value) - 16.0).max(0.0) * 1.164;
-                                let cb = f32::from(cb) - 128.0;
-                                let cr = f32::from(cr) - 128.0;
-                                preview_rgb[destination] = (y + 1.596 * cr).clamp(0.0, 255.0) as u8;
-                                preview_rgb[destination + 1] =
-                                    (y - 0.392 * cb - 0.813 * cr).clamp(0.0, 255.0) as u8;
-                                preview_rgb[destination + 2] =
-                                    (y + 2.017 * cb).clamp(0.0, 255.0) as u8;
-                            }
+                                (unsafe { *uv }, unsafe { *uv.add(1) })
+                            } else {
+                                (128, 128)
+                            };
+                            let y = (f32::from(y_value) - 16.0).max(0.0) * 1.164;
+                            let cb = f32::from(cb) - 128.0;
+                            let cr = f32::from(cr) - 128.0;
+                            preview_rgb[destination] = (y + 1.596 * cr).clamp(0.0, 255.0) as u8;
+                            preview_rgb[destination + 1] =
+                                (y - 0.392 * cb - 0.813 * cr).clamp(0.0, 255.0) as u8;
+                            preview_rgb[destination + 2] = (y + 2.017 * cb).clamp(0.0, 255.0) as u8;
                         }
                     }
                 }
-                let _ = unsafe { CVPixelBufferUnlockBaseAddress(&buffer, flags) };
-                if let Ok(mut snapshot) = self.ivars().snapshot.lock() {
-                    snapshot.red = red;
-                    snapshot.green = green;
-                    snapshot.blue = blue;
-                    snapshot.frame_received = true;
+            }
+            let _ = unsafe { CVPixelBufferUnlockBaseAddress(&buffer, flags) };
+            if let Ok(mut snapshot) = self.ivars().snapshot.lock() {
+                snapshot.red = red;
+                snapshot.green = green;
+                snapshot.blue = blue;
+                snapshot.frame_received = true;
+                if include_preview {
+                    self.ivars().frames.record_cpu_rgb();
                     snapshot.preview_width = PREVIEW_WIDTH as u32;
                     snapshot.preview_height = preview_height as u32;
                     snapshot.preview_rgb = preview_rgb;
                 }
             }
         }
-    );
-
-    impl VideoMonitorDelegate {
-        fn new(snapshot: Arc<Mutex<CameraMonitorSnapshot>>) -> Retained<Self> {
-            let this = Self::alloc().set_ivars(VideoMonitorDelegateIvars { snapshot });
+        fn new(
+            snapshot: Arc<Mutex<CameraMonitorSnapshot>>,
+            frames: Arc<crate::native_frame::NativeFrameMailbox>,
+            preview_requested: Arc<AtomicBool>,
+        ) -> Retained<Self> {
+            let this = Self::alloc().set_ivars(VideoMonitorDelegateIvars {
+                snapshot,
+                frames,
+                preview_requested,
+            });
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -421,6 +445,8 @@ mod platform {
         _monitor_delegate: objc2::rc::Retained<VideoMonitorDelegate>,
         _monitor_queue: dispatch2::DispatchRetained<DispatchQueue>,
         monitor_snapshot: Arc<Mutex<CameraMonitorSnapshot>>,
+        native_frames: Arc<crate::native_frame::NativeFrameMailbox>,
+        preview_requested: Arc<AtomicBool>,
         preview_layer: objc2::rc::Retained<AVCaptureVideoPreviewLayer>,
         operation_lock: std::sync::Mutex<()>,
         orientation: std::sync::Mutex<CaptureOrientation>,
@@ -454,7 +480,13 @@ mod platform {
             let video_data_output = unsafe { AVCaptureVideoDataOutput::new() };
             unsafe { video_data_output.setAlwaysDiscardsLateVideoFrames(true) };
             let monitor_snapshot = Arc::new(Mutex::new(CameraMonitorSnapshot::default()));
-            let monitor_delegate = VideoMonitorDelegate::new(Arc::clone(&monitor_snapshot));
+            let native_frames = Arc::new(crate::native_frame::NativeFrameMailbox::default());
+            let preview_requested = Arc::new(AtomicBool::new(false));
+            let monitor_delegate = VideoMonitorDelegate::new(
+                Arc::clone(&monitor_snapshot),
+                Arc::clone(&native_frames),
+                Arc::clone(&preview_requested),
+            );
             let monitor_queue = DispatchQueue::new(
                 "app.universalfilm.camera.monitor",
                 DispatchQueueAttr::SERIAL,
@@ -511,6 +543,8 @@ mod platform {
                 _monitor_delegate: monitor_delegate,
                 _monitor_queue: monitor_queue,
                 monitor_snapshot,
+                native_frames,
+                preview_requested,
                 preview_layer,
                 operation_lock: std::sync::Mutex::new(()),
                 orientation: std::sync::Mutex::new(CaptureOrientation::default()),
@@ -537,6 +571,13 @@ mod platform {
                 .expect("capture session lock poisoned");
             // SAFETY: AVFoundation permits stopping an idle or running session.
             unsafe { self.session.stopRunning() };
+            self.native_frames.clear();
+            self.preview_requested.store(false, Ordering::Release);
+            if let Ok(mut snapshot) = self.monitor_snapshot.lock() {
+                snapshot.preview_rgb = Vec::new();
+                snapshot.preview_width = 0;
+                snapshot.preview_height = 0;
+            }
         }
 
         pub fn is_running(&self) -> bool {
@@ -544,21 +585,30 @@ mod platform {
         }
 
         pub fn monitor_snapshot(&self, include_preview: bool) -> CameraMonitorSnapshot {
+            self.preview_requested
+                .store(include_preview, Ordering::Release);
             let mut snapshot = self.monitor_snapshot.lock().map_or_else(
                 |_| CameraMonitorSnapshot::default(),
-                |value| CameraMonitorSnapshot {
-                    red: value.red.clone(),
-                    green: value.green.clone(),
-                    blue: value.blue.clone(),
-                    audio_db: value.audio_db.clone(),
-                    frame_received: value.frame_received,
-                    preview_width: value.preview_width,
-                    preview_height: value.preview_height,
-                    preview_rgb: if include_preview {
-                        value.preview_rgb.clone()
-                    } else {
-                        Vec::new()
-                    },
+                |mut value| {
+                    if !include_preview {
+                        value.preview_rgb = Vec::new();
+                        value.preview_width = 0;
+                        value.preview_height = 0;
+                    }
+                    CameraMonitorSnapshot {
+                        red: value.red.clone(),
+                        green: value.green.clone(),
+                        blue: value.blue.clone(),
+                        audio_db: value.audio_db.clone(),
+                        frame_received: value.frame_received,
+                        preview_width: value.preview_width,
+                        preview_height: value.preview_height,
+                        preview_rgb: if include_preview {
+                            value.preview_rgb.clone()
+                        } else {
+                            Vec::new()
+                        },
+                    }
                 },
             );
             if let Some(connection) = unsafe {
@@ -571,6 +621,11 @@ mod platform {
                     .collect();
             }
             snapshot
+        }
+
+        /// Rust/GPU consumers only: never expose these leases via IPC.
+        pub fn native_frames(&self) -> &Arc<crate::native_frame::NativeFrameMailbox> {
+            &self.native_frames
         }
 
         pub fn active_format(&self) -> ActiveCameraFormat {
@@ -830,6 +885,7 @@ mod platform {
                 .lock()
                 .map_err(|_| CameraError("capture orientation lock poisoned".into()))?;
             self.apply_orientation_locked(orientation)?;
+            self.native_frames.clear();
             Ok(self.active_format())
         }
 
@@ -1289,6 +1345,30 @@ mod platform {
             self.preview_layer.setFrame(host.bounds());
             self.preview_layer.setMasksToBounds(true);
             host.layer().addSublayer(&self.preview_layer);
+            let metal_layer = objc2_quartz_core::CAMetalLayer::new();
+            objc2_quartz_core::CATransaction::begin();
+            objc2_quartz_core::CATransaction::setDisableActions(true);
+            metal_layer.setFrame(host.bounds());
+            metal_layer.setMasksToBounds(true);
+            metal_layer.setHidden(true);
+            let scale = parent.layer().contentsScale().max(1.0);
+            metal_layer.setContentsScale(scale);
+            metal_layer.setDrawableSize(CGSize::new(
+                frame.size.width * scale,
+                frame.size.height * scale,
+            ));
+            let color_space = unsafe {
+                objc2_core_graphics::CGColorSpace::with_name(Some(
+                    objc2_core_graphics::kCGColorSpaceSRGB,
+                ))
+            };
+            if color_space.is_none() {
+                objc2_quartz_core::CATransaction::commit();
+                return Err(CameraError("sRGB preview color space unavailable".into()));
+            }
+            metal_layer.setColorspace(color_space.as_deref());
+            host.layer().addSublayer(&metal_layer);
+            objc2_quartz_core::CATransaction::commit();
             // The camera belongs behind WKWebView. The Web surface makes only
             // its preview rectangle transparent, so guides and menus remain
             // interactive and render above the native video layer.
@@ -1304,6 +1384,7 @@ mod platform {
             Ok(IosPreviewHost {
                 view: objc2::rc::Retained::into_raw(host) as usize,
                 webview: parent_view as usize,
+                metal_layer: objc2::rc::Retained::into_raw(metal_layer) as usize,
             })
         }
 
@@ -1338,6 +1419,16 @@ mod platform {
             );
             view.setFrame(frame);
             self.preview_layer.setFrame(view.bounds());
+            let metal = unsafe { &*(host.metal_layer as *const objc2_quartz_core::CAMetalLayer) };
+            objc2_quartz_core::CATransaction::begin();
+            objc2_quartz_core::CATransaction::setDisableActions(true);
+            metal.setFrame(view.bounds());
+            let scale = metal.contentsScale();
+            metal.setDrawableSize(CGSize::new(
+                frame.size.width * scale,
+                frame.size.height * scale,
+            ));
+            objc2_quartz_core::CATransaction::commit();
             Ok(())
         }
     }
@@ -1490,10 +1581,18 @@ mod platform {
     pub struct IosPreviewHost {
         view: usize,
         webview: usize,
+        pub metal_layer: usize,
     }
 
     #[cfg(target_os = "ios")]
     impl IosPreviewHost {
+        pub fn set_gpu_visible(&self, visible: bool) -> Result<(), CameraError> {
+            objc2::MainThreadMarker::new()
+                .ok_or_else(|| CameraError("Metal visibility requires main thread".into()))?;
+            let layer = unsafe { &*(self.metal_layer as *const objc2_quartz_core::CAMetalLayer) };
+            layer.setHidden(!visible);
+            Ok(())
+        }
         pub fn detach(self) -> Result<(), CameraError> {
             use objc2::MainThreadMarker;
             use objc2_ui_kit::UIView;
@@ -1505,6 +1604,11 @@ mod platform {
             let view = unsafe { objc2::rc::Retained::<UIView>::from_raw(self.view as *mut UIView) }
                 .ok_or_else(|| CameraError("preview host pointer was null".into()))?;
             view.removeFromSuperview();
+            let _layer = unsafe {
+                objc2::rc::Retained::<objc2_quartz_core::CAMetalLayer>::from_raw(
+                    self.metal_layer as *mut _,
+                )
+            };
             Ok(())
         }
     }
@@ -1911,6 +2015,66 @@ mod platform {
         fn clamps_display_rate_to_fractional_device_limit() {
             assert_eq!(clamped_supported_frame_rate(1.0, 59.94, 60.0), Some(59.94));
             assert_eq!(clamped_supported_frame_rate(1.0, 59.94, 61.0), None);
+        }
+    }
+
+    #[cfg(test)]
+    mod native_preview_tests {
+        use super::*;
+
+        #[test]
+        fn clean_preview_skips_rgb_and_demand_samples_remain_available() {
+            let mut raw = std::ptr::null_mut();
+            assert_eq!(
+                unsafe {
+                    objc2_core_video::CVPixelBufferCreate(
+                        None,
+                        4,
+                        4,
+                        kCVPixelFormatType_32BGRA,
+                        None,
+                        std::ptr::NonNull::from(&mut raw),
+                    )
+                },
+                0
+            );
+            let buffer = unsafe {
+                objc2_core_foundation::CFRetained::from_raw(std::ptr::NonNull::new(raw).unwrap())
+            };
+            let flags = CVPixelBufferLockFlags::empty();
+            assert_eq!(unsafe { CVPixelBufferLockBaseAddress(&buffer, flags) }, 0);
+            unsafe {
+                std::ptr::write_bytes(
+                    CVPixelBufferGetBaseAddress(&buffer).cast::<u8>(),
+                    127,
+                    CVPixelBufferGetBytesPerRow(&buffer) * 4,
+                )
+            };
+            assert_eq!(unsafe { CVPixelBufferUnlockBaseAddress(&buffer, flags) }, 0);
+            let snapshot = Arc::new(Mutex::new(CameraMonitorSnapshot::default()));
+            let frames = Arc::new(crate::native_frame::NativeFrameMailbox::default());
+            let demand = Arc::new(AtomicBool::new(false));
+            let delegate =
+                VideoMonitorDelegate::new(snapshot.clone(), frames.clone(), demand.clone());
+            for _ in 0..100 {
+                delegate.process_buffer(buffer.clone());
+            }
+            assert_eq!(frames.counters(), (100, 99, 0));
+            assert!(snapshot.lock().unwrap().preview_rgb.is_empty());
+            assert_eq!(snapshot.lock().unwrap().red.iter().sum::<u32>(), 16);
+            demand.store(true, Ordering::Release);
+            delegate.process_buffer(buffer.clone());
+            let previous = snapshot.lock().unwrap().preview_rgb.clone();
+            assert!(!previous.is_empty());
+            assert!(previous.iter().all(|value| *value == 127));
+            for _ in 0..20 {
+                delegate.process_buffer(buffer.clone());
+            }
+            assert_eq!(frames.counters().2, 1);
+            assert_eq!(snapshot.lock().unwrap().preview_rgb, previous);
+            demand.store(true, Ordering::Release);
+            delegate.process_buffer(buffer);
+            assert_eq!(frames.counters().2, 2);
         }
     }
 }
