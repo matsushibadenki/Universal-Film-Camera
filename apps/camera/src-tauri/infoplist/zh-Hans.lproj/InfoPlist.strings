@@ -1,4 +1,4 @@
 NSCameraUsageDescription = "专业照片和视频拍摄需要访问相机。";
 NSMicrophoneUsageDescription = "录制带声音的视频需要访问麦克风。";
 NSPhotoLibraryAddUsageDescription = "用于保存你导出的照片和视频，或在你启用自动转移设置后，将新拍摄的照片和视频转移到照片应用。";
-NSLocalNetworkUsageDescription = "本地网络用于发现附近用户并安全传输已获批准的照片和视频。";
+NSLocalNetworkUsageDescription = "本地网络用于连接 VPX Studio，以及向附近用户传输已授权的媒体。";

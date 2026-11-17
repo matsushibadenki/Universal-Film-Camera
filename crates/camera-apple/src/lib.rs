@@ -6,6 +6,17 @@
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub mod native_frame;
 
+#[cfg(target_os = "ios")]
+pub type VPXVideoCallback = unsafe extern "C" fn(*const std::ffi::c_void, *const std::ffi::c_void);
+
+#[cfg(target_os = "ios")]
+static VPX_VIDEO_CALLBACK: std::sync::OnceLock<VPXVideoCallback> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "ios")]
+pub fn register_vpx_video_callback(callback: VPXVideoCallback) {
+    let _ = VPX_VIDEO_CALLBACK.set(callback);
+}
+
 use camera_core::{
     AudioCapability, CameraBackend, CameraCapabilities, CameraConfig, CameraDevice, CameraError,
     CameraMode, CameraSession, CaptureCodec, CaptureContainer, CaptureOutputCapability,
@@ -116,6 +127,8 @@ mod platform {
     }
 
     struct VideoMonitorDelegateIvars {
+        #[cfg(target_os = "ios")]
+        session: Option<objc2::rc::Weak<AVCaptureSession>>,
         snapshot: Arc<Mutex<CameraMonitorSnapshot>>,
         frames: Arc<crate::native_frame::NativeFrameMailbox>,
         preview_requested: Arc<AtomicBool>,
@@ -139,6 +152,21 @@ mod platform {
                 let Some(buffer) = (unsafe { sample_buffer.image_buffer() }) else {
                     return;
                 };
+                #[cfg(target_os = "ios")]
+                if let (Some(callback), Some(session)) = (
+                    VPX_VIDEO_CALLBACK.get(),
+                    self.ivars().session.as_ref().and_then(objc2::rc::Weak::load),
+                ) {
+                    if let Some(clock) = unsafe { session.synchronizationClock() } {
+                        // Both CoreMedia objects are borrowed for this synchronous call.
+                        unsafe {
+                            callback(
+                                (sample_buffer as *const CMSampleBuffer).cast(),
+                                (&*clock as *const objc2_core_media::CMClock).cast(),
+                            )
+                        };
+                    }
+                }
                 self.process_buffer(buffer);
             }
         }
@@ -262,8 +290,11 @@ mod platform {
             snapshot: Arc<Mutex<CameraMonitorSnapshot>>,
             frames: Arc<crate::native_frame::NativeFrameMailbox>,
             preview_requested: Arc<AtomicBool>,
+            #[cfg(target_os = "ios")] session: Option<objc2::rc::Weak<AVCaptureSession>>,
         ) -> Retained<Self> {
             let this = Self::alloc().set_ivars(VideoMonitorDelegateIvars {
+                #[cfg(target_os = "ios")]
+                session,
                 snapshot,
                 frames,
                 preview_requested,
@@ -486,6 +517,8 @@ mod platform {
                 Arc::clone(&monitor_snapshot),
                 Arc::clone(&native_frames),
                 Arc::clone(&preview_requested),
+                #[cfg(target_os = "ios")]
+                Some(objc2::rc::Weak::new(&session)),
             );
             let monitor_queue = DispatchQueue::new(
                 "app.universalfilm.camera.monitor",
@@ -2055,7 +2088,7 @@ mod platform {
             let frames = Arc::new(crate::native_frame::NativeFrameMailbox::default());
             let demand = Arc::new(AtomicBool::new(false));
             let delegate =
-                VideoMonitorDelegate::new(snapshot.clone(), frames.clone(), demand.clone());
+                VideoMonitorDelegate::new(snapshot.clone(), frames.clone(), demand.clone(), #[cfg(target_os = "ios")] None);
             for _ in 0..100 {
                 delegate.process_buffer(buffer.clone());
             }

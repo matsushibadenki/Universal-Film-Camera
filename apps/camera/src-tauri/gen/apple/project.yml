@@ -2,7 +2,10 @@ name: universal-film-camera
 options:
   bundleIdPrefix: app.universalfilm.camera
   deploymentTarget:
-    iOS: 15.0
+    iOS: 18.0
+packages:
+  VPXStudio:
+    path: ../../../../../../../Xcode/VPX-Studio
 fileGroups: [../../src]
 configs:
   debug: debug
@@ -44,6 +47,8 @@ targets:
         LSRequiresIPhoneOS: true
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]
+        NSLocalNetworkUsageDescription: Local network access connects Camera to VPX Studio and transfers approved media to nearby users.
+        NSBonjourServices: [_ufcamera._tcp, _vpxcapture._tcp]
         NSCameraUsageDescription: Camera access is required for professional photo and video capture.
         NSMicrophoneUsageDescription: Microphone access is required when recording video with sound.
         UISupportedInterfaceOrientations:
@@ -75,6 +80,8 @@ targets:
         EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
       groups: [app]
     dependencies:
+      - package: VPXStudio
+        product: VPXIPhoneCapture
       - framework: libapp.a
         embed: false
       - sdk: AVFoundation.framework

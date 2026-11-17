@@ -12,6 +12,7 @@
   "app": {
     "windows": [{
       "label": "main",
+      "create": false,
       "title": "Universal Film Camera",
       "width": 1100,
       "height": 760,
@@ -32,7 +33,7 @@
     },
     "iOS": {
       "developmentTeam": "3WH28SSRZC",
-      "minimumSystemVersion": "15.0"
+      "minimumSystemVersion": "18.0"
     },
     "resources": {
       "infoplist/en.lproj": "en.lproj",

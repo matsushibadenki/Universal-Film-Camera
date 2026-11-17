@@ -200,6 +200,7 @@ type Copy = {
   settingsBack: string;
   settingsDisplay: string;
   settingsCapture: string;
+  vpxStudio: string;
   settingsColor: string;
   monitoringColorSpace: string;
   workingColorSpace: string;
@@ -398,7 +399,7 @@ const copy: Record<Locale, Copy> = {
     videoSaved: "Video saved", recordingFailed: "Video recording failed", microphoneDenied: "Microphone access is required for video recording.",
     pipeline: "Pipeline", media: "Media", settings: "Settings", settingsTitle: "Settings",
     settingsSubtitle: "Camera, monitoring, and color management", settingsBack: "Back to camera",
-    settingsDisplay: "Display", settingsCapture: "Capture", settingsColor: "Color",
+    settingsDisplay: "Display", settingsCapture: "Capture", vpxStudio: "Connect to VPX Studio", settingsColor: "Color",
     monitoringColorSpace: "Monitoring color space", workingColorSpace: "Internal working space",
     workingColorSpaceDetail: "Scene-linear ACEScg · fixed by the imaging pipeline", colorSpaceSaved: "Color-space preference saved", settingsSaveFailed: "Could not save settings",
     monitorLook: "Apply color profile and LUT to live preview", monitorLookDetail: "Monitoring only · captured originals are unchanged",
@@ -484,7 +485,7 @@ const copy: Record<Locale, Copy> = {
     videoSaved: "動画を保存しました", recordingFailed: "動画収録に失敗しました", microphoneDenied: "動画収録にはマイクへのアクセスが必要です。",
     pipeline: "パイプライン", media: "メディア", settings: "環境設定", settingsTitle: "環境設定",
     settingsSubtitle: "カメラ・モニター・カラー管理", settingsBack: "カメラへ戻る",
-    settingsDisplay: "表示", settingsCapture: "撮影", settingsColor: "カラー",
+    settingsDisplay: "表示", settingsCapture: "撮影", vpxStudio: "VPX Studioに接続", settingsColor: "カラー",
     monitoringColorSpace: "モニタリングカラースペース", workingColorSpace: "内部作業色空間",
     workingColorSpaceDetail: "Scene-linear ACEScg・Imaging Pipelineで固定", colorSpaceSaved: "カラースペース設定を保存しました", settingsSaveFailed: "設定を保存できませんでした",
     monitorLook: "カラープロファイルとLUTをライブ表示へ適用", monitorLookDetail: "モニタリング専用・撮影原本は変更しません",
@@ -570,7 +571,7 @@ const copy: Record<Locale, Copy> = {
     videoSaved: "视频已保存", recordingFailed: "视频录制失败", microphoneDenied: "视频录制需要麦克风访问权限。",
     pipeline: "成像管线", media: "媒体", settings: "设置", settingsTitle: "环境设置",
     settingsSubtitle: "相机、监看与色彩管理", settingsBack: "返回相机",
-    settingsDisplay: "显示", settingsCapture: "拍摄", settingsColor: "色彩",
+    settingsDisplay: "显示", settingsCapture: "拍摄", vpxStudio: "连接 VPX Studio", settingsColor: "色彩",
     monitoringColorSpace: "监看色彩空间", workingColorSpace: "内部工作色彩空间",
     workingColorSpaceDetail: "Scene-linear ACEScg・由成像管线固定", colorSpaceSaved: "色彩空间设置已保存", settingsSaveFailed: "无法保存设置",
     monitorLook: "将色彩配置与 LUT 应用于实时预览", monitorLookDetail: "仅用于监看・不会更改拍摄原片",
@@ -867,6 +868,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       </div>
       <div class="settings-panel" id="settings-panel-capture" role="tabpanel" aria-labelledby="settings-tab-capture" hidden>
         <h2 class="settings-panel-title">${t.settingsCapture}</h2>
+        <button id="vpx-studio" type="button" hidden>${t.vpxStudio}</button>
         <div class="settings-readonly"><span>${t.settingsCapture}</span><strong>PHOTO + VIDEO</strong><small>${t.settingsCaptureDetail}</small></div>
         <label class="settings-field" for="shutter-sound"><span>${t.shutterSound}</span>
           <select id="shutter-sound">
@@ -3284,6 +3286,12 @@ nearbyButton.addEventListener("click", () => void openNearbyLibrary());
 nearbyToggle.addEventListener("click", () => void setNearbyDiscovery(!nearbySnapshot.active));
 nearbyRefresh.addEventListener("click", () => void loadNearbyDiscovery());
 document.querySelector<HTMLButtonElement>("#nearby-back")!.addEventListener("click", () => void closeNearbyLibrary());
+const vpxButton = document.querySelector<HTMLButtonElement>("#vpx-studio")!;
+vpxButton.hidden = !/iPhone|iPad|iPod/.test(navigator.userAgent) &&
+  !(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+vpxButton.addEventListener("click", () => {
+  void invoke("open_vpx_panel").catch(console.error);
+});
 settingsButton.addEventListener("click", () => void openSettingsPage());
 document.querySelector<HTMLButtonElement>("#settings-back")!.addEventListener("click", () => void closeSettingsPage());
 document.querySelectorAll<HTMLButtonElement>("[data-settings-tab]").forEach((button) => {

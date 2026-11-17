@@ -100,6 +100,9 @@ Asset contract: [`CAPTURED_ASSET_CONTRACT.md`](CAPTURED_ASSET_CONTRACT.md)
 
 ## Milestone 2 — Professional camera UI
 
+- 🟢 [Done] 撮影ウインドウはRust起動時に独立した `WebviewWindow` として生成。既存の `main` ラベル・権限・Rust共有状態を維持し、子WebViewは使わない。
+- 🔴 [Later] 複数ウインドウを導入する際は各フローティングパネルも独立した `WebviewWindow` とし、ドッキングと撮影セッションの所有権を別途設計・検証する。
+
 - 🟢 [Done] 光学絞り・センサー・動画方向を統合した媒体非依存のプロ向けアプリアイコンと全platform asset
 - 🟢 [Done] 技術的・暗色・撮影画面優先のresponsive layout
 - 🟢 [Done] 320／375／414／768／1280pxのlayout検証
@@ -346,6 +349,16 @@ Bluetooth LE / Bonjour / Nearby discovery
 詳細: [`MOBILE_PLATFORM_BOOTSTRAP.md`](MOBILE_PLATFORM_BOOTSTRAP.md)
 Android実機受け入れ: [`ANDROID_CAMERA_CONFORMANCE.md`](ANDROID_CAMERA_CONFORMANCE.md)
 
+## Milestone 7.1 — VPX Studio連携
+
+連携先: [VPX Studio側のROADMAP](../../../Xcode/VPX-Studio/docs/ROADMAP.md)「Universal Film Cameraとの連携」。CameraはiPhoneの撮影・ネイティブ映像取得・エンコード・Film Profile／LUTを担当し、VPX StudioはMac側の受信・時刻同期・校正・合成・Take収録を担当する。Mac側は受け入れ先であり、CameraのmacOS版開発を再開するものではない。
+
+- 🟠 [Next] VPX Capture Nodeの既存プロトコル（参照先の現行版はv4）を基準に、既存Swift実装の再利用とRust実装を比較し、相互運用方式を決める。Bonjour発見、QR認証、暗号化フレーミング、時刻同期、能力交渉、キーフレーム要求、切断復旧を共通テストベクトルとループバックで確認する。
+- 🟠 [Next] iOSに専用のVPX送信モードを追加し、既存のネイティブ撮影セッションからHEVC映像を分岐してWi-Fi送信する。映像とGPUリソースはネイティブ層に保持し、WebViewには操作・状態・計測値のみを渡す。撮影済みファイル用のNearby Peer Transferは流用しない。
+- 🔴 [Later] 映像に対応するCore Motionの姿勢・角速度を、取得時刻・シーケンス・座標系・品質付きで送る。Film Profile／LUT適用有無、色空間・伝達特性・レンジも伝え、VPX側で二重の色変換を防ぐ。Core Motion単独で位置は提供しない。
+- 🔴 [Later] ARKitの6DoF、対応機種のLiDAR深度・confidence、レンズ校正、10-bit／HDR、LUT焼き込み送信を能力別に追加する。ARKit併用前に撮影セッションのカメラ所有を一本化し、非対応端末では映像送信を維持する。
+- ⭕️ [Pending] iPhone 1台＋Macで、認証・入力選択・プレビュー・Take収録・Wi-Fi断線復帰を確認する。初回連携の完了条件は、VPXで映像を選択・収録し、同じiPhoneの姿勢サンプルを映像時刻と対応付けられること。多台数の同期・帯域・発熱は機材確保後に別途検証する。
+
 ## Milestone 8 — Windows and Linux
 
 - 🔴 [Later] Windows Media Foundation device discovery／preview／Still／Video
@@ -511,3 +524,9 @@ mobile scaffold
 - ⭕️ [Pending] iPhone実映像で背面カメラ自動の0.5×→1×→望遠→1×、近接fallback、動画収録中の連続変更を目視受け入れする
 - ⭕️ [Pending] iPhone実機で縦位置と左右横位置を連続5往復し、時計・電波・電池領域が常時黒いことを目視受け入れする
 - ⭕️ [Pending] iPhone実機の横位置でSettings／Media分割表示、各ペインscroll、行き先menu自動closeを目視受け入れする
+
+
+### VPX Studioへのライブ出力
+
+- 🟢 [Done] iOSの撮影設定にVPX Studioの接続画面を追加。既存のネイティブ撮影コールバックから撮影タイムスタンプと映像をSwift Packageへ渡す。VPXのペアリングとHEVC送信を利用する。接続設定後は撮影画面に戻ると配信が始まる。iOS 18以上と、Xcodeプロジェクトのローカル参照先にVPX-Studioが必要。
+- ⭕️ [Pending] 実iPhoneからMacのVPX Studioへのペアリング、受信、色・向き、Wi-Fi復帰、バックグラウンド移行と長時間の発熱を検証する。

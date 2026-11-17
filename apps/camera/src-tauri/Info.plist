@@ -9,10 +9,11 @@
   <key>NSPhotoLibraryAddUsageDescription</key>
   <string>Saves photos and videos you export, or automatically moves new captures to Photos when you enable that setting.</string>
   <key>NSLocalNetworkUsageDescription</key>
-  <string>Local network access is used to discover nearby users and transfer approved photos and videos securely.</string>
+  <string>Local network access connects Camera to VPX Studio and transfers approved media to nearby users.</string>
   <key>NSBonjourServices</key>
   <array>
     <string>_ufcamera._tcp</string>
+    <string>_vpxcapture._tcp</string>
   </array>
 </dict>
 </plist>

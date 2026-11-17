@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A70100000000000000000002 = {isa = PBXBuildFile; fileRef = A70100000000000000000001; };
+		A70100000000000000000005 = {isa = PBXBuildFile; productRef = A70100000000000000000003; };
 		139F5458876966DA2FEA531E /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 9E1338C2877592A2972C5780 /* InfoPlist.strings */; };
 		3090CBCC13BECBFBF1AA632D /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9932E120877D958B4BBE3349 /* libapp.a */; };
 		311586824E8364DE1D90DE22 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 9A934DED25EF37B6D7CF8E85 /* libapp.a */; };
@@ -26,6 +28,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A70100000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VPXBridge.swift; sourceTree = "<group>"; };
 		02A728AB760E398F2AE077D3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		143367CDA27043E7EC40C2D7 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		1D861DF44692CA1EA2C1012E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -58,6 +61,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A70100000000000000000005,
 				3090CBCC13BECBFBF1AA632D /* libapp.a in Frameworks */,
 				810AF55A368E891102B85C66 /* AVFoundation.framework in Frameworks */,
 				762DEC2F36ADAB8AEF4F3ADB /* CoreMedia.framework in Frameworks */,
@@ -178,6 +182,7 @@
 		C322DDE897B002C701F35154 /* universal-film-camera */ = {
 			isa = PBXGroup;
 			children = (
+				A70100000000000000000001,
 				F6E3FECB51162DEDCCF7A105 /* main.mm */,
 				795A10E1C3DC5A7A096DC029 /* bindings */,
 			);
@@ -218,6 +223,7 @@
 			);
 			name = "universal-film-camera_iOS";
 			packageProductDependencies = (
+				A70100000000000000000003,
 			);
 			productName = "universal-film-camera_iOS";
 			productReference = 9347B9CA22B234A0BE31DCBD /* universal-film-camera_iOS.app */;
@@ -245,6 +251,7 @@
 			);
 			mainGroup = ABBF3562042851B0641ECE3F;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (A70100000000000000000004,);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4B15144765F32CE9BC332D9A /* Products */;
 			projectDirPath = "";
@@ -299,6 +306,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A70100000000000000000002,
 				315EE3F8C1A7D6F155CEB6A3 /* main.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -434,7 +442,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -491,7 +499,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -524,6 +532,8 @@
 			defaultConfigurationName = debug;
 		};
 /* End XCConfigurationList section */
+		A70100000000000000000004 = {isa = XCLocalSwiftPackageReference; relativePath = "../../../../../../../Xcode/VPX-Studio"; };
+		A70100000000000000000003 = {isa = XCSwiftPackageProductDependency; package = A70100000000000000000004; productName = VPXIPhoneCapture; };
 	};
 	rootObject = 999CD6B081D2E3A84D1F3688 /* Project object */;
 }

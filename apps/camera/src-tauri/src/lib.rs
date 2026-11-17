@@ -92,6 +92,32 @@ impl Default for AppState {
     }
 }
 
+#[cfg(target_os = "ios")]
+static VPX_PRESENT: std::sync::OnceLock<unsafe extern "C" fn() -> bool> =
+    std::sync::OnceLock::new();
+
+#[cfg(target_os = "ios")]
+#[unsafe(no_mangle)]
+pub extern "C" fn ufc_vpx_register(
+    present: unsafe extern "C" fn() -> bool,
+    frame: camera_apple::VPXVideoCallback,
+) {
+    let _ = VPX_PRESENT.set(present);
+    camera_apple::register_vpx_video_callback(frame);
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+fn open_vpx_panel(app: tauri::AppHandle) -> Result<(), String> {
+    let present = *VPX_PRESENT.get().ok_or("VPX panel is unavailable")?;
+    app.run_on_main_thread(move || {
+        if !unsafe { present() } {
+            eprintln!("VPX Studio panel could not be presented");
+        }
+    })
+    .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn get_imaging_document(
     app: tauri::AppHandle,
@@ -2728,7 +2754,21 @@ pub fn run() {
     builder
         .manage(AppState::default())
         .manage(NearbyDiscoveryState::default())
+        .setup(|app| {
+            // Keep each configured window a standalone WebviewWindow.
+            let config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|config| config.label == "main")
+                .ok_or("missing main WebviewWindow configuration")?;
+            tauri::WebviewWindowBuilder::from_config(app, config)?.build()?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
+            #[cfg(target_os = "ios")]
+            open_vpx_panel,
             get_imaging_document,
             set_imaging_lut,
             set_monitoring_settings,
